@@ -1,9 +1,12 @@
 "use client";
 
-import { Check, EyeOff } from "lucide-react";
+import { Check, EyeOff, Trash2 } from "lucide-react";
 import { useTransition } from "react";
 
-import { setTransactionStatus } from "@/app/actions/transactions";
+import {
+  deleteTransaction,
+  setTransactionStatus,
+} from "@/app/actions/transactions";
 import { Button } from "@/components/ui/button";
 
 type Props = {
@@ -17,6 +20,13 @@ export function TransactionStatusToggle({ transactionId, status }: Props) {
   function set(next: "pending" | "confirmed" | "ignored") {
     startTransition(async () => {
       await setTransactionStatus(transactionId, next);
+    });
+  }
+
+  function handleDelete() {
+    if (!confirm("Excluir esta transação? Esta ação não pode ser desfeita.")) return;
+    startTransition(async () => {
+      await deleteTransaction(transactionId);
     });
   }
 
@@ -44,6 +54,15 @@ export function TransactionStatusToggle({ transactionId, status }: Props) {
           <EyeOff className="size-4" />
         </Button>
       )}
+      <Button
+        size="sm"
+        variant="ghost"
+        disabled={isPending}
+        onClick={handleDelete}
+        title="Excluir"
+      >
+        <Trash2 className="size-4" />
+      </Button>
     </div>
   );
 }

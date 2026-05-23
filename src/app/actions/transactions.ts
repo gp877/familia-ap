@@ -71,3 +71,15 @@ export async function setTransactionStatus(
     .where(eq(transactions.id, transactionId));
   revalidatePath("/financeiro/transacoes");
 }
+
+export async function deleteTransaction(transactionId: string) {
+  const { householdId } = await requireUser();
+  const tx = await db.query.transactions.findFirst({
+    where: eq(transactions.id, transactionId),
+  });
+  if (!tx || tx.householdId !== householdId) {
+    throw new Error("Transação não encontrada");
+  }
+  await db.delete(transactions).where(eq(transactions.id, transactionId));
+  revalidatePath("/financeiro/transacoes");
+}

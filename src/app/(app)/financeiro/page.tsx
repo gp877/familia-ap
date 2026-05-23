@@ -1,5 +1,5 @@
 import { eq, sql } from "drizzle-orm";
-import { ArrowRight, Upload as UploadIcon, List, Tag } from "lucide-react";
+import { ArrowRight, List, Tag, Upload as UploadIcon } from "lucide-react";
 import Link from "next/link";
 
 import { auth } from "@/auth";
@@ -115,19 +115,25 @@ export default async function FinanceiroPage() {
         </Link>
       </div>
 
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Tag className="size-5 text-muted-foreground" />
-            <CardTitle className="text-base">Em breve</CardTitle>
-          </div>
-          <CardDescription>
-            Próximos passos planejados pra esse módulo: dashboard com gráficos
-            mensais, comparação m-a-m por categoria, alertas de gastos altos,
-            CRUD próprio de categorias.
-          </CardDescription>
-        </CardHeader>
-      </Card>
+      <Link href="/financeiro/categorias" className="block">
+        <Card className="transition-colors hover:bg-muted/30">
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Tag className="size-5 text-primary" />
+              <CardTitle>Ver categorias</CardTitle>
+            </div>
+            <CardDescription>
+              19 categorias iniciais já foram criadas pra família. Veja quais
+              já estão sendo usadas e quantas transações cada uma tem.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center text-sm font-medium text-primary">
+              Ver categorias <ArrowRight className="ml-1 size-4" />
+            </div>
+          </CardContent>
+        </Card>
+      </Link>
     </div>
   );
 }
