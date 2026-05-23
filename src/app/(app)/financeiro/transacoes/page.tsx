@@ -1,8 +1,9 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
 import Link from "next/link";
 
 import { auth } from "@/auth";
 import { CategorySelect, type CategoryOption } from "@/components/category-select";
+import { TransactionFilters } from "@/components/transaction-filters";
 import { TransactionStatusToggle } from "@/components/transaction-status-toggle";
 import { Button } from "@/components/ui/button";
 import {
@@ -29,7 +30,28 @@ function formatDate(d: Date) {
   });
 }
 
-export default async function TransacoesPage() {
+function monthBounds(yyyymm: string): { start: Date; end: Date } | null {
+  const m = /^(\d{4})-(\d{2})$/.exec(yyyymm);
+  if (!m) return null;
+  const year = parseInt(m[1], 10);
+  const month = parseInt(m[2], 10);
+  const start = new Date(year, month - 1, 1);
+  const end = new Date(year, month, 1);
+  return { start, end };
+}
+
+type SearchParams = Promise<{
+  month?: string;
+  status?: string;
+  uncategorized?: string;
+}>;
+
+export default async function TransacoesPage({
+  searchParams,
+}: {
+  searchParams: SearchParams;
+}) {
+  const sp = await searchParams;
   const session = await auth();
   if (!session?.user?.id) return null;
 
@@ -38,6 +60,31 @@ export default async function TransacoesPage() {
   });
   if (!dbUser?.householdId) return null;
 
+  // Constrói filtros
+  const conds = [eq(transactions.householdId, dbUser.householdId)];
+  const bounds = sp.month ? monthBounds(sp.month) : null;
+  if (bounds) {
+    conds.push(gte(transactions.occurredOn, bounds.start));
+    conds.push(lte(transactions.occurredOn, bounds.end));
+  }
+  if (sp.status === "pending" || sp.status === "confirmed" || sp.status === "ignored") {
+    conds.push(eq(transactions.status, sp.status));
+  }
+  if (sp.uncategorized === "1") {
+    conds.push(isNull(transactions.categoryId));
+  }
+
+  // Pega meses disponíveis pra montar o select
+  const monthsRow = await db
+    .select({
+      m: sql<string>`to_char(${transactions.occurredOn}, 'YYYY-MM')`,
+    })
+    .from(transactions)
+    .where(eq(transactions.householdId, dbUser.householdId))
+    .groupBy(sql`to_char(${transactions.occurredOn}, 'YYYY-MM')`)
+    .orderBy(sql`to_char(${transactions.occurredOn}, 'YYYY-MM') desc`);
+  const availableMonths = monthsRow.map((r) => r.m).filter(Boolean);
+
   const [allCategories, txs] = await Promise.all([
     db.query.categories.findMany({
       where: eq(categories.householdId, dbUser.householdId),
@@ -45,20 +92,29 @@ export default async function TransacoesPage() {
       orderBy: (c, { asc }) => [asc(c.name)],
     }),
     db.query.transactions.findMany({
-      where: eq(transactions.householdId, dbUser.householdId),
+      where: and(...conds),
       orderBy: [desc(transactions.occurredOn), desc(transactions.createdAt)],
       with: { category: true },
       limit: 500,
     }),
   ]);
 
-  // Build hierarchical labels: "Parent > Child"
   const categoryOptions: CategoryOption[] = allCategories.map((c) => ({
     id: c.id,
     label: c.parent ? `${c.parent.name} > ${c.name}` : c.name,
   }));
 
-  if (txs.length === 0) {
+  // Stats
+  const pendingCount = txs.filter((t) => t.status === "pending").length;
+  const uncategorizedCount = txs.filter((t) => !t.categoryId).length;
+  const totalDebit = txs
+    .filter((t) => t.kind === "debit" && t.status !== "ignored")
+    .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+  const totalCredit = txs
+    .filter((t) => t.kind === "credit" && t.status !== "ignored")
+    .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+
+  if (txs.length === 0 && availableMonths.length === 0) {
     return (
       <div className="space-y-6">
         <div>
@@ -83,29 +139,21 @@ export default async function TransacoesPage() {
     );
   }
 
-  // Stats rápidos
-  const pendingCount = txs.filter((t) => t.status === "pending").length;
-  const uncategorizedCount = txs.filter((t) => !t.categoryId).length;
-  const totalDebit = txs
-    .filter((t) => t.kind === "debit" && t.status !== "ignored")
-    .reduce((sum, t) => sum + parseFloat(t.amount), 0);
-  const totalCredit = txs
-    .filter((t) => t.kind === "credit" && t.status !== "ignored")
-    .reduce((sum, t) => sum + parseFloat(t.amount), 0);
-
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Transações</h1>
           <p className="text-muted-foreground">
-            {txs.length} transações no total — {pendingCount} pendentes, {uncategorizedCount} sem categoria.
+            {txs.length} {txs.length === 1 ? "transação" : "transações"} {sp.month || sp.status || sp.uncategorized ? "filtradas" : "no total"}
+            {pendingCount > 0 && ` — ${pendingCount} pendente${pendingCount === 1 ? "" : "s"}`}
+            {uncategorizedCount > 0 && `, ${uncategorizedCount} sem categoria`}
           </p>
         </div>
-        <Link href="/financeiro/upload">
-          <Button>Subir outro PDF</Button>
-        </Link>
+        <Button render={<Link href="/financeiro/upload" />}>Subir outro PDF</Button>
       </div>
+
+      <TransactionFilters availableMonths={availableMonths} />
 
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
@@ -134,75 +182,83 @@ export default async function TransacoesPage() {
         </Card>
       </div>
 
-      <Card>
-        <CardContent className="p-0 overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/50">
-              <tr className="border-b">
-                <th className="px-3 py-2 text-left font-medium">Data</th>
-                <th className="px-3 py-2 text-left font-medium">Descrição</th>
-                <th className="px-3 py-2 text-right font-medium">Valor</th>
-                <th className="px-3 py-2 text-left font-medium">Categoria</th>
-                <th className="px-3 py-2 text-left font-medium">Status</th>
-                <th className="px-3 py-2 text-right font-medium">Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              {txs.map((tx) => (
-                <tr
-                  key={tx.id}
-                  className={`border-b last:border-0 ${tx.status === "ignored" ? "opacity-40" : ""}`}
-                >
-                  <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">
-                    {formatDate(tx.occurredOn)}
-                  </td>
-                  <td className="px-3 py-2">
-                    <div className="font-medium">{tx.description}</div>
-                    <div className="text-xs text-muted-foreground line-clamp-1">
-                      {tx.rawDescription}
-                    </div>
-                  </td>
-                  <td
-                    className={`px-3 py-2 whitespace-nowrap text-right font-medium ${tx.kind === "debit" ? "text-red-600" : "text-green-600"}`}
-                  >
-                    {formatBRL(tx.amount, tx.kind)}
-                  </td>
-                  <td className="px-3 py-2">
-                    <CategorySelect
-                      transactionId={tx.id}
-                      currentCategoryId={tx.categoryId}
-                      options={categoryOptions}
-                    />
-                  </td>
-                  <td className="px-3 py-2 whitespace-nowrap">
-                    <span
-                      className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
-                        tx.status === "confirmed"
-                          ? "bg-green-100 text-green-700"
-                          : tx.status === "ignored"
-                            ? "bg-zinc-100 text-zinc-600"
-                            : "bg-amber-100 text-amber-700"
-                      }`}
-                    >
-                      {tx.status === "confirmed"
-                        ? "Confirmada"
-                        : tx.status === "ignored"
-                          ? "Ignorada"
-                          : "Pendente"}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    <TransactionStatusToggle
-                      transactionId={tx.id}
-                      status={tx.status}
-                    />
-                  </td>
+      {txs.length === 0 ? (
+        <Card>
+          <CardContent className="py-10 text-center text-muted-foreground">
+            Nenhuma transação com esses filtros.
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardContent className="p-0 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50">
+                <tr className="border-b">
+                  <th className="px-3 py-2 text-left font-medium">Data</th>
+                  <th className="px-3 py-2 text-left font-medium">Descrição</th>
+                  <th className="px-3 py-2 text-right font-medium">Valor</th>
+                  <th className="px-3 py-2 text-left font-medium">Categoria</th>
+                  <th className="px-3 py-2 text-left font-medium">Status</th>
+                  <th className="px-3 py-2 text-right font-medium">Ações</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </CardContent>
-      </Card>
+              </thead>
+              <tbody>
+                {txs.map((tx) => (
+                  <tr
+                    key={tx.id}
+                    className={`border-b last:border-0 ${tx.status === "ignored" ? "opacity-40" : ""}`}
+                  >
+                    <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">
+                      {formatDate(tx.occurredOn)}
+                    </td>
+                    <td className="px-3 py-2">
+                      <div className="font-medium">{tx.description}</div>
+                      <div className="text-xs text-muted-foreground line-clamp-1">
+                        {tx.rawDescription}
+                      </div>
+                    </td>
+                    <td
+                      className={`px-3 py-2 whitespace-nowrap text-right font-medium ${tx.kind === "debit" ? "text-red-600" : "text-green-600"}`}
+                    >
+                      {formatBRL(tx.amount, tx.kind)}
+                    </td>
+                    <td className="px-3 py-2">
+                      <CategorySelect
+                        transactionId={tx.id}
+                        currentCategoryId={tx.categoryId}
+                        options={categoryOptions}
+                      />
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      <span
+                        className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
+                          tx.status === "confirmed"
+                            ? "bg-green-100 text-green-700"
+                            : tx.status === "ignored"
+                              ? "bg-zinc-100 text-zinc-600"
+                              : "bg-amber-100 text-amber-700"
+                        }`}
+                      >
+                        {tx.status === "confirmed"
+                          ? "Confirmada"
+                          : tx.status === "ignored"
+                            ? "Ignorada"
+                            : "Pendente"}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <TransactionStatusToggle
+                        transactionId={tx.id}
+                        status={tx.status}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
