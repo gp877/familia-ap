@@ -3,7 +3,6 @@ import { ArrowRight, MessageSquare, Wallet } from "lucide-react";
 import Link from "next/link";
 
 import { auth } from "@/auth";
-import { PageHeader } from "@/components/page-header";
 import {
   Card,
   CardContent,
@@ -13,6 +12,14 @@ import {
 } from "@/components/ui/card";
 import { db } from "@/db";
 import { transactions, users } from "@/db/schema";
+
+function greeting() {
+  const h = new Date().getHours();
+  if (h < 5) return "Boa madrugada";
+  if (h < 12) return "Bom dia";
+  if (h < 18) return "Boa tarde";
+  return "Boa noite";
+}
 
 export default async function HomePage() {
   const session = await auth();
@@ -45,61 +52,99 @@ export default async function HomePage() {
   }
 
   return (
-    <div className="space-y-10">
-      {/* Hero */}
-      <div className="relative isolate overflow-hidden rounded-3xl bg-gradient-brand-subtle p-6 sm:p-10">
+    <div className="space-y-12">
+      {/* Hero conversacional */}
+      <section className="relative isolate overflow-hidden rounded-3xl bg-gradient-brand-soft p-8 shadow-warm sm:p-12">
+        <div aria-hidden className="absolute inset-0 -z-10 bg-dots opacity-30" />
         <div
           aria-hidden
-          className="absolute inset-0 -z-10 [background-image:radial-gradient(at_85%_15%,oklch(0.85_0.12_162/0.3)_0%,transparent_50%)]"
+          className="absolute -right-12 -top-12 -z-10 h-64 w-64 rounded-full"
+          style={{
+            background:
+              "radial-gradient(circle, oklch(0.85 0.12 35 / 0.5) 0%, transparent 70%)",
+          }}
         />
-        <p className="text-xs font-medium uppercase tracking-wider text-primary">
-          Bem-vindo de volta
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary/80">
+          {greeting()}
         </p>
-        <h1 className="mt-1 text-3xl font-semibold tracking-tight md:text-4xl">
-          Olá{firstName ? `, ${firstName}` : ""} 👋
+        <h1 className="mt-2 font-display text-5xl leading-[1.05] tracking-tight sm:text-6xl">
+          {firstName ? (
+            <>
+              Olá, <span className="italic text-gradient-brand">{firstName}</span>
+            </>
+          ) : (
+            <>
+              Bem-vindo de <span className="italic text-gradient-brand">volta</span>
+            </>
+          )}
         </h1>
-        <p className="mt-2 max-w-xl text-muted-foreground">
-          {txCount > 0
-            ? `${txCount} transações registradas${pendingCount > 0 ? `, ${pendingCount} pendentes de revisão` : ""}.`
-            : "Plataforma pronta. Comece subindo um extrato ou fatura no módulo Financeiro."}
+        <p className="mt-4 max-w-xl text-base text-foreground/70 sm:text-lg">
+          {txCount > 0 ? (
+            <>
+              <strong className="text-foreground">{txCount}</strong>{" "}
+              {txCount === 1 ? "transação registrada" : "transações registradas"}
+              {pendingCount > 0 ? (
+                <>
+                  {" — "}
+                  <strong className="text-foreground">{pendingCount}</strong>{" "}
+                  pendente{pendingCount === 1 ? "" : "s"} de revisão.
+                </>
+              ) : (
+                "."
+              )}
+            </>
+          ) : (
+            "Tudo pronto. Comece subindo um extrato ou fatura — a IA cuida da parte chata pra vocês."
+          )}
         </p>
-        <div className="mt-6 flex flex-wrap gap-3">
+        <div className="mt-7 flex flex-wrap items-center gap-3">
           <Link
             href="/financeiro"
-            className="inline-flex items-center gap-2 rounded-full bg-gradient-brand px-5 py-2 text-sm font-medium text-white shadow-sm transition-opacity hover:opacity-95"
+            className="group inline-flex items-center gap-2 rounded-full bg-foreground px-6 py-3 text-sm font-medium text-background shadow-warm-sm transition-all hover:gap-3 hover:bg-foreground/90"
           >
-            Ir pro Financeiro
-            <ArrowRight className="size-4" />
+            Ir pro financeiro
+            <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
           </Link>
           {pendingCount > 0 && (
             <Link
               href="/financeiro/transacoes?status=pending"
-              className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-5 py-2 text-sm font-medium shadow-sm transition-colors hover:bg-accent"
+              className="inline-flex items-center gap-2 rounded-full border border-foreground/15 bg-card/70 px-6 py-3 text-sm font-medium backdrop-blur-sm transition-colors hover:bg-card"
             >
-              Revisar pendentes ({pendingCount})
+              Revisar pendentes
+              <span className="rounded-full bg-warning/20 px-2 py-0.5 text-[11px] font-semibold text-warning-foreground">
+                {pendingCount}
+              </span>
             </Link>
           )}
         </div>
-      </div>
+      </section>
 
       {/* Módulos */}
-      <section className="space-y-4">
-        <PageHeader
-          eyebrow="Módulos"
-          title="O que tem na plataforma"
-          description="Comece pelo financeiro. O resto vem por aí, na ordem que faz sentido pra família."
-        />
+      <section className="space-y-6">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            Módulos
+          </p>
+          <h2 className="mt-1 font-display text-3xl">O que tem por aqui</h2>
+          <p className="mt-1 max-w-xl text-muted-foreground">
+            Comecem pelo financeiro. O resto vem por aí, na ordem que fizer
+            sentido pra vocês.
+          </p>
+        </div>
+
         <div className="grid gap-4 md:grid-cols-2">
           <Link href="/financeiro" className="group">
-            <Card className="h-full overflow-hidden transition-all hover:shadow-card-hover">
+            <Card className="h-full overflow-hidden border-border/60 transition-all hover:-translate-y-1 hover:shadow-warm-lg">
               <CardHeader>
-                <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-warm-sm">
                   <Wallet className="size-5" />
                 </div>
-                <CardTitle className="mt-3">Gestão Financeira</CardTitle>
-                <CardDescription>
+                <CardTitle className="mt-4 font-display text-2xl">
+                  Gestão financeira
+                </CardTitle>
+                <CardDescription className="text-sm">
                   Upload de extratos e faturas, categorização inteligente,
-                  dashboard de gastos.
+                  dashboard de gastos. A IA aprende com cada ajuste que vocês fazem.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -111,46 +156,41 @@ export default async function HomePage() {
             </Card>
           </Link>
 
-          <Card className="h-full bg-muted/30">
+          <Card className="h-full bg-muted/40">
             <CardHeader>
-              <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
                 <MessageSquare className="size-5" />
               </div>
-              <CardTitle className="mt-3 flex items-center gap-2">
-                Chat IA da Família
-                <span className="rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-medium text-warning-foreground/80">
-                  em breve
-                </span>
+              <CardTitle className="mt-4 flex items-center gap-2 font-display text-2xl">
+                Chat com a IA
+                <span className="sticker">em breve</span>
               </CardTitle>
-              <CardDescription>
-                Agente com memória da família, acesso aos dados financeiros,
-                conversas naturais. Será construído após estabilização do
-                financeiro.
+              <CardDescription className="text-sm">
+                Conversa natural com um agente que conhece o contexto financeiro e
+                pessoal da família. Memória persistente, perguntas sobre os gastos.
               </CardDescription>
             </CardHeader>
           </Card>
         </div>
 
         <div className="grid gap-3 md:grid-cols-4">
-          <PlaceholderCard title="Peso & Saúde" />
-          <PlaceholderCard title="Metas" />
-          <PlaceholderCard title="Sonhos" />
-          <PlaceholderCard title="Outros" />
+          {[
+            { title: "Peso & Saúde", href: "/peso" },
+            { title: "Metas", href: "/metas" },
+            { title: "Sonhos", href: "/sonhos" },
+            { title: "Outros", href: "/outros" },
+          ].map((item) => (
+            <Link key={item.href} href={item.href} className="block">
+              <div className="rounded-2xl border border-dashed border-border bg-card/30 p-4 transition-colors hover:border-primary/40 hover:bg-card">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">{item.title}</span>
+                  <span className="sticker">em breve</span>
+                </div>
+              </div>
+            </Link>
+          ))}
         </div>
       </section>
-    </div>
-  );
-}
-
-function PlaceholderCard({ title }: { title: string }) {
-  return (
-    <div className="rounded-xl border border-dashed border-border/70 bg-card/30 p-4">
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-medium text-muted-foreground">{title}</span>
-        <span className="rounded-full bg-warning/10 px-2 py-0.5 text-[10px] font-medium text-warning-foreground/70">
-          em breve
-        </span>
-      </div>
     </div>
   );
 }

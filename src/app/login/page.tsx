@@ -12,31 +12,28 @@ export default async function LoginPage() {
   }
 
   return (
-    <div className="relative isolate flex min-h-screen items-center justify-center overflow-hidden bg-background p-4">
-      {/* Background ornaments */}
+    <div className="relative isolate flex min-h-screen items-center justify-center overflow-hidden bg-cream p-4">
+      {/* Ornamentos de fundo */}
       <div
         aria-hidden
         className="absolute inset-0 -z-10"
         style={{
           backgroundImage:
-            "radial-gradient(at 25% 20%, oklch(0.92 0.07 162 / 0.6) 0%, transparent 50%), radial-gradient(at 80% 90%, oklch(0.90 0.08 195 / 0.5) 0%, transparent 55%)",
+            "radial-gradient(at 22% 18%, oklch(0.92 0.10 35 / 0.65) 0%, transparent 50%), radial-gradient(at 80% 92%, oklch(0.92 0.08 195 / 0.45) 0%, transparent 55%), radial-gradient(at 60% 50%, oklch(0.95 0.05 75 / 0.45) 0%, transparent 70%)",
         }}
       />
-      <div
-        aria-hidden
-        className="absolute inset-0 -z-10 [background-image:linear-gradient(to_right,oklch(0.91_0.012_155/0.4)_1px,transparent_1px),linear-gradient(to_bottom,oklch(0.91_0.012_155/0.4)_1px,transparent_1px)] [background-size:24px_24px] [mask-image:radial-gradient(ellipse_at_center,black_40%,transparent_70%)]"
-      />
+      <div aria-hidden className="absolute inset-0 -z-10 bg-dots opacity-40" />
 
       <div className="w-full max-w-md">
-        <div className="rounded-2xl border border-border/80 bg-card/80 p-8 shadow-xl backdrop-blur-sm">
+        <div className="rounded-3xl border border-border/60 bg-card/85 p-8 shadow-warm-lg backdrop-blur-md sm:p-10">
           <div className="flex flex-col items-center text-center">
-            <BrandMark size="xl" />
-            <h1 className="mt-6 text-3xl font-semibold tracking-tight">
-              Família AP
+            <BrandMark size="2xl" />
+            <h1 className="mt-7 font-display text-5xl leading-none">
+              Olá! <span className="italic">Família AP</span>
             </h1>
-            <p className="mt-2 max-w-xs text-sm text-muted-foreground">
-              Plataforma privada da família — gestão financeira, metas e
-              conversas com IA. Acesso só por convite.
+            <p className="mt-4 max-w-xs text-sm text-muted-foreground">
+              Um espaço para a família organizar dinheiro, sonhos e tudo mais —
+              com a ajuda de uma IA que conhece o contexto de vocês.
             </p>
           </div>
 
@@ -57,7 +54,7 @@ export default async function LoginPage() {
         </div>
 
         <p className="mt-6 text-center text-xs text-muted-foreground/70">
-          Acesso restrito • Apenas os emails autorizados conseguem entrar
+          Acesso restrito · Apenas emails autorizados pela família entram
         </p>
       </div>
     </div>
