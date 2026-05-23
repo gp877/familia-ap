@@ -39,6 +39,9 @@ yarn-error.log*
 # claude code
 .claude/
 
+# PDFs de exemplo (extratos / faturas) — nunca commitar dados reais
+/samples/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
