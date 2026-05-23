@@ -1,9 +1,10 @@
 "use client";
 
-import { Loader2, Upload as UploadIcon } from "lucide-react";
+import { CheckCircle2, FileText, Loader2, Upload as UploadIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -52,40 +53,47 @@ export default function UploadPage() {
 
   if (result) {
     return (
-      <div className="space-y-6 max-w-2xl">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            Extração concluída
-          </h1>
-          <p className="text-muted-foreground">
-            {result.extractedCount} transações foram extraídas e salvas como
-            pendentes pra você revisar.
-          </p>
-        </div>
-        <Card>
-          <CardContent className="space-y-2 pt-6 text-sm">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Banco identificado:</span>
-              <span className="font-medium">{result.bankSlug}</span>
+      <div className="space-y-8 max-w-2xl">
+        <PageHeader
+          title="Extração concluída"
+          description={`${result.extractedCount} transações foram extraídas e salvas como pendentes pra você revisar.`}
+        />
+        <Card className="border-success/30 bg-gradient-to-br from-success/5 to-transparent">
+          <CardHeader>
+            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-success/15 text-success">
+              <CheckCircle2 className="size-6" />
             </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Tipo de documento:</span>
-              <span className="font-medium">
-                {result.documentType === "bank_statement"
-                  ? "Extrato bancário"
-                  : result.documentType === "credit_card_invoice"
-                    ? "Fatura de cartão"
-                    : "Desconhecido"}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Transações extraídas:</span>
-              <span className="font-medium">{result.extractedCount}</span>
-            </div>
+            <CardTitle className="mt-3">Tudo certo</CardTitle>
+            <CardDescription>
+              Vá pra lista de transações pra revisar e ajustar categorias. Cada
+              ajuste vira regra automática.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <dl className="divide-y divide-border text-sm">
+              <Row label="Banco identificado" value={result.bankSlug} />
+              <Row
+                label="Tipo de documento"
+                value={
+                  result.documentType === "bank_statement"
+                    ? "Extrato bancário"
+                    : result.documentType === "credit_card_invoice"
+                      ? "Fatura de cartão"
+                      : "Desconhecido"
+                }
+              />
+              <Row
+                label="Transações extraídas"
+                value={result.extractedCount.toString()}
+              />
+            </dl>
           </CardContent>
         </Card>
-        <div className="flex gap-2">
-          <Button onClick={() => router.push("/financeiro/transacoes")}>
+        <div className="flex flex-wrap gap-3">
+          <Button
+            onClick={() => router.push("/financeiro/transacoes")}
+            className="bg-gradient-brand text-white"
+          >
             Ver transações
           </Button>
           <Button
@@ -103,29 +111,49 @@ export default function UploadPage() {
   }
 
   return (
-    <div className="space-y-6 max-w-2xl">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Upload de PDF</h1>
-        <p className="text-muted-foreground">
-          Envie um extrato bancário ou fatura de cartão. O sistema usa IA pra
-          extrair as transações e tenta categorizar automaticamente baseado nas
-          regras que você já criou.
-        </p>
-      </div>
+    <div className="space-y-8 max-w-2xl">
+      <PageHeader
+        title="Subir PDF"
+        description="Envie um extrato bancário ou fatura de cartão. A IA extrai as transações e tenta categorizar baseado nas regras que você já criou."
+      />
 
       <form onSubmit={handleSubmit}>
         <Card>
-          <CardHeader>
-            <CardTitle>Arquivo</CardTitle>
-            <CardDescription>
-              Aceitamos PDFs de extrato ou fatura. Tamanho máximo: 10 MB.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <label className="text-sm font-medium" htmlFor="file">
-                PDF
-              </label>
+          <CardContent className="space-y-6 pt-6">
+            <label
+              htmlFor="file"
+              className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-10 text-center transition-colors ${
+                file
+                  ? "border-success/40 bg-success/5"
+                  : "border-border bg-muted/30 hover:border-primary/40 hover:bg-primary/5"
+              }`}
+            >
+              <div
+                className={`flex h-14 w-14 items-center justify-center rounded-full ${
+                  file ? "bg-success/15 text-success" : "bg-primary/10 text-primary"
+                }`}
+              >
+                {file ? (
+                  <FileText className="size-6" />
+                ) : (
+                  <UploadIcon className="size-6" />
+                )}
+              </div>
+              {file ? (
+                <>
+                  <p className="mt-3 font-medium">{file.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {(file.size / 1024).toFixed(1)} KB · clique pra trocar
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="mt-3 font-medium">Clique pra escolher um PDF</p>
+                  <p className="text-xs text-muted-foreground">
+                    Extrato bancário ou fatura de cartão · até 10 MB
+                  </p>
+                </>
+              )}
               <input
                 id="file"
                 type="file"
@@ -133,20 +161,23 @@ export default function UploadPage() {
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
                 disabled={submitting}
                 required
-                className="mt-1 block w-full text-sm file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-2 file:text-sm file:font-medium file:text-primary-foreground hover:file:bg-primary/90"
+                className="sr-only"
               />
-            </div>
+            </label>
 
             <div>
-              <label className="text-sm font-medium" htmlFor="sourceType">
-                Tipo (opcional)
+              <label
+                className="text-xs font-medium uppercase tracking-wider text-muted-foreground"
+                htmlFor="sourceType"
+              >
+                Tipo de documento (opcional)
               </label>
               <select
                 id="sourceType"
                 value={sourceType}
                 onChange={(e) => setSourceType(e.target.value as SourceType)}
                 disabled={submitting}
-                className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                className="mt-1 block w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               >
                 <option value="auto">Detectar automaticamente</option>
                 <option value="bank_statement">Extrato bancário</option>
@@ -155,27 +186,41 @@ export default function UploadPage() {
             </div>
 
             {error && (
-              <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+              <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
                 {error}
               </div>
             )}
 
-            <Button type="submit" disabled={!file || submitting} className="w-full">
+            <Button
+              type="submit"
+              disabled={!file || submitting}
+              size="lg"
+              className="w-full bg-gradient-brand text-white hover:opacity-95"
+            >
               {submitting ? (
                 <>
                   <Loader2 className="mr-2 size-4 animate-spin" />
-                  Processando ({"~"}30s a 1min)
+                  Processando ({"~"}20s a 1 min)
                 </>
               ) : (
                 <>
                   <UploadIcon className="mr-2 size-4" />
-                  Enviar e extrair
+                  Enviar e extrair transações
                 </>
               )}
             </Button>
           </CardContent>
         </Card>
       </form>
+    </div>
+  );
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between py-3">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="font-medium">{value}</dd>
     </div>
   );
 }

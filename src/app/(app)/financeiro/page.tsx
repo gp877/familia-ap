@@ -1,8 +1,9 @@
 import { eq, sql } from "drizzle-orm";
-import { ArrowRight, List, Tag, Upload as UploadIcon } from "lucide-react";
+import { ArrowRight, FileText, List, Tag, Upload as UploadIcon } from "lucide-react";
 import Link from "next/link";
 
 import { auth } from "@/auth";
+import { PageHeader } from "@/components/page-header";
 import {
   Card,
   CardContent,
@@ -43,97 +44,142 @@ export default async function FinanceiroPage() {
   ]);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Financeiro</h1>
-        <p className="text-muted-foreground">
-          Upload, categorização inteligente e visão dos gastos da família.
-        </p>
+    <div className="space-y-8">
+      <PageHeader
+        eyebrow="Módulo"
+        title="Financeiro"
+        description="Upload de extratos, categorização inteligente e visão completa dos gastos da família."
+      />
+
+      {/* Stats em destaque */}
+      <div className="grid gap-4 sm:grid-cols-3">
+        <StatCard
+          label="Transações"
+          value={txCount.toLocaleString("pt-BR")}
+          tone="primary"
+        />
+        <StatCard
+          label="Pendentes de revisão"
+          value={pendingCount.toLocaleString("pt-BR")}
+          tone={pendingCount > 0 ? "warning" : "muted"}
+        />
+        <StatCard
+          label="PDFs processados"
+          value={uploadCount.toLocaleString("pt-BR")}
+          tone="muted"
+        />
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Transações</CardDescription>
-            <CardTitle className="text-2xl">{txCount}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Pendentes de revisão</CardDescription>
-            <CardTitle className="text-2xl">{pendingCount}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>PDFs processados</CardDescription>
-            <CardTitle className="text-2xl">{uploadCount}</CardTitle>
-          </CardHeader>
-        </Card>
-      </div>
-
+      {/* Ações */}
       <div className="grid gap-4 md:grid-cols-2">
-        <Link href="/financeiro/upload" className="block">
-          <Card className="h-full transition-colors hover:bg-muted/30">
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <UploadIcon className="size-5 text-primary" />
-                <CardTitle>Subir extrato ou fatura</CardTitle>
-              </div>
-              <CardDescription>
-                Envie um PDF. A IA extrai todas as transações e tenta categorizar
-                automaticamente baseado nas regras que você já criou.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center text-sm font-medium text-primary">
-                Ir pro upload <ArrowRight className="ml-1 size-4" />
-              </div>
-            </CardContent>
-          </Card>
-        </Link>
-
-        <Link href="/financeiro/transacoes" className="block">
-          <Card className="h-full transition-colors hover:bg-muted/30">
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <List className="size-5 text-primary" />
-                <CardTitle>Ver transações</CardTitle>
-              </div>
-              <CardDescription>
-                Lista de tudo que foi extraído. Edite categorias, confirme ou
-                ignore transações. Toda categoria que você ajusta vira regra
-                automática.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center text-sm font-medium text-primary">
-                Ver lista <ArrowRight className="ml-1 size-4" />
-              </div>
-            </CardContent>
-          </Card>
-        </Link>
-      </div>
-
-      <Link href="/financeiro/categorias" className="block">
-        <Card className="transition-colors hover:bg-muted/30">
+        <ActionCard
+          href="/financeiro/upload"
+          icon={UploadIcon}
+          title="Subir extrato ou fatura"
+          description="Envie um PDF. A IA extrai todas as transações e tenta categorizar automaticamente baseado nas regras que você já criou."
+          primary
+        />
+        <ActionCard
+          href="/financeiro/transacoes"
+          icon={List}
+          title="Ver transações"
+          description="Lista de tudo que foi extraído. Edite categorias, confirme ou ignore — cada ajuste vira regra automática pras próximas."
+        />
+        <ActionCard
+          href="/financeiro/categorias"
+          icon={Tag}
+          title="Categorias"
+          description="19 categorias iniciais já criadas. Veja quais estão sendo usadas e quantas transações cada uma tem."
+        />
+        <Card className="h-full border-dashed bg-muted/30">
           <CardHeader>
-            <div className="flex items-center gap-2">
-              <Tag className="size-5 text-primary" />
-              <CardTitle>Ver categorias</CardTitle>
+            <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+              <FileText className="size-5" />
             </div>
+            <CardTitle className="mt-3 flex items-center gap-2 text-base">
+              Dashboard com gráficos
+              <span className="rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-medium text-warning-foreground/80">
+                em breve
+              </span>
+            </CardTitle>
             <CardDescription>
-              19 categorias iniciais já foram criadas pra família. Veja quais
-              já estão sendo usadas e quantas transações cada uma tem.
+              Gastos por mês, top categorias, comparação m-a-m, alertas de gasto
+              alto. Próximo passo do módulo.
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="flex items-center text-sm font-medium text-primary">
-              Ver categorias <ArrowRight className="ml-1 size-4" />
-            </div>
-          </CardContent>
         </Card>
-      </Link>
+      </div>
     </div>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: "primary" | "warning" | "muted";
+}) {
+  const toneClass =
+    tone === "primary"
+      ? "from-primary/10 to-primary/5 text-primary"
+      : tone === "warning"
+        ? "from-warning/15 to-warning/5 text-warning-foreground"
+        : "from-muted to-muted/40 text-foreground";
+  return (
+    <div
+      className={`rounded-xl border bg-gradient-to-br ${toneClass} p-5 shadow-card`}
+    >
+      <p className="text-xs font-medium uppercase tracking-wider opacity-80">
+        {label}
+      </p>
+      <p className="mt-2 text-3xl font-semibold tracking-tight">{value}</p>
+    </div>
+  );
+}
+
+function ActionCard({
+  href,
+  icon: Icon,
+  title,
+  description,
+  primary = false,
+}: {
+  href: string;
+  icon: typeof UploadIcon;
+  title: string;
+  description: string;
+  primary?: boolean;
+}) {
+  return (
+    <Link href={href} className="group block">
+      <Card
+        className={`h-full transition-all hover:-translate-y-0.5 hover:shadow-card-hover ${
+          primary ? "border-primary/30 bg-gradient-brand-subtle" : ""
+        }`}
+      >
+        <CardHeader>
+          <div
+            className={`flex h-11 w-11 items-center justify-center rounded-lg ${
+              primary
+                ? "bg-primary text-primary-foreground"
+                : "bg-primary/10 text-primary"
+            }`}
+          >
+            <Icon className="size-5" />
+          </div>
+          <CardTitle className="mt-3">{title}</CardTitle>
+          <CardDescription>{description}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-1 text-sm font-medium text-primary">
+            Abrir
+            <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+          </div>
+        </CardContent>
+      </Card>
+    </Link>
   );
 }

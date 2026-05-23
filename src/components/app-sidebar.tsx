@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { BrandMark } from "@/components/brand-mark";
 import {
   Sidebar,
   SidebarContent,
@@ -32,13 +33,13 @@ export function AppSidebar({ user }: AppSidebarProps) {
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
-        <div className="flex items-center gap-2 px-2 py-1.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground font-semibold">
-            AP
-          </div>
+        <div className="flex items-center gap-3 px-2 py-2">
+          <BrandMark size="md" />
           <div className="flex flex-col leading-tight group-data-[collapsible=icon]:hidden">
             <span className="text-sm font-semibold">Família AP</span>
-            <span className="text-xs text-muted-foreground">Plataforma</span>
+            <span className="text-[11px] text-muted-foreground">
+              Plataforma da família
+            </span>
           </div>
         </div>
       </SidebarHeader>
@@ -63,7 +64,7 @@ export function AppSidebar({ user }: AppSidebarProps) {
                       <item.icon />
                       <span>{item.title}</span>
                       {item.comingSoon && (
-                        <span className="ml-auto rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground group-data-[collapsible=icon]:hidden">
+                        <span className="ml-auto rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-medium text-warning-foreground/80 group-data-[collapsible=icon]:hidden">
                           em breve
                         </span>
                       )}
