@@ -4,250 +4,153 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ============================================================
+   Noite Pierre — design system Família AP
+   Dark-first, monochromatic, single-accent (lima por default).
+   Cards diferenciam por background-color (sem sombras).
+   ============================================================ */
+
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
-  --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-heading);
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar: var(--sidebar);
-  --color-chart-5: var(--chart-5);
-  --color-chart-4: var(--chart-4);
-  --color-chart-3: var(--chart-3);
-  --color-chart-2: var(--chart-2);
-  --color-chart-1: var(--chart-1);
-  --color-ring: var(--ring);
-  --color-input: var(--input);
-  --color-border: var(--border);
-  --color-destructive: var(--destructive);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-accent: var(--accent);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-muted: var(--muted);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-secondary: var(--secondary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-primary: var(--primary);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-popover: var(--popover);
-  --color-card-foreground: var(--card-foreground);
+  --color-background: var(--bg);
+  --color-foreground: var(--ink);
+  --color-bg: var(--bg);
+  --color-surf: var(--surf);
   --color-card: var(--card);
-  --color-success: var(--success);
-  --color-success-foreground: var(--success-foreground);
-  --color-warning: var(--warning);
-  --color-warning-foreground: var(--warning-foreground);
-  --color-brand-cream: var(--brand-cream);
-  --color-brand-sand: var(--brand-sand);
-  --color-brand-clay: var(--brand-clay);
-  --radius-sm: calc(var(--radius) * 0.55);
-  --radius-md: calc(var(--radius) * 0.75);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.3);
-  --radius-4xl: calc(var(--radius) * 2.8);
+  --color-card2: var(--card2);
+  --color-ink: var(--ink);
+  --color-ink-d: var(--ink-d);
+  --color-muted: var(--muted);
+  --color-muted-d: var(--muted-d);
+  --color-line: var(--line);
+  --color-line-d: var(--line-d);
+  --color-accent: var(--accent);
+  --color-accent-on: var(--accent-on);
+  --color-alert: var(--alert);
+  --color-ok: var(--ok);
+
+  /* Mantém variáveis shadcn pra componentes prontos */
+  --color-popover: var(--card);
+  --color-popover-foreground: var(--ink);
+  --color-primary: var(--accent);
+  --color-primary-foreground: var(--accent-on);
+  --color-secondary: var(--card2);
+  --color-secondary-foreground: var(--ink);
+  --color-destructive: var(--alert);
+  --color-border: var(--line-d);
+  --color-input: var(--line-d);
+  --color-ring: var(--accent);
+  --color-card-foreground: var(--ink);
+  --color-accent-foreground: var(--ink);
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-display: var(--font-geist-sans);
+  --font-script: var(--font-caveat);
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 18px;
+  --radius-2xl: 24px;
 }
 
-:root {
-  /* ===== Família AP — paleta "warm boutique" inspirada em Piere =====
-     Cream + coral/terracota + navy. Não corporate, não cold. */
-
-  --brand-cream: oklch(0.975 0.014 75);   /* creme quente — bg base */
-  --brand-sand:  oklch(0.93 0.025 70);    /* areia — cards alt */
-  --brand-clay:  oklch(0.68 0.16 35);     /* coral/terracota — primária */
-
-  --background: oklch(0.975 0.014 75);
-  --foreground: oklch(0.18 0.04 250);
-  --card: oklch(1 0.005 75);
-  --card-foreground: oklch(0.18 0.04 250);
-  --popover: oklch(1 0.005 75);
-  --popover-foreground: oklch(0.18 0.04 250);
-
-  --primary: oklch(0.62 0.17 30);         /* coral/terracota */
-  --primary-foreground: oklch(0.99 0.005 70);
-
-  --secondary: oklch(0.93 0.03 60);
-  --secondary-foreground: oklch(0.25 0.05 250);
-
-  --muted: oklch(0.94 0.018 70);
-  --muted-foreground: oklch(0.48 0.03 250);
-
-  --accent: oklch(0.92 0.05 60);
-  --accent-foreground: oklch(0.25 0.07 30);
-
-  --success: oklch(0.58 0.13 155);
-  --success-foreground: oklch(0.99 0 0);
-  --warning: oklch(0.78 0.14 75);
-  --warning-foreground: oklch(0.25 0.07 50);
-
-  --destructive: oklch(0.58 0.21 25);
-  --border: oklch(0.88 0.025 70);
-  --input: oklch(0.88 0.025 70);
-  --ring: oklch(0.62 0.17 30);
-
-  /* Paleta multicolor pra gráficos futuros */
-  --chart-1: oklch(0.62 0.17 30);   /* coral */
-  --chart-2: oklch(0.65 0.13 195);  /* teal */
-  --chart-3: oklch(0.58 0.13 155);  /* sage */
-  --chart-4: oklch(0.55 0.15 280);  /* lavender */
-  --chart-5: oklch(0.75 0.13 75);   /* amber */
-
-  --radius: 1rem; /* generosamente arredondado */
-
-  --sidebar: oklch(0.96 0.018 70);          /* areia suave */
-  --sidebar-foreground: oklch(0.25 0.05 250);
-  --sidebar-primary: oklch(0.62 0.17 30);
-  --sidebar-primary-foreground: oklch(0.99 0.005 70);
-  --sidebar-accent: oklch(0.91 0.04 60);
-  --sidebar-accent-foreground: oklch(0.25 0.07 30);
-  --sidebar-border: oklch(0.86 0.03 70);
-  --sidebar-ring: oklch(0.62 0.17 30);
-}
-
+/* ============================================================
+   Modo escuro (default)
+   ============================================================ */
+:root,
 .dark {
-  --brand-cream: oklch(0.19 0.025 50);
-  --brand-sand: oklch(0.23 0.03 50);
-  --brand-clay: oklch(0.72 0.17 30);
+  --bg: #0A0A0A;
+  --surf: #141414;
+  --card: #1C1C1C;
+  --card2: #262626;
+  --ink: #FAFAFA;
+  --ink-d: #E8E8E8;
+  --muted: #7A7A7A;
+  --muted-d: #9C9C9C;
+  --line: #262626;
+  --line-d: #333333;
 
-  --background: oklch(0.16 0.02 50);
-  --foreground: oklch(0.96 0.018 70);
-  --card: oklch(0.22 0.025 50);
-  --card-foreground: oklch(0.96 0.018 70);
-  --popover: oklch(0.22 0.025 50);
-  --popover-foreground: oklch(0.96 0.018 70);
+  --accent: #B8FF5C;
+  --accent-on: #0A0A0A;
+  --alert: #FF7A35;
+  --ok: #7BD86F;
 
-  --primary: oklch(0.72 0.17 30);
-  --primary-foreground: oklch(0.18 0.05 30);
-
-  --secondary: oklch(0.28 0.03 50);
-  --secondary-foreground: oklch(0.96 0.018 70);
-
-  --muted: oklch(0.28 0.025 50);
-  --muted-foreground: oklch(0.70 0.03 70);
-
-  --accent: oklch(0.32 0.05 30);
-  --accent-foreground: oklch(0.96 0.04 70);
-
-  --success: oklch(0.70 0.15 155);
-  --success-foreground: oklch(0.15 0.04 155);
-  --warning: oklch(0.82 0.15 75);
-  --warning-foreground: oklch(0.2 0.07 75);
-
-  --destructive: oklch(0.68 0.20 25);
-  --border: oklch(0.96 0.018 70 / 12%);
-  --input: oklch(0.96 0.018 70 / 18%);
-  --ring: oklch(0.72 0.17 30);
-
-  --chart-1: oklch(0.72 0.17 30);
-  --chart-2: oklch(0.72 0.13 195);
-  --chart-3: oklch(0.68 0.13 155);
-  --chart-4: oklch(0.65 0.15 280);
-  --chart-5: oklch(0.82 0.13 75);
-
-  --sidebar: oklch(0.20 0.025 50);
-  --sidebar-foreground: oklch(0.96 0.018 70);
-  --sidebar-primary: oklch(0.72 0.17 30);
-  --sidebar-primary-foreground: oklch(0.18 0.05 30);
-  --sidebar-accent: oklch(0.30 0.04 30);
-  --sidebar-accent-foreground: oklch(0.96 0.04 70);
-  --sidebar-border: oklch(0.96 0.018 70 / 12%);
-  --sidebar-ring: oklch(0.72 0.17 30);
+  --muted-foreground: var(--muted-d);
 }
+
+/* ============================================================
+   Modo claro (alternativo — futuro toggle)
+   ============================================================ */
+.light {
+  --bg: #F4F0E4;
+  --surf: #ECE7D6;
+  --card: #FFFFFF;
+  --card2: #E0DAC4;
+  --ink: #0F0E0C;
+  --ink-d: #26241F;
+  --muted: #7A7367;
+  --muted-d: #5E5950;
+  --line: #DCD5C0;
+  --line-d: #C4BCA3;
+
+  --accent: #5A8533;
+  --accent-on: #0A0A0A;
+  --alert: #C84E1F;
+  --ok: #4A6B3A;
+}
+
+/* ============================================================
+   Acentos alternativos — aplicados via data-accent="..."
+   ============================================================ */
+:root[data-accent="azul"]    { --accent: #5DA9FF; }
+:root[data-accent="ambar"]   { --accent: #FFB85C; }
+:root[data-accent="coral"]   { --accent: #FF8866; }
+.light[data-accent="azul"]   { --accent: #1E5FAB; }
+.light[data-accent="ambar"]  { --accent: #A36A1A; }
+.light[data-accent="coral"]  { --accent: #B84926; }
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
-  }
-  body {
-    @apply bg-background text-foreground;
-    font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1, "cv11" 1;
-    -webkit-font-smoothing: antialiased;
+    @apply border-line-d outline-accent/40;
   }
   html {
-    @apply font-sans;
+    font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
+    color-scheme: dark;
   }
-  h1,
-  h2,
-  h3,
-  h4 {
-    @apply tracking-tight;
-    letter-spacing: -0.02em;
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
-  .font-display {
-    font-family: var(--font-display, var(--font-heading, "Instrument Serif", "ui-serif", Georgia, serif));
-    font-feature-settings: "ss01" 1, "ss02" 1;
-    letter-spacing: -0.01em;
+  /* Reset de h1-h4 — tipografia controlada pelos componentes */
+  h1, h2, h3, h4 {
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    line-height: 1;
   }
 }
 
 @layer utilities {
-  /* Gradientes de marca */
-  .bg-gradient-brand {
-    background: linear-gradient(
-      135deg,
-      oklch(0.68 0.17 35) 0%,
-      oklch(0.58 0.20 25) 100%
-    );
+  /* Display/numbers — Geist Black + tabular-nums */
+  .ap-num {
+    font-family: var(--font-geist-sans), system-ui, sans-serif;
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    line-height: 1.0;
+    font-variant-numeric: tabular-nums;
   }
-  .bg-gradient-brand-soft {
-    background: linear-gradient(
-      135deg,
-      oklch(0.95 0.04 55) 0%,
-      oklch(0.92 0.06 35) 50%,
-      oklch(0.93 0.05 75) 100%
-    );
+  .ap-eyebrow {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
   }
-  .dark .bg-gradient-brand-soft {
-    background: linear-gradient(
-      135deg,
-      oklch(0.27 0.05 50) 0%,
-      oklch(0.25 0.07 35) 100%
-    );
-  }
-  .bg-cream {
-    background-color: var(--brand-cream);
-  }
-  .text-gradient-brand {
-    background: linear-gradient(
-      135deg,
-      oklch(0.62 0.18 30) 0%,
-      oklch(0.50 0.20 25) 100%
-    );
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-  }
-
-  /* Sombras com calor */
-  .shadow-warm-sm {
-    box-shadow: 0 1px 2px oklch(0.40 0.10 30 / 0.06), 0 2px 4px oklch(0.40 0.10 30 / 0.04);
-  }
-  .shadow-warm {
-    box-shadow:
-      0 4px 6px -1px oklch(0.40 0.10 30 / 0.06),
-      0 2px 4px -2px oklch(0.40 0.10 30 / 0.05);
-  }
-  .shadow-warm-lg {
-    box-shadow:
-      0 10px 20px -3px oklch(0.40 0.10 30 / 0.10),
-      0 4px 8px -2px oklch(0.40 0.10 30 / 0.06);
-  }
-
-  /* Stickers e badges */
-  .sticker {
-    @apply inline-flex items-center gap-1 rounded-full bg-accent px-2.5 py-0.5 text-[11px] font-medium text-accent-foreground;
-  }
-
-  /* Padrão de bolinhas/grid sutil pra backgrounds */
-  .bg-dots {
-    background-image: radial-gradient(circle, oklch(0.25 0.04 250 / 0.08) 1px, transparent 1px);
-    background-size: 18px 18px;
+  .ap-script {
+    font-family: var(--font-caveat), cursive;
+    font-weight: 700;
+    letter-spacing: 0.005em;
   }
 }

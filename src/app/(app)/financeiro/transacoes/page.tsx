@@ -1,20 +1,12 @@
 import { and, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
-import { ArrowDownRight, ArrowUpRight, Plus } from "lucide-react";
 import Link from "next/link";
 
+import { BigNumber, Pill, SectionRow } from "@/components/ap/atoms";
+import { ScreenShell } from "@/components/ap/screen-shell";
 import { auth } from "@/auth";
 import { CategorySelect, type CategoryOption } from "@/components/category-select";
-import { PageHeader } from "@/components/page-header";
 import { TransactionFilters } from "@/components/transaction-filters";
 import { TransactionStatusToggle } from "@/components/transaction-status-toggle";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { db } from "@/db";
 import { categories, transactions, users } from "@/db/schema";
 
@@ -28,8 +20,7 @@ function formatBRL(n: number) {
 function formatDate(d: Date) {
   return new Date(d).toLocaleDateString("pt-BR", {
     day: "2-digit",
-    month: "2-digit",
-    year: "2-digit",
+    month: "short",
   });
 }
 
@@ -106,233 +97,168 @@ export default async function TransacoesPage({
   }));
 
   const pendingCount = txs.filter((t) => t.status === "pending").length;
-  const uncategorizedCount = txs.filter((t) => !t.categoryId).length;
   const totalDebit = txs
     .filter((t) => t.kind === "debit" && t.status !== "ignored")
     .reduce((s, t) => s + parseFloat(t.amount), 0);
   const totalCredit = txs
     .filter((t) => t.kind === "credit" && t.status !== "ignored")
     .reduce((s, t) => s + parseFloat(t.amount), 0);
-  const saldo = totalCredit - totalDebit;
 
-  const hasAnyFilter = !!(sp.month || sp.status || sp.uncategorized);
-  const subtitleParts: string[] = [];
-  if (txs.length > 0) {
-    subtitleParts.push(`${txs.length} ${txs.length === 1 ? "transação" : "transações"}${hasAnyFilter ? " filtradas" : ""}`);
-    if (pendingCount > 0) subtitleParts.push(`${pendingCount} pendente${pendingCount === 1 ? "" : "s"}`);
-    if (uncategorizedCount > 0) subtitleParts.push(`${uncategorizedCount} sem categoria`);
-  }
+  const filterApplied = !!(sp.month || sp.status || sp.uncategorized);
 
   if (txs.length === 0 && availableMonths.length === 0) {
     return (
-      <div className="space-y-8">
-        <PageHeader title="Transações" />
-        <Card className="border-dashed bg-gradient-brand-subtle">
-          <CardHeader className="text-center py-12">
-            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 text-primary">
-              <Plus className="size-6" />
-            </div>
-            <CardTitle className="mt-4">Nenhuma transação ainda</CardTitle>
-            <CardDescription className="max-w-md mx-auto">
-              Comece subindo um extrato bancário ou fatura de cartão. A IA
-              extrai todas as transações em segundos.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex justify-center pb-8">
-            <Button
-              size="lg"
-              render={<Link href="/financeiro/upload" />}
-              className="bg-gradient-brand text-white"
-            >
-              Subir primeiro PDF
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
+      <ScreenShell
+        userQ="Vamos ver as transações?"
+        insight={<>Sem nada por aqui. Suba um PDF de extrato ou fatura — a IA extrai tudo em ~30s.</>}
+      >
+        <SectionRow icon="bag" label="Transações" />
+        <BigNumber value="—" sub="nenhuma transação registrada" />
+        <div style={{ padding: "20px" }}>
+          <Link
+            href="/financeiro/upload"
+            style={{
+              display: "block",
+              padding: "14px",
+              borderRadius: 16,
+              background: "var(--accent)",
+              color: "var(--accent-on)",
+              fontSize: 13.5,
+              fontWeight: 700,
+              textDecoration: "none",
+              textAlign: "center",
+            }}
+          >
+            Subir primeiro PDF
+          </Link>
+        </div>
+      </ScreenShell>
     );
   }
 
   return (
-    <div className="space-y-8">
-      <PageHeader
-        title="Transações"
-        description={subtitleParts.join(" · ")}
-        action={
-          <Button
-            render={<Link href="/financeiro/upload" />}
-            className="bg-gradient-brand text-white"
-          >
-            <Plus className="size-4" />
-            Subir PDF
-          </Button>
-        }
+    <ScreenShell
+      userQ="Me mostra todas as transações"
+      insight={
+        pendingCount > 0 ? (
+          <>
+            <b>{pendingCount}</b> transações ainda pendentes de revisão. Toda edição de categoria vira regra automática.
+          </>
+        ) : (
+          <>{txs.length} transações {filterApplied ? "no filtro" : "no total"}. Tudo revisado.</>
+        )
+      }
+    >
+      <SectionRow
+        icon="bag"
+        label="Transações"
+        action={`${txs.length} ${filterApplied ? "filtradas" : "totais"}`}
       />
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <SummaryCard
-          label="Total despesas"
-          value={formatBRL(totalDebit)}
-          tone="debit"
-        />
-        <SummaryCard
-          label="Total receitas"
-          value={formatBRL(totalCredit)}
-          tone="credit"
-        />
-        <SummaryCard
-          label="Saldo"
-          value={formatBRL(Math.abs(saldo))}
-          tone={saldo >= 0 ? "credit" : "debit"}
-          prefix={saldo >= 0 ? "+" : "−"}
-        />
+      <div style={{ padding: "0 20px" }}>
+        <div className="ap-num" style={{ fontSize: 28, color: "var(--ink)" }}>
+          − R$ {formatBRL(totalDebit)}
+        </div>
+        <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
+          em despesas · receitas: R$ {formatBRL(totalCredit)}
+        </div>
       </div>
 
-      <TransactionFilters availableMonths={availableMonths} />
+      <div style={{ padding: "12px 20px 0" }}>
+        <TransactionFilters availableMonths={availableMonths} />
+      </div>
 
       {txs.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
-            Nenhuma transação com esses filtros.
-          </CardContent>
-        </Card>
+        <div style={{ padding: "30px 20px", textAlign: "center", color: "var(--muted)", fontSize: 13 }}>
+          Nenhuma transação com esses filtros.
+        </div>
       ) : (
-        <Card className="overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/40 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  <th className="px-4 py-3 text-left">Data</th>
-                  <th className="px-4 py-3 text-left">Descrição</th>
-                  <th className="px-4 py-3 text-right">Valor</th>
-                  <th className="px-4 py-3 text-left">Categoria</th>
-                  <th className="px-4 py-3 text-left">Status</th>
-                  <th className="px-4 py-3 text-right">Ações</th>
-                </tr>
-              </thead>
-              <tbody>
-                {txs.map((tx, i) => {
-                  const amount = parseFloat(tx.amount);
-                  return (
-                    <tr
-                      key={tx.id}
-                      className={`border-b border-border/50 last:border-0 transition-colors hover:bg-accent/30 ${
-                        tx.status === "ignored" ? "opacity-50" : ""
-                      } ${i % 2 === 1 ? "bg-muted/15" : ""}`}
+        <div style={{ padding: "8px 20px 0" }}>
+          {txs.map((tx, i) => {
+            const amount = parseFloat(tx.amount);
+            return (
+              <div
+                key={tx.id}
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 6,
+                  padding: "12px 0",
+                  borderBottom:
+                    i < txs.length - 1 ? "0.5px solid var(--line-d)" : "none",
+                  opacity: tx.status === "ignored" ? 0.4 : 1,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div
+                      style={{
+                        fontSize: 13.5,
+                        fontWeight: 600,
+                        color: "var(--ink)",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
                     >
-                      <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
-                        {formatDate(tx.occurredOn)}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-start gap-2">
-                          <span
-                            className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${
-                              tx.kind === "debit"
-                                ? "bg-destructive/10 text-destructive"
-                                : "bg-success/10 text-success"
-                            }`}
-                          >
-                            {tx.kind === "debit" ? (
-                              <ArrowUpRight className="size-3.5" />
-                            ) : (
-                              <ArrowDownRight className="size-3.5" />
-                            )}
-                          </span>
-                          <div className="min-w-0">
-                            <div className="font-medium leading-tight">
-                              {tx.description}
-                            </div>
-                            <div className="mt-0.5 text-[11px] text-muted-foreground line-clamp-1">
-                              {tx.rawDescription}
-                            </div>
-                          </div>
-                        </div>
-                      </td>
-                      <td
-                        className={`whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums ${
-                          tx.kind === "debit" ? "text-destructive" : "text-success"
-                        }`}
-                      >
-                        {tx.kind === "debit" ? "−" : "+"} R$ {formatBRL(amount)}
-                      </td>
-                      <td className="px-4 py-3">
-                        <CategorySelect
-                          transactionId={tx.id}
-                          currentCategoryId={tx.categoryId}
-                          options={categoryOptions}
-                        />
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3">
-                        <StatusBadge status={tx.status} />
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-right">
-                        <TransactionStatusToggle
-                          transactionId={tx.id}
-                          status={tx.status}
-                        />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </Card>
+                      {tx.description}
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                      {formatDate(tx.occurredOn)} · {tx.rawDescription.slice(0, 64)}
+                      {tx.rawDescription.length > 64 ? "…" : ""}
+                    </div>
+                  </div>
+                  <div
+                    className="ap-num"
+                    style={{
+                      fontSize: 14,
+                      color: tx.kind === "debit" ? "var(--ink)" : "var(--ok)",
+                      flexShrink: 0,
+                    }}
+                  >
+                    {tx.kind === "debit" ? "−" : "+"} R$ {formatBRL(amount)}
+                  </div>
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <CategorySelect
+                    transactionId={tx.id}
+                    currentCategoryId={tx.categoryId}
+                    options={categoryOptions}
+                  />
+                  <Pill
+                    tone={
+                      tx.status === "confirmed"
+                        ? "ok"
+                        : tx.status === "ignored"
+                          ? "muted"
+                          : "alert"
+                    }
+                  >
+                    {tx.status === "confirmed"
+                      ? "ok"
+                      : tx.status === "ignored"
+                        ? "ignorada"
+                        : "pendente"}
+                  </Pill>
+                  <div style={{ marginLeft: "auto" }}>
+                    <TransactionStatusToggle
+                      transactionId={tx.id}
+                      status={tx.status}
+                    />
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       )}
-    </div>
-  );
-}
-
-function SummaryCard({
-  label,
-  value,
-  tone,
-  prefix = "",
-}: {
-  label: string;
-  value: string;
-  tone: "debit" | "credit";
-  prefix?: string;
-}) {
-  const toneClass =
-    tone === "debit"
-      ? "from-destructive/10 to-destructive/5 text-destructive border-destructive/20"
-      : "from-success/10 to-success/5 text-success border-success/20";
-  return (
-    <div
-      className={`rounded-xl border bg-gradient-to-br ${toneClass} p-5 shadow-card`}
-    >
-      <p className="text-xs font-medium uppercase tracking-wider opacity-80">
-        {label}
-      </p>
-      <p className="mt-2 text-3xl font-semibold tracking-tight tabular-nums">
-        {prefix && <span className="mr-1">{prefix}</span>}
-        <span className="text-base font-medium opacity-70">R$ </span>
-        {value}
-      </p>
-    </div>
-  );
-}
-
-function StatusBadge({
-  status,
-}: {
-  status: "pending" | "confirmed" | "ignored";
-}) {
-  const classes = {
-    pending: "bg-warning/15 text-warning-foreground/90 ring-warning/25",
-    confirmed: "bg-success/15 text-success ring-success/25",
-    ignored: "bg-muted text-muted-foreground ring-border",
-  } as const;
-  const labels = {
-    pending: "Pendente",
-    confirmed: "Confirmada",
-    ignored: "Ignorada",
-  } as const;
-  return (
-    <span
-      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium ring-1 ring-inset ${classes[status]}`}
-    >
-      {labels[status]}
-    </span>
+    </ScreenShell>
   );
 }

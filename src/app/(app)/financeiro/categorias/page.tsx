@@ -1,14 +1,8 @@
 import { eq, sql } from "drizzle-orm";
 
+import { BigNumber, Card, SectionRow } from "@/components/ap/atoms";
+import { ScreenShell } from "@/components/ap/screen-shell";
 import { auth } from "@/auth";
-import { PageHeader } from "@/components/page-header";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { db } from "@/db";
 import { categories, transactions, users } from "@/db/schema";
 
@@ -47,116 +41,124 @@ export default async function CategoriasPage() {
     return all.filter((c) => c.parentId === parentId);
   }
 
-  function totalForCategoryTree(categoryId: string): number {
-    let total = countByCategory.get(categoryId) ?? 0;
-    for (const child of childrenOf(categoryId)) {
+  function treeCount(parentId: string): number {
+    let total = countByCategory.get(parentId) ?? 0;
+    for (const child of childrenOf(parentId)) {
       total += countByCategory.get(child.id) ?? 0;
     }
     return total;
   }
 
-  return (
-    <div className="space-y-8">
-      <PageHeader
-        title="Categorias"
-        description={`${all.length} categorias no total. Cada vez que você edita a categoria de uma transação, o sistema cria uma regra automática pra próximas com mesma descrição.`}
-      />
+  const totalUsed = [...expenseParents, ...incomeParents].filter(
+    (c) => treeCount(c.id) > 0
+  ).length;
 
-      <section className="space-y-3">
-        <div className="flex items-center gap-2">
-          <span className="h-2 w-2 rounded-full bg-destructive" />
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-            Despesas
-          </h2>
-          <span className="text-xs text-muted-foreground">
-            {expenseParents.length} categorias
-          </span>
+  return (
+    <ScreenShell
+      userQ="Quais categorias tenho disponíveis?"
+      insight={
+        <>
+          <b>{all.length}</b> categorias prontas pra família. Toda categoria que você atribui a uma transação vira regra automática.
+        </>
+      }
+    >
+      <SectionRow icon="bag" label="Categorias" action={`${totalUsed} em uso`} />
+      <BigNumber value={String(all.length)} sub={`${expenseParents.length} despesas · ${incomeParents.length} receitas`} />
+
+      <div style={{ padding: "14px 20px 0" }}>
+        <div className="ap-eyebrow" style={{ marginBottom: 10 }}>
+          despesas
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {expenseParents.map((parent) => {
             const subs = childrenOf(parent.id);
-            const tree = totalForCategoryTree(parent.id);
+            const c = treeCount(parent.id);
             return (
-              <Card key={parent.id} className="h-full">
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <CardTitle className="text-base">{parent.name}</CardTitle>
-                    {tree > 0 && (
-                      <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
-                        {tree}
-                      </span>
-                    )}
-                  </div>
-                </CardHeader>
+              <Card key={parent.id} pad={12} raised={c > 0}>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 8,
+                  }}
+                >
+                  <span style={{ fontSize: 13.5, fontWeight: 600 }}>{parent.name}</span>
+                  {c > 0 && (
+                    <span
+                      className="ap-num"
+                      style={{ fontSize: 13, color: "var(--accent)" }}
+                    >
+                      {c}
+                    </span>
+                  )}
+                </div>
                 {subs.length > 0 && (
-                  <CardContent className="pt-0">
-                    <ul className="space-y-1 text-sm">
-                      {subs.map((sub) => {
-                        const c = countByCategory.get(sub.id) ?? 0;
-                        return (
-                          <li
-                            key={sub.id}
-                            className="flex items-center justify-between text-muted-foreground"
-                          >
-                            <span>{sub.name}</span>
-                            {c > 0 && (
-                              <span className="text-xs font-medium text-foreground">
-                                {c}
-                              </span>
-                            )}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </CardContent>
+                  <div
+                    style={{
+                      marginTop: 8,
+                      display: "flex",
+                      gap: 6,
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    {subs.map((sub) => {
+                      const sc = countByCategory.get(sub.id) ?? 0;
+                      return (
+                        <span
+                          key={sub.id}
+                          style={{
+                            padding: "3px 9px",
+                            borderRadius: 999,
+                            fontSize: 11,
+                            background: "var(--card2)",
+                            color: sc > 0 ? "var(--ink-d)" : "var(--muted)",
+                          }}
+                        >
+                          {sub.name}
+                          {sc > 0 && (
+                            <span style={{ marginLeft: 5, opacity: 0.6 }}>· {sc}</span>
+                          )}
+                        </span>
+                      );
+                    })}
+                  </div>
                 )}
               </Card>
             );
           })}
         </div>
-      </section>
+      </div>
 
-      <section className="space-y-3">
-        <div className="flex items-center gap-2">
-          <span className="h-2 w-2 rounded-full bg-success" />
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-            Receitas
-          </h2>
-          <span className="text-xs text-muted-foreground">
-            {incomeParents.length} categorias
-          </span>
+      <div style={{ padding: "20px 20px 0" }}>
+        <div className="ap-eyebrow" style={{ marginBottom: 10 }}>
+          receitas
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {incomeParents.map((parent) => {
-            const count = countByCategory.get(parent.id) ?? 0;
+            const c = treeCount(parent.id);
             return (
-              <Card key={parent.id}>
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <CardTitle className="text-base">{parent.name}</CardTitle>
-                    {count > 0 && (
-                      <span className="rounded-full bg-success/10 px-2 py-0.5 text-[11px] font-medium text-success">
-                        {count}
-                      </span>
-                    )}
-                  </div>
-                </CardHeader>
+              <Card key={parent.id} pad={12} raised={c > 0}>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 8,
+                  }}
+                >
+                  <span style={{ fontSize: 13.5, fontWeight: 600 }}>{parent.name}</span>
+                  {c > 0 && (
+                    <span className="ap-num" style={{ fontSize: 13, color: "var(--ok)" }}>
+                      {c}
+                    </span>
+                  )}
+                </div>
               </Card>
             );
           })}
         </div>
-      </section>
-
-      <Card className="border-dashed bg-muted/30">
-        <CardHeader>
-          <CardTitle className="text-base">Em breve</CardTitle>
-          <CardDescription>
-            CRUD completo — criar/renomear/deletar categorias, reorganizar
-            hierarquia, escolher cor e ícone, gerenciar regras de
-            auto-categorização.
-          </CardDescription>
-        </CardHeader>
-      </Card>
-    </div>
+      </div>
+    </ScreenShell>
   );
 }

@@ -1,18 +1,11 @@
 "use client";
 
-import { CheckCircle2, FileText, Loader2, Upload as UploadIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { PageHeader } from "@/components/page-header";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { BigNumber, Card, Pill, SectionRow } from "@/components/ap/atoms";
+import { Icon } from "@/components/ap/icon";
+import { ScreenShell } from "@/components/ap/screen-shell";
 
 type SourceType = "auto" | "bank_statement" | "credit_card_invoice";
 
@@ -53,174 +46,250 @@ export default function UploadPage() {
 
   if (result) {
     return (
-      <div className="space-y-8 max-w-2xl">
-        <PageHeader
-          title="Extração concluída"
-          description={`${result.extractedCount} transações foram extraídas e salvas como pendentes pra você revisar.`}
-        />
-        <Card className="border-success/30 bg-gradient-to-br from-success/5 to-transparent">
-          <CardHeader>
-            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-success/15 text-success">
-              <CheckCircle2 className="size-6" />
+      <ScreenShell
+        userQ="Já processou o extrato?"
+        insight={<>{result.extractedCount} transações entraram como pendentes. Vai na lista e revisa as categorias — cada ajuste vira regra automática.</>}
+      >
+        <SectionRow icon="file" label="Pronto" action="extração concluída" />
+        <BigNumber value={`${result.extractedCount} transações`} accent />
+
+        <div style={{ padding: "14px 20px 0" }}>
+          <Card raised pad={16}>
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 12.5 }}>
+              <span style={{ color: "var(--muted)" }}>Banco</span>
+              <span style={{ color: "var(--ink)" }}>{result.bankSlug}</span>
             </div>
-            <CardTitle className="mt-3">Tudo certo</CardTitle>
-            <CardDescription>
-              Vá pra lista de transações pra revisar e ajustar categorias. Cada
-              ajuste vira regra automática.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <dl className="divide-y divide-border text-sm">
-              <Row label="Banco identificado" value={result.bankSlug} />
-              <Row
-                label="Tipo de documento"
-                value={
-                  result.documentType === "bank_statement"
-                    ? "Extrato bancário"
-                    : result.documentType === "credit_card_invoice"
-                      ? "Fatura de cartão"
-                      : "Desconhecido"
-                }
-              />
-              <Row
-                label="Transações extraídas"
-                value={result.extractedCount.toString()}
-              />
-            </dl>
-          </CardContent>
-        </Card>
-        <div className="flex flex-wrap gap-3">
-          <Button
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 12.5 }}>
+              <span style={{ color: "var(--muted)" }}>Tipo</span>
+              <span style={{ color: "var(--ink)" }}>
+                {result.documentType === "bank_statement"
+                  ? "Extrato bancário"
+                  : result.documentType === "credit_card_invoice"
+                    ? "Fatura de cartão"
+                    : "Desconhecido"}
+              </span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 12.5 }}>
+              <span style={{ color: "var(--muted)" }}>Transações</span>
+              <span style={{ color: "var(--ink)" }}>{result.extractedCount}</span>
+            </div>
+          </Card>
+        </div>
+
+        <div style={{ padding: "16px 20px 0", display: "flex", gap: 10 }}>
+          <button
+            type="button"
             onClick={() => router.push("/financeiro/transacoes")}
-            className="bg-gradient-brand text-white"
+            style={{
+              flex: 1,
+              padding: "12px",
+              borderRadius: 16,
+              background: "var(--accent)",
+              color: "var(--accent-on)",
+              fontWeight: 700,
+              fontSize: 13.5,
+              border: "none",
+              cursor: "pointer",
+            }}
           >
             Ver transações
-          </Button>
-          <Button
-            variant="outline"
+          </button>
+          <button
+            type="button"
             onClick={() => {
               setResult(null);
               setFile(null);
             }}
+            style={{
+              flex: 1,
+              padding: "12px",
+              borderRadius: 16,
+              background: "var(--card)",
+              color: "var(--ink-d)",
+              fontSize: 13.5,
+              border: "none",
+              cursor: "pointer",
+            }}
           >
-            Subir outro PDF
-          </Button>
+            Subir outro
+          </button>
         </div>
-      </div>
+      </ScreenShell>
     );
   }
 
   return (
-    <div className="space-y-8 max-w-2xl">
-      <PageHeader
-        title="Subir PDF"
-        description="Envie um extrato bancário ou fatura de cartão. A IA extrai as transações e tenta categorizar baseado nas regras que você já criou."
-      />
+    <ScreenShell
+      userQ="Quero subir um extrato"
+      insight={
+        <>
+          Manda o PDF — extrato ou fatura. Eu uso o Gemini pra extrair e tento categorizar automaticamente baseado no que já vi.
+        </>
+      }
+    >
+      <SectionRow icon="file" label="Novo upload" />
+      <BigNumber value="PDF" sub="extrato bancário ou fatura de cartão" />
 
-      <form onSubmit={handleSubmit}>
-        <Card>
-          <CardContent className="space-y-6 pt-6">
-            <label
-              htmlFor="file"
-              className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-10 text-center transition-colors ${
-                file
-                  ? "border-success/40 bg-success/5"
-                  : "border-border bg-muted/30 hover:border-primary/40 hover:bg-primary/5"
-              }`}
-            >
-              <div
-                className={`flex h-14 w-14 items-center justify-center rounded-full ${
-                  file ? "bg-success/15 text-success" : "bg-primary/10 text-primary"
-                }`}
-              >
-                {file ? (
-                  <FileText className="size-6" />
-                ) : (
-                  <UploadIcon className="size-6" />
-                )}
+      <form onSubmit={handleSubmit} style={{ padding: "14px 20px 0" }}>
+        <label
+          htmlFor="file"
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 8,
+            padding: "32px 20px",
+            borderRadius: 18,
+            background: "var(--card)",
+            border: file ? "1px solid var(--accent)" : "1px dashed var(--line-d)",
+            cursor: "pointer",
+            textAlign: "center",
+          }}
+        >
+          <div
+            style={{
+              width: 48,
+              height: 48,
+              borderRadius: 24,
+              background: "var(--card2)",
+              color: file ? "var(--accent)" : "var(--muted-d)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Icon name={file ? "file" : "plus"} size={22} stroke={1.8} />
+          </div>
+          {file ? (
+            <>
+              <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink)" }}>
+                {file.name}
               </div>
-              {file ? (
-                <>
-                  <p className="mt-3 font-medium">{file.name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {(file.size / 1024).toFixed(1)} KB · clique pra trocar
-                  </p>
-                </>
-              ) : (
-                <>
-                  <p className="mt-3 font-medium">Clique pra escolher um PDF</p>
-                  <p className="text-xs text-muted-foreground">
-                    Extrato bancário ou fatura de cartão · até 10 MB
-                  </p>
-                </>
-              )}
-              <input
-                id="file"
-                type="file"
-                accept="application/pdf"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                disabled={submitting}
-                required
-                className="sr-only"
-              />
-            </label>
-
-            <div>
-              <label
-                className="text-xs font-medium uppercase tracking-wider text-muted-foreground"
-                htmlFor="sourceType"
-              >
-                Tipo de documento (opcional)
-              </label>
-              <select
-                id="sourceType"
-                value={sourceType}
-                onChange={(e) => setSourceType(e.target.value as SourceType)}
-                disabled={submitting}
-                className="mt-1 block w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              >
-                <option value="auto">Detectar automaticamente</option>
-                <option value="bank_statement">Extrato bancário</option>
-                <option value="credit_card_invoice">Fatura de cartão</option>
-              </select>
-            </div>
-
-            {error && (
-              <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-                {error}
+              <div style={{ fontSize: 11, color: "var(--muted)" }}>
+                {(file.size / 1024).toFixed(1)} KB · clique pra trocar
               </div>
-            )}
+            </>
+          ) : (
+            <>
+              <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink-d)" }}>
+                Clique pra escolher um PDF
+              </div>
+              <div style={{ fontSize: 11, color: "var(--muted)" }}>
+                até 10 MB · extrato ou fatura
+              </div>
+            </>
+          )}
+          <input
+            id="file"
+            type="file"
+            accept="application/pdf"
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            disabled={submitting}
+            required
+            style={{ display: "none" }}
+          />
+        </label>
 
-            <Button
-              type="submit"
-              disabled={!file || submitting}
-              size="lg"
-              className="w-full bg-gradient-brand text-white hover:opacity-95"
+        <div style={{ marginTop: 14, display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {(["auto", "bank_statement", "credit_card_invoice"] as const).map((opt) => (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => setSourceType(opt)}
+              disabled={submitting}
+              style={{
+                padding: "6px 14px",
+                borderRadius: 999,
+                fontSize: 12,
+                fontWeight: 600,
+                background: sourceType === opt ? "var(--card)" : "transparent",
+                color: sourceType === opt ? "var(--ink)" : "var(--muted-d)",
+                border: "1px solid var(--line-d)",
+                cursor: "pointer",
+              }}
             >
-              {submitting ? (
-                <>
-                  <Loader2 className="mr-2 size-4 animate-spin" />
-                  Processando ({"~"}20s a 1 min)
-                </>
-              ) : (
-                <>
-                  <UploadIcon className="mr-2 size-4" />
-                  Enviar e extrair transações
-                </>
-              )}
-            </Button>
-          </CardContent>
-        </Card>
+              {opt === "auto" ? "Detectar" : opt === "bank_statement" ? "Extrato" : "Fatura"}
+            </button>
+          ))}
+        </div>
+
+        {error && (
+          <div
+            style={{
+              marginTop: 14,
+              padding: "12px 14px",
+              borderRadius: 14,
+              background: "var(--card)",
+              fontSize: 12.5,
+              color: "var(--alert)",
+              border: "1px solid var(--alert)",
+            }}
+          >
+            {error}
+          </div>
+        )}
+
+        <button
+          type="submit"
+          disabled={!file || submitting}
+          style={{
+            marginTop: 16,
+            width: "100%",
+            height: 48,
+            borderRadius: 24,
+            background: !file || submitting ? "var(--card)" : "var(--accent)",
+            color: !file || submitting ? "var(--muted-d)" : "var(--accent-on)",
+            fontWeight: 700,
+            fontSize: 14,
+            border: "none",
+            cursor: !file || submitting ? "not-allowed" : "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 8,
+          }}
+        >
+          {submitting ? (
+            <>
+              <Spinner /> Processando (~30s a 1 min)
+            </>
+          ) : (
+            "Enviar e extrair"
+          )}
+        </button>
+
+        {submitting && (
+          <div style={{ marginTop: 12, fontSize: 11, color: "var(--muted)", textAlign: "center" }}>
+            <Pill tone="accent">processando</Pill>
+          </div>
+        )}
       </form>
-    </div>
+    </ScreenShell>
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+function Spinner() {
   return (
-    <div className="flex items-center justify-between py-3">
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="font-medium">{value}</dd>
-    </div>
+    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <circle
+        cx="12"
+        cy="12"
+        r="9"
+        stroke="currentColor"
+        strokeWidth="2.4"
+        opacity="0.25"
+      />
+      <path
+        d="M21 12a9 9 0 0 0-9-9"
+        stroke="currentColor"
+        strokeWidth="2.4"
+        strokeLinecap="round"
+        style={{
+          animation: "spin 0.9s linear infinite",
+          transformOrigin: "12px 12px",
+        }}
+      />
+      <style>{"@keyframes spin{to{transform:rotate(360deg)}}"}</style>
+    </svg>
   );
 }
