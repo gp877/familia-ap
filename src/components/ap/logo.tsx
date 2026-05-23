@@ -131,7 +131,7 @@ function LogoCasa({ size, className }: { size: number; className?: string }) {
             marginTop: 2,
           }}
         >
-          família ap
+          família augusto piffer
         </span>
       </div>
     </div>
@@ -178,11 +178,11 @@ function LogoWordmark({ size, className }: { size: number; className?: string })
   return (
     <div className={className} style={{ display: "inline-flex", flexDirection: "column", gap: 4 }}>
       <svg
-        width={size * 1.4}
+        width={size * 3}
         height={size * 0.5}
-        viewBox="0 0 240 84"
+        viewBox="0 0 520 84"
         style={{ overflow: "visible" }}
-        aria-label="família ap"
+        aria-label="família augusto piffer"
       >
         <text
           x="0"
@@ -191,10 +191,10 @@ function LogoWordmark({ size, className }: { size: number; className?: string })
           fontWeight="700"
           fontSize="88"
           fill="var(--ink)"
-          textLength="240"
+          textLength="520"
           lengthAdjust="spacingAndGlyphs"
         >
-          família ap
+          família augusto piffer
         </text>
       </svg>
       <span
@@ -243,7 +243,7 @@ function LogoArgolas({ size, className }: { size: number; className?: string }) 
             marginTop: 2,
           }}
         >
-          família ap
+          família augusto piffer
         </span>
       </div>
     </div>
