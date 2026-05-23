@@ -42,6 +42,9 @@ yarn-error.log*
 # PDFs de exemplo (extratos / faturas) — nunca commitar dados reais
 /samples/
 
+# Pacote de design handoff (referência, não código de produção)
+/App Fam_lia AP/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
