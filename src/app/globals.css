@@ -101,13 +101,19 @@
 
 /* ============================================================
    Acentos alternativos — aplicados via data-accent="..."
+   Funciona em qualquer ancestral, escopo cascadeia via CSS vars.
    ============================================================ */
-:root[data-accent="azul"]    { --accent: #5DA9FF; }
-:root[data-accent="ambar"]   { --accent: #FFB85C; }
-:root[data-accent="coral"]   { --accent: #FF8866; }
-.light[data-accent="azul"]   { --accent: #1E5FAB; }
-.light[data-accent="ambar"]  { --accent: #A36A1A; }
-.light[data-accent="coral"]  { --accent: #B84926; }
+[data-accent="lima"]   { --accent: #B8FF5C; }
+[data-accent="azul"]   { --accent: #5DA9FF; }
+[data-accent="ambar"]  { --accent: #FFB85C; }
+[data-accent="coral"]  { --accent: #FF8866; }
+[data-accent="rosa"]   { --accent: #FF4FA3; }
+
+.light [data-accent="lima"]   { --accent: #5A8533; }
+.light [data-accent="azul"]   { --accent: #1E5FAB; }
+.light [data-accent="ambar"]  { --accent: #A36A1A; }
+.light [data-accent="coral"]  { --accent: #B84926; }
+.light [data-accent="rosa"]   { --accent: #C73168; }
 
 @layer base {
   * {

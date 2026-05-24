@@ -104,36 +104,32 @@ function LogoCasa({ size, className }: { size: number; className?: string }) {
       className={className}
       style={{
         display: "inline-flex",
-        alignItems: "center",
-        gap: size * 0.08,
+        flexDirection: "column",
         color: "var(--ink)",
       }}
     >
-      <HouseGlyph size={size * 0.55} color="currentColor" />
-      <div style={{ display: "flex", flexDirection: "column" }}>
-        <span
-          className="ap-script"
-          style={{
-            fontSize: size * 0.88,
-            lineHeight: 0.85,
-            letterSpacing: "-0.01em",
-          }}
-        >
-          ap
-        </span>
-        <span
-          style={{
-            fontSize: size * 0.082,
-            fontWeight: 600,
-            letterSpacing: "0.22em",
-            textTransform: "uppercase",
-            color: "var(--muted)",
-            marginTop: 2,
-          }}
-        >
-          família augusto piffer
-        </span>
-      </div>
+      <span
+        className="ap-script"
+        style={{
+          fontSize: size * 0.95,
+          lineHeight: 0.85,
+          letterSpacing: "-0.01em",
+        }}
+      >
+        ap
+      </span>
+      <span
+        style={{
+          fontSize: size * 0.082,
+          fontWeight: 600,
+          letterSpacing: "0.22em",
+          textTransform: "uppercase",
+          color: "var(--muted)",
+          marginTop: 2,
+        }}
+      >
+        família augusto piffer
+      </span>
     </div>
   );
 }
