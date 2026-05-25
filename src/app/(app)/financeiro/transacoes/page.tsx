@@ -2,6 +2,7 @@ import { and, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
 import Link from "next/link";
 
 import { BigNumber, SectionRow } from "@/components/ap/atoms";
+import { BackButton } from "@/components/ap/inline-form";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import { TransactionFilters } from "@/components/transaction-filters";
 import { TransactionsMultiSelect } from "@/components/ap/transactions-multi-select";
@@ -168,6 +169,10 @@ export default async function TransacoesPage({
         </>
       }
     >
+      <div style={{ padding: "0 20px 8px" }}>
+        <BackButton href="/financeiro" label="Financeiro" />
+      </div>
+
       <SectionRow
         icon="bag"
         label={activeAccount ? activeAccount.name : "Transações"}

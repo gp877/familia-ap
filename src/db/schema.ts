@@ -247,6 +247,8 @@ export const uploads = pgTable(
       .references(() => users.id, { onDelete: "restrict" }),
     blobUrl: text("blob_url").notNull(),
     filename: text("filename").notNull(),
+    fileHash: text("file_hash"), // SHA-256 do arquivo, pra detectar duplicatas
+    fileSize: integer("file_size"),
     sourceType: uploadSourceEnum("source_type").notNull(),
     bankSlug: text("bank_slug"),
     status: uploadStatusEnum("status").notNull().default("pending"),
@@ -256,6 +258,7 @@ export const uploads = pgTable(
   },
   (u) => [
     index("upload_household_status_idx").on(u.householdId, u.status),
+    index("upload_household_hash_idx").on(u.householdId, u.fileHash),
   ]
 );
 

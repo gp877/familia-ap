@@ -1,7 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
 
 import { BigNumber, Card, Progress, SectionRow } from "@/components/ap/atoms";
-import { DeleteBtn, FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
+import { BackButton, DeleteBtn, FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import { deleteBudget, upsertBudget } from "@/app/actions/budgets";
 import { auth } from "@/auth";
@@ -91,6 +91,10 @@ export default async function OrcamentoPage({
         )
       }
     >
+      <div style={{ padding: "0 20px 8px" }}>
+        <BackButton href="/financeiro" label="Financeiro" />
+      </div>
+
       <SectionRow
         icon="chart"
         label={`Orçamento ${year}`}

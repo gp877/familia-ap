@@ -1,7 +1,7 @@
 "use client";
 
 import { X } from "lucide-react";
-import { useTransition } from "react";
+import { useRef, useTransition } from "react";
 
 import { Icon } from "@/components/ap/icon";
 
@@ -11,13 +11,24 @@ type InlineFormProps = {
 };
 
 /**
- * Toggle inline com `<details>` nativo — server component compatível,
- * sem render prop e sem state cliente. Aceita JSX direto como children.
+ * Toggle inline com `<details>` HTML + listener de submit que fecha automaticamente
+ * o details após submit (com pequeno delay pra o server action processar).
+ * Aceita JSX direto como children (sem render prop, sem violação RSC).
  */
 export function InlineForm({ buttonLabel, children }: InlineFormProps) {
+  const detailsRef = useRef<HTMLDetailsElement>(null);
+
+  function handleSubmit() {
+    // Fecha o details depois que o form submit (server action) rodou.
+    // Delay pequeno: usuário vê o spinner brevemente, depois fecha.
+    setTimeout(() => {
+      if (detailsRef.current) detailsRef.current.open = false;
+    }, 250);
+  }
+
   return (
-    <div style={{ padding: "0 20px" }}>
-      <details style={{ width: "100%" }}>
+    <div style={{ padding: "0 20px" }} onSubmit={handleSubmit}>
+      <details ref={detailsRef} style={{ width: "100%" }}>
         <summary
           style={{
             padding: "10px 14px",
@@ -68,16 +79,16 @@ export function FormField({
   hint?: string;
 }) {
   return (
-    <div style={{ marginBottom: 10 }}>
+    <div style={{ marginBottom: 12 }}>
       <label
         style={{
           display: "block",
-          fontSize: 11,
+          fontSize: 11.5,
           fontWeight: 600,
-          letterSpacing: "0.08em",
+          letterSpacing: "0.06em",
           textTransform: "uppercase",
           color: "var(--muted)",
-          marginBottom: 4,
+          marginBottom: 5,
         }}
       >
         {label}
@@ -92,13 +103,14 @@ export function FormField({
 
 export const fieldStyle: React.CSSProperties = {
   width: "100%",
-  padding: "8px 12px",
-  borderRadius: 10,
+  padding: "10px 14px",
+  borderRadius: 12,
   background: "var(--card2)",
   color: "var(--ink)",
   border: "1px solid transparent",
-  fontSize: 13.5,
+  fontSize: 14,
   fontFamily: "inherit",
+  outline: "none",
 };
 
 export function SubmitButton({
@@ -111,15 +123,15 @@ export function SubmitButton({
       type="submit"
       style={{
         width: "100%",
-        padding: "10px 16px",
+        padding: "12px 18px",
         borderRadius: 14,
         background: "var(--accent)",
         color: "var(--accent-on)",
         border: "none",
         fontWeight: 700,
-        fontSize: 13.5,
+        fontSize: 14,
         cursor: "pointer",
-        marginTop: 6,
+        marginTop: 10,
       }}
     >
       {children}
@@ -129,7 +141,6 @@ export function SubmitButton({
 
 /**
  * Botão de excluir que chama uma server action.
- * Aceita server action via prop (Next.js suporta isso).
  */
 export function DeleteBtn({
   action,
@@ -166,6 +177,43 @@ export function DeleteBtn({
       }}
     >
       <X size={14} />
+    </button>
+  );
+}
+
+/**
+ * Botão de voltar — usa router.back() do Next.js.
+ */
+export function BackButton({ label = "Voltar", href }: { label?: string; href?: string }) {
+  function handleClick() {
+    if (href) {
+      window.location.href = href;
+    } else {
+      window.history.back();
+    }
+  }
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "6px 12px",
+        borderRadius: 999,
+        background: "var(--card)",
+        color: "var(--ink-d)",
+        border: "1px solid var(--line-d)",
+        fontSize: 12,
+        fontWeight: 600,
+        cursor: "pointer",
+      }}
+    >
+      <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <polyline points="15 18 9 12 15 6" />
+      </svg>
+      {label}
     </button>
   );
 }

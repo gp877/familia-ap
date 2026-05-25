@@ -17,4 +17,5 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/sonhos", label: "Sonhos", icon: "star", module: "Sonhos" },
   { href: "/supermercado", label: "Supermercado", icon: "bag", module: "Supermercado" },
   { href: "/saude-exames", label: "Saúde", icon: "mask", module: "Saúde" },
+  { href: "/chat", label: "Chat com a AP", icon: "spark", module: "Chat" },
 ];

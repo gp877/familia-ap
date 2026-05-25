@@ -2,7 +2,7 @@ import { desc, eq, sql } from "drizzle-orm";
 import Link from "next/link";
 
 import { BigNumber, Card, Pill, SectionRow } from "@/components/ap/atoms";
-import { FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
+import { BackButton, FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import { createInvoice } from "@/app/actions/invoices";
 import { auth } from "@/auth";
@@ -85,6 +85,10 @@ export default async function FaturasPage() {
         )
       }
     >
+      <div style={{ padding: "0 20px 8px" }}>
+        <BackButton href="/financeiro" label="Financeiro" />
+      </div>
+
       <SectionRow icon="bank" label="Faturas de cartão" action={`${all.length} no total`} />
 
       <BigNumber

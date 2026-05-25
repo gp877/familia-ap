@@ -2,7 +2,7 @@ import { and, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
 import { notFound } from "next/navigation";
 
 import { BigNumber, Card, Pill, SectionRow } from "@/components/ap/atoms";
-import { FormField, fieldStyle } from "@/components/ap/inline-form";
+import { BackButton, FormField, fieldStyle } from "@/components/ap/inline-form";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import {
   deleteInvoice,
@@ -154,6 +154,10 @@ export default async function FaturaDetailPage({
         )
       }
     >
+      <div style={{ padding: "0 20px 8px" }}>
+        <BackButton href="/financeiro/faturas" label="Faturas" />
+      </div>
+
       <SectionRow
         icon="bank"
         label={`${inv.bankAccount?.name ?? "Cartão"} · ${formatMonth(inv.referenceMonth)}`}

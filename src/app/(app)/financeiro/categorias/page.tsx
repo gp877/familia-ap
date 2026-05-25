@@ -1,7 +1,7 @@
 import { eq, sql } from "drizzle-orm";
 
 import { BigNumber, Card, SectionRow } from "@/components/ap/atoms";
-import { DeleteBtn, FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
+import { BackButton, DeleteBtn, FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import {
   createCategoria,
@@ -60,6 +60,10 @@ export default async function CategoriasPage() {
         </>
       }
     >
+      <div style={{ padding: "0 20px 8px" }}>
+        <BackButton href="/financeiro" label="Financeiro" />
+      </div>
+
       <SectionRow icon="bag" label="Categorias" action={`${all.length}`} />
       <BigNumber
         value={String(all.length)}

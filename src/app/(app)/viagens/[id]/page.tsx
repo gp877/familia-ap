@@ -2,7 +2,7 @@ import { asc, eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
 
 import { BigNumber, Card, Money, SectionRow } from "@/components/ap/atoms";
-import { DeleteBtn, FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
+import { BackButton, DeleteBtn, FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import { addRoteiroDay, deleteRoteiroDay, deleteViagem } from "@/app/actions/viagens";
 import { auth } from "@/auth";
@@ -72,6 +72,10 @@ export default async function ViagemDetail({
         )
       }
     >
+      <div style={{ padding: "0 20px 8px" }}>
+        <BackButton href="/viagens" label="Viagens" />
+      </div>
+
       <SectionRow
         icon="plane"
         label={viagem.title}

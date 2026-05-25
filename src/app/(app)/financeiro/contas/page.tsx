@@ -2,7 +2,7 @@ import { asc, eq, sql } from "drizzle-orm";
 import Link from "next/link";
 
 import { BigNumber, Card, Pill, SectionRow } from "@/components/ap/atoms";
-import { DeleteBtn, FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
+import { BackButton, DeleteBtn, FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import {
   createBankAccount,
@@ -65,6 +65,10 @@ export default async function ContasPage() {
         )
       }
     >
+      <div style={{ padding: "0 20px 8px" }}>
+        <BackButton href="/financeiro" label="Financeiro" />
+      </div>
+
       <SectionRow icon="bank" label="Contas e cartões" action={`${contas.length}`} />
 
       <BigNumber

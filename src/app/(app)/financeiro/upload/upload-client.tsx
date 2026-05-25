@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import { BigNumber, Card, Pill, SectionRow } from "@/components/ap/atoms";
 import { Icon } from "@/components/ap/icon";
+import { BackButton } from "@/components/ap/inline-form";
 import { ScreenShell } from "@/components/ap/screen-shell";
 
 type SourceType = "auto" | "bank_statement" | "credit_card_invoice";
@@ -23,6 +24,8 @@ export function UploadClient({ accounts }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{
     extractedCount: number;
+    savedCount?: number;
+    skippedCount?: number;
     bankSlug: string;
     documentType: string;
     invoiceId: string | null;
@@ -53,20 +56,26 @@ export function UploadClient({ accounts }: Props) {
   }
 
   if (result) {
+    const saved = result.savedCount ?? result.extractedCount;
+    const skipped = result.skippedCount ?? 0;
     return (
       <ScreenShell
         userQ="Já processou o extrato?"
         insight={
           <>
-            {result.extractedCount} transações salvas como pendentes.
-            {result.invoiceId
-              ? " Fatura criada e vinculada — você consegue revisar em /financeiro/faturas."
-              : " Revise as categorias na lista."}
+            <b>{saved}</b> {saved === 1 ? "transação salva" : "transações salvas"} como pendente.
+            {skipped > 0 ? (
+              <>
+                {" "}
+                <b>{skipped}</b> {skipped === 1 ? "já estava" : "já estavam"} no banco (duplicada) e {skipped === 1 ? "foi ignorada" : "foram ignoradas"}.
+              </>
+            ) : null}
+            {result.invoiceId ? " Fatura vinculada." : ""}
           </>
         }
       >
         <SectionRow icon="file" label="Pronto" action="extração concluída" />
-        <BigNumber value={`${result.extractedCount} transações`} accent />
+        <BigNumber value={`${saved} salvas`} sub={skipped > 0 ? `${skipped} duplicadas ignoradas` : undefined} accent />
 
         <div style={{ padding: "14px 20px 0" }}>
           <Card raised pad={16}>
@@ -136,6 +145,10 @@ export function UploadClient({ accounts }: Props) {
         )
       }
     >
+      <div style={{ padding: "0 20px 8px" }}>
+        <BackButton href="/financeiro" label="Financeiro" />
+      </div>
+
       <SectionRow icon="file" label="Novo upload" />
       <BigNumber value="PDF" sub="extrato bancário ou fatura de cartão" />
 
