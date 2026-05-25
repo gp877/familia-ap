@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import { auth } from "@/auth";
 import { db } from "@/db";
-import { transactions, uploads, users } from "@/db/schema";
+import { bankAccounts, invoices, transactions, uploads, users } from "@/db/schema";
 import { extractFromPdf } from "@/lib/extraction";
 import { applyAutoCategorization } from "@/lib/categorization";
 
@@ -32,11 +32,24 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Apenas PDF é aceito" }, { status: 400 });
   }
 
-  const sourceType = formData.get("sourceType");
+  // Conta bancária / cartão escolhido pelo usuário
+  const bankAccountIdRaw = formData.get("bankAccountId") as string | null;
+  let bankAccountId: string | null = null;
+  if (bankAccountIdRaw) {
+    const acc = await db.query.bankAccounts.findFirst({
+      where: and(
+        eq(bankAccounts.id, bankAccountIdRaw),
+        eq(bankAccounts.householdId, dbUser.householdId)
+      ),
+    });
+    if (acc) bankAccountId = acc.id;
+  }
+
+  const sourceTypeRaw = formData.get("sourceType");
   const inferredSourceType =
-    sourceType === "credit_card_invoice"
+    sourceTypeRaw === "credit_card_invoice"
       ? "credit_card_invoice"
-      : sourceType === "bank_statement"
+      : sourceTypeRaw === "bank_statement"
         ? "bank_statement"
         : "other";
 
@@ -48,6 +61,7 @@ export async function POST(req: Request) {
     .values({
       householdId: dbUser.householdId,
       uploadedById: dbUser.id,
+      bankAccountId,
       blobUrl: "",
       filename: file.name,
       sourceType: inferredSourceType as
@@ -61,7 +75,42 @@ export async function POST(req: Request) {
   try {
     const extracted = await extractFromPdf(buf);
 
-    // Auto-categorize cada transação contra regras existentes
+    // Se for fatura de cartão e tivermos bankAccountId + referenceMonth,
+    // encontra ou cria a invoice correspondente
+    let invoiceId: string | null = null;
+    if (
+      extracted.documentType === "credit_card_invoice" &&
+      bankAccountId &&
+      extracted.referenceMonth
+    ) {
+      const existing = await db.query.invoices.findFirst({
+        where: and(
+          eq(invoices.bankAccountId, bankAccountId),
+          eq(invoices.referenceMonth, extracted.referenceMonth)
+        ),
+      });
+      if (existing) {
+        invoiceId = existing.id;
+      } else {
+        const [created] = await db
+          .insert(invoices)
+          .values({
+            householdId: dbUser.householdId,
+            bankAccountId,
+            referenceMonth: extracted.referenceMonth,
+            status: "open",
+          })
+          .returning();
+        invoiceId = created.id;
+      }
+      // Atualiza upload com invoiceId
+      await db
+        .update(uploads)
+        .set({ invoiceId })
+        .where(eq(uploads.id, upload.id));
+    }
+
+    // Auto-categorize
     const toInsert = await Promise.all(
       extracted.transactions.map(async (t) => {
         const categoryId = await applyAutoCategorization(
@@ -70,6 +119,8 @@ export async function POST(req: Request) {
         );
         return {
           householdId: dbUser.householdId!,
+          bankAccountId,
+          invoiceId,
           uploadId: upload.id,
           categoryId,
           createdById: dbUser.id,
@@ -78,6 +129,8 @@ export async function POST(req: Request) {
           kind: t.kind,
           description: t.description,
           rawDescription: t.rawDescription,
+          installmentCurrent: t.installmentCurrent ?? null,
+          installmentTotal: t.installmentTotal ?? null,
           status: "pending" as const,
         };
       })
@@ -87,12 +140,24 @@ export async function POST(req: Request) {
       await db.insert(transactions).values(toInsert);
     }
 
+    // Se for fatura, atualiza totalAmount com a soma de débitos
+    if (invoiceId) {
+      const total = extracted.transactions
+        .filter((t) => t.kind === "debit")
+        .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+      await db
+        .update(invoices)
+        .set({ totalAmount: String(total), updatedAt: new Date() })
+        .where(eq(invoices.id, invoiceId));
+    }
+
     await db
       .update(uploads)
       .set({
         status: "completed",
         bankSlug: extracted.bankSlug,
-        sourceType: extracted.documentType === "unknown" ? "other" : extracted.documentType,
+        sourceType:
+          extracted.documentType === "unknown" ? "other" : extracted.documentType,
         processedAt: new Date(),
       })
       .where(eq(uploads.id, upload.id));
@@ -103,6 +168,7 @@ export async function POST(req: Request) {
       extractedCount: extracted.transactions.length,
       bankSlug: extracted.bankSlug,
       documentType: extracted.documentType,
+      invoiceId,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

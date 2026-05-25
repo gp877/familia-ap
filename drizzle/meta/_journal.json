@@ -22,6 +22,13 @@
       "when": 1779717374497,
       "tag": "0002_unknown_alex_power",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1779718660831,
+      "tag": "0003_lively_payback",
+      "breakpoints": true
     }
   ]
 }

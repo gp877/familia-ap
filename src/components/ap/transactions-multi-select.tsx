@@ -1,13 +1,18 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
 
+import {
+  bulkDelete,
+  bulkSetCategory,
+  bulkSetStatus,
+} from "@/app/actions/transactions-bulk";
 import { CategorySelect, type CategoryOption } from "@/components/category-select";
 import { TransactionStatusToggle } from "@/components/transaction-status-toggle";
 
 type TxRow = {
   id: string;
-  occurredOn: string; // ISO string from server
+  occurredOn: string;
   description: string;
   rawDescription: string;
   amount: string;
@@ -38,6 +43,8 @@ function formatDate(d: string) {
 
 export function TransactionsMultiSelect({ transactions, categoryOptions }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkCategoryId, setBulkCategoryId] = useState<string>("");
+  const [isPending, startTransition] = useTransition();
 
   function toggle(id: string) {
     const next = new Set(selected);
@@ -66,6 +73,33 @@ export function TransactionsMultiSelect({ transactions, categoryOptions }: Props
     }
     return { debit, credit, net: credit - debit };
   }, [selected, transactions]);
+
+  function handleBulkCategory(createRules: boolean) {
+    if (!bulkCategoryId) return;
+    const ids = [...selected];
+    startTransition(async () => {
+      await bulkSetCategory(ids, bulkCategoryId, createRules);
+      setSelected(new Set());
+      setBulkCategoryId("");
+    });
+  }
+
+  function handleBulkStatus(status: "pending" | "confirmed" | "ignored") {
+    const ids = [...selected];
+    startTransition(async () => {
+      await bulkSetStatus(ids, status);
+      setSelected(new Set());
+    });
+  }
+
+  function handleBulkDelete() {
+    if (!confirm(`Excluir ${selected.size} transações?`)) return;
+    const ids = [...selected];
+    startTransition(async () => {
+      await bulkDelete(ids);
+      setSelected(new Set());
+    });
+  }
 
   return (
     <>
@@ -184,7 +218,7 @@ export function TransactionsMultiSelect({ transactions, categoryOptions }: Props
         )}
       </div>
 
-      {/* Sticky sum bar */}
+      {/* Sticky sum bar + bulk actions */}
       {selected.size > 0 && (
         <div
           style={{
@@ -196,39 +230,133 @@ export function TransactionsMultiSelect({ transactions, categoryOptions }: Props
             color: "var(--accent-on)",
             borderRadius: 14,
             display: "flex",
-            alignItems: "center",
-            gap: 16,
+            flexDirection: "column",
+            gap: 10,
             fontSize: 12.5,
+            zIndex: 20,
           }}
         >
-          <span style={{ fontWeight: 700 }}>
-            {selected.size} {selected.size === 1 ? "selecionada" : "selecionadas"}
-          </span>
-          <div style={{ flex: 1, display: "flex", gap: 14, fontSize: 11.5, fontWeight: 600 }}>
-            <span>− R$ {formatBRL(totals.debit)}</span>
-            <span>+ R$ {formatBRL(totals.credit)}</span>
-            <span style={{ marginLeft: "auto" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <span style={{ fontWeight: 700 }}>
+              {selected.size} {selected.size === 1 ? "selecionada" : "selecionadas"}
+            </span>
+            <span style={{ fontSize: 11.5, fontWeight: 600 }}>
+              − R$ {formatBRL(totals.debit)}
+            </span>
+            <span style={{ fontSize: 11.5, fontWeight: 600 }}>
+              + R$ {formatBRL(totals.credit)}
+            </span>
+            <span style={{ marginLeft: "auto", fontSize: 11.5, fontWeight: 700 }}>
               líq. {totals.net < 0 ? "−" : "+"} R$ {formatBRL(Math.abs(totals.net))}
             </span>
+            <button
+              type="button"
+              onClick={() => setSelected(new Set())}
+              disabled={isPending}
+              style={{
+                background: "transparent",
+                color: "var(--accent-on)",
+                border: "1px solid currentColor",
+                padding: "4px 10px",
+                borderRadius: 999,
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              limpar
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() => setSelected(new Set())}
-            style={{
-              background: "transparent",
-              color: "var(--accent-on)",
-              border: "1px solid currentColor",
-              padding: "4px 10px",
-              borderRadius: 999,
-              fontSize: 11,
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
-            limpar
-          </button>
+
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+            <select
+              value={bulkCategoryId}
+              onChange={(e) => setBulkCategoryId(e.target.value)}
+              disabled={isPending}
+              style={{
+                padding: "5px 10px",
+                borderRadius: 8,
+                background: "rgba(0,0,0,0.15)",
+                color: "var(--accent-on)",
+                border: "none",
+                fontSize: 11.5,
+                fontWeight: 600,
+                cursor: "pointer",
+                maxWidth: 220,
+              }}
+            >
+              <option value="">Aplicar categoria...</option>
+              {categoryOptions.map((opt) => (
+                <option key={opt.id} value={opt.id}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => handleBulkCategory(true)}
+              disabled={!bulkCategoryId || isPending}
+              style={bulkBtnStyle}
+            >
+              + criar regras
+            </button>
+            <button
+              type="button"
+              onClick={() => handleBulkCategory(false)}
+              disabled={!bulkCategoryId || isPending}
+              style={bulkBtnStyle}
+            >
+              só aplicar
+            </button>
+          </div>
+
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={() => handleBulkStatus("confirmed")}
+              disabled={isPending}
+              style={bulkBtnStyle}
+            >
+              ✓ confirmar
+            </button>
+            <button
+              type="button"
+              onClick={() => handleBulkStatus("ignored")}
+              disabled={isPending}
+              style={bulkBtnStyle}
+            >
+              ignorar
+            </button>
+            <button
+              type="button"
+              onClick={() => handleBulkStatus("pending")}
+              disabled={isPending}
+              style={bulkBtnStyle}
+            >
+              voltar a pendente
+            </button>
+            <button
+              type="button"
+              onClick={handleBulkDelete}
+              disabled={isPending}
+              style={{ ...bulkBtnStyle, marginLeft: "auto", color: "var(--accent-on)" }}
+            >
+              excluir
+            </button>
+          </div>
         </div>
       )}
     </>
   );
 }
+
+const bulkBtnStyle: React.CSSProperties = {
+  padding: "5px 10px",
+  borderRadius: 8,
+  background: "rgba(0,0,0,0.15)",
+  color: "var(--accent-on)",
+  border: "none",
+  fontSize: 11.5,
+  fontWeight: 600,
+  cursor: "pointer",
+};

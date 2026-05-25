@@ -7,6 +7,19 @@ import { db } from "@/db";
 import { compromissos } from "@/db/schema";
 import { requireUserAndHousehold } from "@/lib/auth-helpers";
 
+function addDays(dateStr: string, days: number): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + days);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+}
+
+function addMonths(dateStr: string, months: number): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(y, m - 1 + months, d);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+}
+
 export async function createCompromisso(formData: FormData) {
   const { householdId, userId } = await requireUserAndHousehold();
   const occurredOn = formData.get("occurredOn") as string;
@@ -17,18 +30,49 @@ export async function createCompromisso(formData: FormData) {
   const who = ((formData.get("who") as string) || "").trim() || null;
   const location = ((formData.get("location") as string) || "").trim() || null;
   const notes = ((formData.get("notes") as string) || "").trim() || null;
+  const recurring = (formData.get("recurring") as string) || "once";
 
-  await db.insert(compromissos).values({
-    householdId,
-    createdById: userId,
-    occurredOn,
-    title,
-    time,
-    who,
-    location,
-    notes,
-  });
+  const seriesId = recurring !== "once" ? crypto.randomUUID() : null;
 
+  // Gera as datas conforme recorrência
+  const dates: string[] = [occurredOn];
+  if (recurring === "weekly") {
+    for (let i = 1; i < 12; i++) dates.push(addDays(occurredOn, 7 * i));
+  } else if (recurring === "biweekly") {
+    for (let i = 1; i < 6; i++) dates.push(addDays(occurredOn, 14 * i));
+  } else if (recurring === "monthly") {
+    for (let i = 1; i < 12; i++) dates.push(addMonths(occurredOn, i));
+  }
+
+  await db.insert(compromissos).values(
+    dates.map((date) => ({
+      householdId,
+      createdById: userId,
+      occurredOn: date,
+      title,
+      time,
+      who,
+      location,
+      notes,
+      recurringRule: recurring !== "once" ? recurring : null,
+      seriesId,
+    }))
+  );
+
+  revalidatePath("/compromissos");
+}
+
+export async function deleteSeries(seriesId: string) {
+  const { householdId } = await requireUserAndHousehold();
+  const { and } = await import("drizzle-orm");
+  await db
+    .delete(compromissos)
+    .where(
+      and(
+        eq(compromissos.householdId, householdId),
+        eq(compromissos.seriesId, seriesId)
+      )
+    );
   revalidatePath("/compromissos");
 }
 

@@ -83,6 +83,12 @@ export const pedidoStatusEnum = pgEnum("pedido_status", [
   "received",
   "cancelled",
 ]);
+export const examStatusEnum = pgEnum("exam_status", [
+  "ok",
+  "atencao",
+  "anormal",
+  "pendente",
+]);
 
 // ============================================================
 // Household
@@ -426,6 +432,8 @@ export const compromissos = pgTable(
     who: text("who"), // "Casal", "Augusto", "Marília", "Francisco", livre
     location: text("location"),
     notes: text("notes"),
+    recurringRule: text("recurring_rule"), // ex: "weekly", "monthly", "weekly:tue"
+    seriesId: uuid("series_id"), // mesmo seriesId = todas instâncias da mesma série
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (c) => [index("compromisso_household_date_idx").on(c.householdId, c.occurredOn)]
@@ -652,6 +660,8 @@ export const householdRelations = relations(households, ({ many }) => ({
   viagens: many(viagens),
   supermercadoItens: many(supermercadoItens),
   supermercadoPedidos: many(supermercadoPedidos),
+  exames: many(exames),
+  pesagens: many(pesagens),
 }));
 
 export const userRelations = relations(users, ({ one, many }) => ({
@@ -884,5 +894,68 @@ export const supermercadoPedidoItemRelations = relations(supermercadoPedidoItens
   item: one(supermercadoItens, {
     fields: [supermercadoPedidoItens.itemId],
     references: [supermercadoItens.id],
+  }),
+}));
+
+// ============================================================
+// Saúde · Exames (histórico clínico)
+// ============================================================
+export const exames = pgTable(
+  "exame",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    createdById: text("created_by_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    who: text("who").notNull(), // "Augusto", "Marília", "Francisco", livre
+    name: text("name").notNull(), // "Check-up cardio", "Sangue completo"
+    examDate: date("exam_date").notNull(),
+    doctor: text("doctor"), // "Dr. Salles", "Lab Sabin"
+    status: examStatusEnum("status").notNull().default("ok"),
+    result: text("result"), // observação curta tipo "CK e CKMB normais"
+    notes: text("notes"),
+    attachmentUrl: text("attachment_url"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (e) => [index("exame_household_date_idx").on(e.householdId, e.examDate)]
+);
+
+export const exameRelations = relations(exames, ({ one }) => ({
+  household: one(households, {
+    fields: [exames.householdId],
+    references: [households.id],
+  }),
+}));
+
+// ============================================================
+// Saúde · Peso (pesagens semanais)
+// ============================================================
+export const pesagens = pgTable(
+  "pesagem",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    createdById: text("created_by_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    who: text("who").notNull(), // mesma logica
+    weighedOn: date("weighed_on").notNull(),
+    weightKg: numeric("weight_kg", { precision: 5, scale: 2 }).notNull(),
+    bodyFatPct: numeric("body_fat_pct", { precision: 4, scale: 1 }),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (p) => [index("pesagem_household_who_date_idx").on(p.householdId, p.who, p.weighedOn)]
+);
+
+export const pesagemRelations = relations(pesagens, ({ one }) => ({
+  household: one(households, {
+    fields: [pesagens.householdId],
+    references: [households.id],
   }),
 }));

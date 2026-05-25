@@ -120,6 +120,14 @@ export default async function CompromissosPage() {
               <FormField label="Observações">
                 <textarea name="notes" rows={2} style={fieldStyle} />
               </FormField>
+              <FormField label="Repetir" hint="opcional · gera múltiplas datas">
+                <select name="recurring" defaultValue="once" style={fieldStyle}>
+                  <option value="once">Só uma vez</option>
+                  <option value="weekly">Semanal (12 ocorrências)</option>
+                  <option value="biweekly">Quinzenal (6 ocorrências)</option>
+                  <option value="monthly">Mensal (12 ocorrências)</option>
+                </select>
+              </FormField>
               <SubmitButton>Salvar compromisso</SubmitButton>
             </form>
           )}

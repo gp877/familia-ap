@@ -170,10 +170,12 @@ export default async function FinanceiroPage() {
       <SectionRow icon="bag" label="Atalhos" />
 
       <div style={{ padding: "0 20px", display: "grid", gap: 8, gridTemplateColumns: "1fr 1fr" }}>
-        <Shortcut href="/financeiro/transacoes" icon="bag" label="Transações" sub="ver e classificar" />
-        <Shortcut href="/financeiro/dre" icon="chart" label="DRE" sub="receitas e despesas do mês" />
         <Shortcut href="/financeiro/upload" icon="file" label="Subir PDF" sub="extrato ou fatura" accent />
+        <Shortcut href="/financeiro/transacoes" icon="bag" label="Transações" sub="ver e classificar" />
+        <Shortcut href="/financeiro/dre" icon="chart" label="DRE" sub="receitas, despesas e orçamento" />
+        <Shortcut href="/financeiro/faturas" icon="bank" label="Faturas" sub="cartões de crédito" />
         <Shortcut href="/financeiro/contas" icon="bank" label="Contas" sub={`${accounts.length} cadastradas`} />
+        <Shortcut href="/financeiro/orcamento" icon="chart" label="Orçamento" sub="planejado anual" />
         <Shortcut href="/financeiro/categorias" icon="star" label="Categorias" sub="gerenciar" />
       </div>
     </ScreenShell>
