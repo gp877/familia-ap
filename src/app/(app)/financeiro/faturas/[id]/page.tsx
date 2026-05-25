@@ -2,12 +2,13 @@ import { and, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
 import { notFound } from "next/navigation";
 
 import { BigNumber, Card, Pill, SectionRow } from "@/components/ap/atoms";
+import { ConfirmSubmitButton } from "@/components/ap/confirm-submit";
 import { BackButton, FormField, fieldStyle } from "@/components/ap/inline-form";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import {
-  deleteInvoice,
+  deleteInvoiceForm,
   linkInvoicePayment,
-  unlinkInvoicePayment,
+  unlinkInvoicePaymentForm,
 } from "@/app/actions/invoices";
 import { auth } from "@/auth";
 import type { CategoryOption } from "@/components/category-select";
@@ -189,12 +190,8 @@ export default async function FaturaDetailPage({
                   <span className="ap-num">R$ {formatBRL(parseFloat(paymentTx.amount))}</span>
                 </div>
               </div>
-              <form
-                action={async () => {
-                  "use server";
-                  await unlinkInvoicePayment(inv.id);
-                }}
-              >
+              <form action={unlinkInvoicePaymentForm}>
+                <input type="hidden" name="invoiceId" value={inv.id} />
                 <button
                   type="submit"
                   style={{
@@ -221,13 +218,7 @@ export default async function FaturaDetailPage({
                   Sugestões (valor próximo no extrato):
                 </div>
                 {closeCandidates.map((tx) => (
-                  <form
-                    key={tx.id}
-                    action={async (fd) => {
-                      "use server";
-                      await linkInvoicePayment(fd);
-                    }}
-                  >
+                  <form key={tx.id} action={linkInvoicePayment}>
                     <input type="hidden" name="invoiceId" value={inv.id} />
                     <input type="hidden" name="transactionId" value={tx.id} />
                     <button
@@ -277,13 +268,7 @@ export default async function FaturaDetailPage({
               </div>
             )}
 
-            <form
-              action={async (fd) => {
-                "use server";
-                await linkInvoicePayment(fd);
-              }}
-              style={{ marginTop: 10 }}
-            >
+            <form action={linkInvoicePayment} style={{ marginTop: 10 }}>
               <input type="hidden" name="invoiceId" value={inv.id} />
               <FormField label="ID da transação manual" hint="cole o UUID se souber qual lançamento é">
                 <input name="transactionId" placeholder="uuid..." style={fieldStyle} />
@@ -316,19 +301,10 @@ export default async function FaturaDetailPage({
       />
 
       <div style={{ padding: "20px" }}>
-        <form
-          action={async () => {
-            "use server";
-            await deleteInvoice(inv.id);
-          }}
-        >
-          <button
-            type="submit"
-            onClick={(e) => {
-              if (!confirm("Excluir fatura inteira? Lançamentos ficam mas perdem o vínculo.")) {
-                e.preventDefault();
-              }
-            }}
+        <form action={deleteInvoiceForm}>
+          <input type="hidden" name="id" value={inv.id} />
+          <ConfirmSubmitButton
+            confirmMsg="Excluir fatura inteira? Lançamentos ficam mas perdem o vínculo."
             style={{
               width: "100%",
               padding: "10px",
@@ -342,7 +318,7 @@ export default async function FaturaDetailPage({
             }}
           >
             Excluir fatura
-          </button>
+          </ConfirmSubmitButton>
         </form>
       </div>
     </ScreenShell>

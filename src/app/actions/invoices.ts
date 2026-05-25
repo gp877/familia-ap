@@ -78,6 +78,19 @@ export async function unlinkInvoicePayment(invoiceId: string) {
   revalidatePath(`/financeiro/faturas/${invoiceId}`);
 }
 
+/** Form-action wrappers (Next.js 16 não aceita arrow inline com "use server" no JSX). */
+export async function unlinkInvoicePaymentForm(formData: FormData) {
+  const id = formData.get("invoiceId") as string;
+  if (!id) return;
+  await unlinkInvoicePayment(id);
+}
+
+export async function deleteInvoiceForm(formData: FormData) {
+  const id = formData.get("id") as string;
+  if (!id) return;
+  await deleteInvoice(id);
+}
+
 /**
  * Atribui transações em massa a uma fatura (quando o usuário identifica
  * que vários lançamentos pertencem àquela fatura específica).

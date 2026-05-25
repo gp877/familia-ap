@@ -1,16 +1,15 @@
 import { asc, desc, eq, sql } from "drizzle-orm";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 
 import { BigNumber, Card, Pill, SectionRow } from "@/components/ap/atoms";
 import { DeleteBtn, FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
 import { ScreenShell } from "@/components/ap/screen-shell";
+import { StockInput } from "@/components/ap/stock-input";
 import {
-  createEmptyPedido,
+  createEmptyPedidoAndGo,
   createItem,
-  createPedidoFromShortfall,
+  createPedidoFromShortfallAndGo,
   deleteItem,
-  updateItemStock,
 } from "@/app/actions/supermercado";
 import { auth } from "@/auth";
 import { db } from "@/db";
@@ -74,22 +73,7 @@ export default async function SupermercadoPage() {
       />
 
       <div style={{ padding: "14px 20px 0", display: "flex", gap: 10 }}>
-        <form
-          action={async () => {
-            "use server";
-            let id: string;
-            try {
-              id = await createPedidoFromShortfall();
-            } catch (err) {
-              if (err instanceof Error && err.message.includes("Nenhum")) {
-                return;
-              }
-              throw err;
-            }
-            redirect(`/supermercado/pedidos/${id}`);
-          }}
-          style={{ flex: 1 }}
-        >
+        <form action={createPedidoFromShortfallAndGo} style={{ flex: 1 }}>
           <button
             type="submit"
             disabled={itemsNeedingBuy.length === 0}
@@ -108,14 +92,7 @@ export default async function SupermercadoPage() {
             Gerar pedido (faltas)
           </button>
         </form>
-        <form
-          action={async () => {
-            "use server";
-            const id = await createEmptyPedido();
-            redirect(`/supermercado/pedidos/${id}`);
-          }}
-          style={{ flex: 1 }}
-        >
+        <form action={createEmptyPedidoAndGo} style={{ flex: 1 }}>
           <button
             type="submit"
             style={{
@@ -256,32 +233,11 @@ export default async function SupermercadoPage() {
                       .join(" · ") || "—"}
                   </div>
                 </div>
-                <form
-                  action={async (fd) => {
-                    "use server";
-                    await updateItemStock(item.id, (fd.get("stock") as string) || "");
-                  }}
-                >
-                  <input
-                    name="stock"
-                    type="number"
-                    step="0.01"
-                    defaultValue={item.currentStock ?? ""}
-                    placeholder="estoque"
-                    style={{
-                      width: 70,
-                      padding: "4px 8px",
-                      borderRadius: 8,
-                      background: low ? "var(--alert)" : "var(--card2)",
-                      color: low ? "var(--accent-on)" : "var(--ink)",
-                      border: "none",
-                      fontSize: 12,
-                      fontFamily: "inherit",
-                      textAlign: "right",
-                    }}
-                    onBlur={(e) => e.currentTarget.form?.requestSubmit()}
-                  />
-                </form>
+                <StockInput
+                  itemId={item.id}
+                  defaultStock={item.currentStock}
+                  low={low}
+                />
                 <DeleteBtn
                   action={deleteItem.bind(null, item.id)}
                   confirmMsg={`Excluir "${item.name}"?`}

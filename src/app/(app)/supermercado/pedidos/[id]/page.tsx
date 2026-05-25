@@ -2,14 +2,15 @@ import { asc, eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
 
 import { BigNumber, Pill, SectionRow } from "@/components/ap/atoms";
+import { ConfirmSubmitButton } from "@/components/ap/confirm-submit";
 import { BackButton, DeleteBtn, FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import {
   addPedidoItem,
-  deletePedido,
+  deletePedidoForm,
   removePedidoItem,
-  setPedidoStatus,
-  togglePedidoItemChecked,
+  setPedidoStatusForm,
+  togglePedidoItemCheckedForm,
 } from "@/app/actions/supermercado";
 import { auth } from "@/auth";
 import { db } from "@/db";
@@ -131,12 +132,9 @@ export default async function PedidoDetailPage({
           WhatsApp
         </a>
         {pedido.status === "draft" && (
-          <form
-            action={async () => {
-              "use server";
-              await setPedidoStatus(pedido.id, "sent");
-            }}
-          >
+          <form action={setPedidoStatusForm}>
+            <input type="hidden" name="pedidoId" value={pedido.id} />
+            <input type="hidden" name="status" value="sent" />
             <button
               type="submit"
               style={{
@@ -155,12 +153,9 @@ export default async function PedidoDetailPage({
           </form>
         )}
         {pedido.status === "sent" && (
-          <form
-            action={async () => {
-              "use server";
-              await setPedidoStatus(pedido.id, "received");
-            }}
-          >
+          <form action={setPedidoStatusForm}>
+            <input type="hidden" name="pedidoId" value={pedido.id} />
+            <input type="hidden" name="status" value="received" />
             <button
               type="submit"
               style={{
@@ -178,18 +173,10 @@ export default async function PedidoDetailPage({
             </button>
           </form>
         )}
-        <form
-          action={async () => {
-            "use server";
-            await deletePedido(pedido.id);
-          }}
-          style={{ marginLeft: "auto" }}
-        >
-          <button
-            type="submit"
-            onClick={(e) => {
-              if (!confirm("Excluir pedido inteiro?")) e.preventDefault();
-            }}
+        <form action={deletePedidoForm} style={{ marginLeft: "auto" }}>
+          <input type="hidden" name="id" value={pedido.id} />
+          <ConfirmSubmitButton
+            confirmMsg="Excluir pedido inteiro?"
             style={{
               padding: "6px 12px",
               borderRadius: 999,
@@ -202,7 +189,7 @@ export default async function PedidoDetailPage({
             }}
           >
             Excluir pedido
-          </button>
+          </ConfirmSubmitButton>
         </form>
       </div>
 
@@ -226,12 +213,8 @@ export default async function PedidoDetailPage({
                 opacity: item.isChecked ? 0.5 : 1,
               }}
             >
-              <form
-                action={async () => {
-                  "use server";
-                  await togglePedidoItemChecked(item.id);
-                }}
-              >
+              <form action={togglePedidoItemCheckedForm}>
+                <input type="hidden" name="id" value={item.id} />
                 <button
                   type="submit"
                   aria-label={item.isChecked ? "Desmarcar" : "Marcar"}

@@ -2,6 +2,7 @@
 
 import { eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 
 import { db } from "@/db";
 import {
@@ -43,6 +44,16 @@ export async function updateItemStock(itemId: string, newStock: string) {
   revalidatePath("/supermercado");
 }
 
+/**
+ * Wrapper pra usar em <form action> direto. Recebe itemId via campo hidden.
+ */
+export async function updateItemStockForm(formData: FormData) {
+  const itemId = formData.get("itemId") as string;
+  const stock = (formData.get("stock") as string) || "";
+  if (!itemId) return;
+  await updateItemStock(itemId, stock);
+}
+
 export async function deleteItem(itemId: string) {
   const { householdId } = await requireUserAndHousehold();
   const item = await db.query.supermercadoItens.findFirst({
@@ -54,6 +65,27 @@ export async function deleteItem(itemId: string) {
 }
 
 // ── Pedidos ────────────────────────────────────────────────────
+/**
+ * Versão "form action": cria pedido de faltas e redireciona pra detalhe.
+ * Se não houver itens em falta, redireciona de volta pra /supermercado.
+ */
+export async function createPedidoFromShortfallAndGo() {
+  const id = await createPedidoFromShortfall().catch((err) => {
+    if (err instanceof Error && err.message.includes("Nenhum")) return null;
+    throw err;
+  });
+  if (id) redirect(`/supermercado/pedidos/${id}`);
+  else redirect("/supermercado");
+}
+
+/**
+ * Versão "form action": cria pedido vazio e redireciona pra detalhe.
+ */
+export async function createEmptyPedidoAndGo() {
+  const id = await createEmptyPedido();
+  redirect(`/supermercado/pedidos/${id}`);
+}
+
 export async function createPedidoFromShortfall() {
   const { householdId, userId } = await requireUserAndHousehold();
 
@@ -172,6 +204,29 @@ export async function removePedidoItem(pedidoItemId: string) {
   }
   await db.delete(supermercadoPedidoItens).where(eq(supermercadoPedidoItens.id, pedidoItemId));
   revalidatePath(`/supermercado/pedidos/${pi.pedidoId}`);
+}
+
+/**
+ * Wrappers que aceitam FormData (compatível com form action direto).
+ */
+export async function setPedidoStatusForm(formData: FormData) {
+  const pedidoId = formData.get("pedidoId") as string;
+  const status = formData.get("status") as "draft" | "sent" | "received" | "cancelled";
+  if (!pedidoId || !status) return;
+  await setPedidoStatus(pedidoId, status);
+}
+
+export async function togglePedidoItemCheckedForm(formData: FormData) {
+  const id = formData.get("id") as string;
+  if (!id) return;
+  await togglePedidoItemChecked(id);
+}
+
+export async function deletePedidoForm(formData: FormData) {
+  const id = formData.get("id") as string;
+  if (!id) return;
+  await deletePedido(id);
+  redirect("/supermercado");
 }
 
 export async function setPedidoStatus(
