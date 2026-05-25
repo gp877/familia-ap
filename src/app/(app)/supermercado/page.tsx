@@ -77,16 +77,16 @@ export default async function SupermercadoPage() {
         <form
           action={async () => {
             "use server";
+            let id: string;
             try {
-              const id = await createPedidoFromShortfall();
-              redirect(`/supermercado/pedidos/${id}`);
+              id = await createPedidoFromShortfall();
             } catch (err) {
-              // se vazio, cai fora
               if (err instanceof Error && err.message.includes("Nenhum")) {
                 return;
               }
               throw err;
             }
+            redirect(`/supermercado/pedidos/${id}`);
           }}
           style={{ flex: 1 }}
         >

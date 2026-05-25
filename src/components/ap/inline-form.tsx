@@ -2,6 +2,7 @@
 
 import { X } from "lucide-react";
 import { useRef, useTransition } from "react";
+import { useFormStatus } from "react-dom";
 
 import { Icon } from "@/components/ap/icon";
 
@@ -115,27 +116,106 @@ export const fieldStyle: React.CSSProperties = {
 
 export function SubmitButton({
   children,
+  pendingLabel = "Salvando…",
 }: {
   children: React.ReactNode;
+  pendingLabel?: string;
 }) {
+  const { pending } = useFormStatus();
   return (
     <button
       type="submit"
+      disabled={pending}
       style={{
         width: "100%",
         padding: "12px 18px",
         borderRadius: 14,
-        background: "var(--accent)",
-        color: "var(--accent-on)",
+        background: pending ? "var(--card2)" : "var(--accent)",
+        color: pending ? "var(--muted)" : "var(--accent-on)",
         border: "none",
         fontWeight: 700,
         fontSize: 14,
-        cursor: "pointer",
+        cursor: pending ? "wait" : "pointer",
         marginTop: 10,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 8,
       }}
     >
-      {children}
+      {pending ? (
+        <>
+          <Spinner />
+          {pendingLabel}
+        </>
+      ) : (
+        children
+      )}
     </button>
+  );
+}
+
+/**
+ * Botão de submit pequeno (pill) com pending state também.
+ */
+export function PillSubmitButton({
+  children,
+  pendingLabel = "...",
+  background = "var(--accent)",
+  color = "var(--accent-on)",
+}: {
+  children: React.ReactNode;
+  pendingLabel?: string;
+  background?: string;
+  color?: string;
+}) {
+  const { pending } = useFormStatus();
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      style={{
+        padding: "6px 14px",
+        borderRadius: 999,
+        background: pending ? "var(--card2)" : background,
+        color: pending ? "var(--muted)" : color,
+        border: "none",
+        fontWeight: 700,
+        fontSize: 11.5,
+        cursor: pending ? "wait" : "pointer",
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+      }}
+    >
+      {pending ? (
+        <>
+          <Spinner size={11} />
+          {pendingLabel}
+        </>
+      ) : (
+        children
+      )}
+    </button>
+  );
+}
+
+function Spinner({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2.4" opacity="0.25" />
+      <path
+        d="M21 12a9 9 0 0 0-9-9"
+        stroke="currentColor"
+        strokeWidth="2.4"
+        strokeLinecap="round"
+        style={{
+          animation: "ap-spin 0.9s linear infinite",
+          transformOrigin: "12px 12px",
+        }}
+      />
+      <style>{`@keyframes ap-spin { to { transform: rotate(360deg); } }`}</style>
+    </svg>
   );
 }
 
