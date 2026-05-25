@@ -138,23 +138,69 @@ export default async function SupermercadoPage() {
       <div style={{ padding: "14px 0 0" }}>
         <InlineForm buttonLabel="Cadastrar item">
           <form action={createItem}>
-              <FormField label="Nome do item *">
-                <input
-                  name="name"
-                  required
-                  placeholder="Ex: leite integral"
-                  style={fieldStyle}
-                />
-              </FormField>
+            <FormField label="O que é? *">
+              <input
+                name="name"
+                required
+                autoFocus
+                placeholder="Ex: leite integral"
+                style={fieldStyle}
+              />
+            </FormField>
+            <div style={{ display: "grid", gap: 8, gridTemplateColumns: "1fr 1fr" }}>
               <FormField label="Categoria">
                 <input
                   name="category"
-                  placeholder="padaria, limpeza, frutas…"
+                  list="supermercado-cat"
+                  placeholder="comece a digitar..."
                   style={fieldStyle}
                 />
+                <datalist id="supermercado-cat">
+                  <option value="Mercado" />
+                  <option value="Padaria" />
+                  <option value="Frutas" />
+                  <option value="Verduras" />
+                  <option value="Carnes" />
+                  <option value="Bebidas" />
+                  <option value="Limpeza" />
+                  <option value="Higiene" />
+                  <option value="Pet" />
+                </datalist>
               </FormField>
-              <div style={{ display: "grid", gap: 8, gridTemplateColumns: "1fr 1fr 1fr" }}>
-                <FormField label="Qtd padrão">
+              <FormField label="Unidade">
+                <input
+                  name="unit"
+                  list="supermercado-unit"
+                  defaultValue="un"
+                  style={fieldStyle}
+                />
+                <datalist id="supermercado-unit">
+                  <option value="un" />
+                  <option value="kg" />
+                  <option value="g" />
+                  <option value="L" />
+                  <option value="mL" />
+                  <option value="pct" />
+                  <option value="cx" />
+                </datalist>
+              </FormField>
+            </div>
+
+            <details style={{ marginBottom: 10 }}>
+              <summary
+                style={{
+                  cursor: "pointer",
+                  fontSize: 12,
+                  color: "var(--muted)",
+                  padding: "4px 0",
+                  listStyle: "none",
+                  fontWeight: 600,
+                }}
+              >
+                + qtd padrão e preço estimado (opcionais)
+              </summary>
+              <div style={{ marginTop: 8, display: "grid", gap: 8, gridTemplateColumns: "1fr 1fr" }}>
+                <FormField label="Qtd padrão" hint="qtd que vocês compram normalmente">
                   <input
                     type="number"
                     step="0.01"
@@ -163,14 +209,7 @@ export default async function SupermercadoPage() {
                     style={fieldStyle}
                   />
                 </FormField>
-                <FormField label="Unidade">
-                  <input
-                    name="unit"
-                    placeholder="un, kg, L"
-                    style={fieldStyle}
-                  />
-                </FormField>
-                <FormField label="Preço (R$)">
+                <FormField label="Preço estimado (R$)">
                   <input
                     type="number"
                     step="0.01"
@@ -180,6 +219,7 @@ export default async function SupermercadoPage() {
                   />
                 </FormField>
               </div>
+            </details>
             <SubmitButton>Salvar item</SubmitButton>
           </form>
         </InlineForm>

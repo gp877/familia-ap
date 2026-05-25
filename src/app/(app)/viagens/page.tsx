@@ -89,76 +89,95 @@ export default async function ViagensPage() {
       <div style={{ padding: "14px 0 0" }}>
         <InlineForm buttonLabel="Cadastrar viagem">
           <form action={createViagem}>
-              <FormField label="Título *">
+            <FormField label="Pra onde? *">
+              <input
+                name="title"
+                required
+                autoFocus
+                placeholder="Ex: Lisboa + Porto"
+                style={fieldStyle}
+              />
+            </FormField>
+            <div style={{ display: "grid", gap: 8, gridTemplateColumns: "1fr 90px" }}>
+              <FormField label="Cidade">
+                <input name="destinationCity" placeholder="Lisboa" style={fieldStyle} />
+              </FormField>
+              <FormField label="País" hint="2 letras">
                 <input
-                  name="title"
-                  required
-                  placeholder="Ex: Lisboa + Porto"
-                  style={fieldStyle}
+                  name="destinationCountry"
+                  maxLength={2}
+                  placeholder="PT"
+                  style={{ ...fieldStyle, textTransform: "uppercase" }}
                 />
               </FormField>
-              <div style={{ display: "grid", gap: 8, gridTemplateColumns: "1fr 90px" }}>
-                <FormField label="Cidade">
-                  <input name="destinationCity" placeholder="Lisboa" style={fieldStyle} />
-                </FormField>
-                <FormField label="País (2)" hint="PT, BR, AR">
-                  <input
-                    name="destinationCountry"
-                    maxLength={2}
-                    placeholder="PT"
-                    style={{ ...fieldStyle, textTransform: "uppercase" }}
-                  />
-                </FormField>
-              </div>
-              <div style={{ display: "grid", gap: 8, gridTemplateColumns: "1fr 1fr" }}>
-                <FormField label="Saída">
-                  <input type="date" name="startDate" style={fieldStyle} />
-                </FormField>
-                <FormField label="Volta">
-                  <input type="date" name="endDate" style={fieldStyle} />
-                </FormField>
-              </div>
-              <FormField label="Status *">
-                <select name="status" style={fieldStyle} defaultValue="planned">
-                  <option value="planned">Planejada</option>
-                  <option value="in_progress">Em curso</option>
-                  <option value="past">Já fizemos</option>
-                </select>
+            </div>
+            <div style={{ display: "grid", gap: 8, gridTemplateColumns: "1fr 1fr" }}>
+              <FormField label="Saída">
+                <input type="date" name="startDate" style={fieldStyle} />
               </FormField>
-              <FormField label="Custo estimado (R$)">
-                <input
-                  type="number"
-                  step="0.01"
-                  name="estimatedCost"
-                  placeholder="12000"
-                  style={fieldStyle}
-                />
+              <FormField label="Volta">
+                <input type="date" name="endDate" style={fieldStyle} />
               </FormField>
-              <FormField label="Info do voo">
-                <input
-                  name="flightInfo"
-                  placeholder="LATAM 8084 · 27/05 22h05"
-                  style={fieldStyle}
-                />
-              </FormField>
-              <label
+            </div>
+            <FormField label="Status *">
+              <select name="status" style={fieldStyle} defaultValue="planned">
+                <option value="planned">Planejada</option>
+                <option value="in_progress">Em curso</option>
+                <option value="past">Já fizemos</option>
+              </select>
+            </FormField>
+
+            <details style={{ marginBottom: 10 }}>
+              <summary
                 style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  fontSize: 12.5,
-                  marginBottom: 10,
+                  cursor: "pointer",
+                  fontSize: 12,
+                  color: "var(--muted)",
+                  padding: "4px 0",
+                  listStyle: "none",
+                  fontWeight: 600,
                 }}
               >
-                <input type="checkbox" name="ticketsBought" />
-                Passagens já compradas
-              </label>
-              <FormField label="URL da capa" hint="opcional · imagem do destino">
-                <input type="url" name="coverImageUrl" placeholder="https://..." style={fieldStyle} />
-              </FormField>
-              <FormField label="Notas">
-                <textarea name="notes" rows={2} style={fieldStyle} />
-              </FormField>
+                + custo, voo, capa, notas (opcionais)
+              </summary>
+              <div style={{ marginTop: 8 }}>
+                <FormField label="Custo estimado (R$)">
+                  <input
+                    type="number"
+                    step="0.01"
+                    name="estimatedCost"
+                    placeholder="12000"
+                    style={fieldStyle}
+                  />
+                </FormField>
+                <FormField label="Info do voo">
+                  <input
+                    name="flightInfo"
+                    placeholder="LATAM 8084 · 27/05 22h05"
+                    style={fieldStyle}
+                  />
+                </FormField>
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    fontSize: 12.5,
+                    marginBottom: 10,
+                  }}
+                >
+                  <input type="checkbox" name="ticketsBought" />
+                  Passagens já compradas
+                </label>
+                <FormField label="URL da capa" hint="imagem do destino">
+                  <input type="url" name="coverImageUrl" placeholder="https://..." style={fieldStyle} />
+                </FormField>
+                <FormField label="Notas">
+                  <textarea name="notes" rows={2} style={fieldStyle} />
+                </FormField>
+              </div>
+            </details>
+
             <SubmitButton>Salvar viagem</SubmitButton>
           </form>
         </InlineForm>

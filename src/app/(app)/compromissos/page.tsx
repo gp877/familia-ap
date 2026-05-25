@@ -81,43 +81,76 @@ export default async function CompromissosPage() {
       <div style={{ padding: "14px 0 0" }}>
         <InlineForm buttonLabel="Adicionar compromisso">
           <form action={createCompromisso}>
-            <FormField label="Título *">
+            <FormField label="O que é? *">
               <input
                 name="title"
                 required
-                placeholder="Ex: primeira aula de natação do Francisco"
+                autoFocus
+                placeholder="Ex: aula de natação Francisco"
                 style={fieldStyle}
               />
             </FormField>
             <div style={{ display: "grid", gap: 8, gridTemplateColumns: "1fr 1fr" }}>
-              <FormField label="Data *">
-                <input type="date" name="occurredOn" required defaultValue={today} style={fieldStyle} />
+              <FormField label="Quando *">
+                <input
+                  type="date"
+                  name="occurredOn"
+                  required
+                  defaultValue={today}
+                  style={fieldStyle}
+                />
               </FormField>
-              <FormField label="Hora">
-                <input type="time" name="time" placeholder="HH:MM" style={fieldStyle} />
+              <FormField label="Hora (opcional)">
+                <input type="time" name="time" style={fieldStyle} />
               </FormField>
             </div>
-            <FormField label="Quem">
+            <FormField label="Quem (opcional)">
               <input
                 name="who"
-                placeholder="Casal · Augusto · Marília · Francisco"
+                list="compromisso-who"
+                placeholder="comece a digitar..."
                 style={fieldStyle}
               />
+              <datalist id="compromisso-who">
+                <option value="Casal" />
+                <option value="Augusto" />
+                <option value="Marília" />
+                <option value="Francisco" />
+                <option value="Família" />
+              </datalist>
             </FormField>
-            <FormField label="Local">
-              <input name="location" placeholder="Opcional" style={fieldStyle} />
-            </FormField>
-            <FormField label="Observações">
-              <textarea name="notes" rows={2} style={fieldStyle} />
-            </FormField>
-            <FormField label="Repetir" hint="opcional · gera múltiplas datas">
-              <select name="recurring" defaultValue="once" style={fieldStyle}>
-                <option value="once">Só uma vez</option>
-                <option value="weekly">Semanal (12 ocorrências)</option>
-                <option value="biweekly">Quinzenal (6 ocorrências)</option>
-                <option value="monthly">Mensal (12 ocorrências)</option>
-              </select>
-            </FormField>
+
+            <details style={{ marginBottom: 10 }}>
+              <summary
+                style={{
+                  cursor: "pointer",
+                  fontSize: 12,
+                  color: "var(--muted)",
+                  padding: "4px 0",
+                  listStyle: "none",
+                  fontWeight: 600,
+                }}
+              >
+                + mais opções (local, notas, repetir)
+              </summary>
+              <div style={{ marginTop: 8 }}>
+                <FormField label="Local">
+                  <input name="location" style={fieldStyle} />
+                </FormField>
+                <FormField label="Observações">
+                  <textarea name="notes" rows={2} style={fieldStyle} />
+                </FormField>
+                <FormField label="Repetir" hint="gera múltiplas datas">
+                  <select name="recurring" defaultValue="once" style={fieldStyle}>
+                    <option value="once">Só uma vez</option>
+                    <option value="weekly">Semanal (12 ocorrências)</option>
+                    <option value="biweekly">Quinzenal (6 ocorrências)</option>
+                    <option value="monthly">Mensal (12 ocorrências)</option>
+                  </select>
+                </FormField>
+              </div>
+            </details>
+
             <SubmitButton>Salvar compromisso</SubmitButton>
           </form>
         </InlineForm>
