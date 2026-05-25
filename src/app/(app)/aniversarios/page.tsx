@@ -1,85 +1,308 @@
-import { SectionRow } from "@/components/ap/atoms";
+import { asc, eq } from "drizzle-orm";
+
+import { BigNumber, SectionRow } from "@/components/ap/atoms";
+import { DeleteBtn, FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
 import { ScreenShell } from "@/components/ap/screen-shell";
+import {
+  addPresente,
+  createAniversario,
+  deleteAniversario,
+  deletePresente,
+} from "@/app/actions/aniversarios";
+import { auth } from "@/auth";
+import { db } from "@/db";
+import { aniversarios, users } from "@/db/schema";
 
-const dates = [
-  { name: "Vó Inês", d: "26 mai", days: 3, detail: "faz 78 · avó da Camila" },
-  { name: "Augusto + Camila", d: "14 jun", days: 22, detail: "12 anos de casados" },
-  { name: "Pedro Piffer", d: "02 jul", days: 40, detail: "sobrinho · 8 anos" },
-  { name: "Camila", d: "11 ago", days: 80, detail: "esposa · 40 anos" },
-  { name: "Sogro", d: "03 set", days: 103, detail: "pai da Camila · 72 anos" },
-];
+const MONTH_LABEL = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
 
-export default function AniversariosPage() {
+function daysUntil(monthDay: string): number {
+  const [m, d] = monthDay.split("-").map(Number);
+  const now = new Date();
+  let target = new Date(now.getFullYear(), m - 1, d);
+  target.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (target < today) {
+    target = new Date(now.getFullYear() + 1, m - 1, d);
+    target.setHours(0, 0, 0, 0);
+  }
+  return Math.round((target.getTime() - today.getTime()) / 86_400_000);
+}
+
+function computeAge(birthYear: number | null, monthDay: string): number | null {
+  if (!birthYear) return null;
+  const [m, d] = monthDay.split("-").map(Number);
+  const now = new Date();
+  let age = now.getFullYear() - birthYear;
+  const passed =
+    now.getMonth() + 1 > m || (now.getMonth() + 1 === m && now.getDate() >= d);
+  if (!passed) age -= 1;
+  // próxima idade
+  return age + 1;
+}
+
+export default async function AniversariosPage() {
+  const session = await auth();
+  if (!session?.user?.id) return null;
+
+  const dbUser = await db.query.users.findFirst({
+    where: eq(users.id, session.user.id),
+  });
+  if (!dbUser?.householdId) return null;
+
+  const all = await db.query.aniversarios.findMany({
+    where: eq(aniversarios.householdId, dbUser.householdId),
+    with: {
+      presentes: {
+        orderBy: (p, { desc: d }) => [d(p.year)],
+      },
+    },
+    orderBy: [asc(aniversarios.monthDay)],
+  });
+
+  // Ordena por proximidade (dias até)
+  const sorted = [...all]
+    .map((a) => ({ ...a, days: daysUntil(a.monthDay), nextAge: computeAge(a.birthYear, a.monthDay) }))
+    .sort((a, b) => a.days - b.days);
+
+  const next = sorted[0];
+
   return (
     <ScreenShell
-      userQ="Quem faz aniversário esse mês?"
+      userQ="Quem faz aniversário em breve?"
       insight={
-        <>
-          Vó Inês <b>em 3 dias</b>. Já tem presente? Ano passado vocês deram um xale — eu lembro se quiser uma sugestão.
-        </>
+        next ? (
+          <>
+            <b>{next.name}</b> faz aniversário {next.days === 0 ? "hoje" : `em ${next.days} ${next.days === 1 ? "dia" : "dias"}`}
+            {next.nextAge ? ` · ${next.nextAge} anos` : ""}.
+          </>
+        ) : (
+          <>Nenhum aniversário cadastrado. Adiciona abaixo pra eu lembrar você.</>
+        )
       }
     >
-      <SectionRow icon="cake" label="Próximos 5" action="3 meses" />
-      <div style={{ padding: "0 20px" }}>
-        <div className="ap-num" style={{ fontSize: 36, color: "var(--accent)" }}>
-          3 dias
-        </div>
-        <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
-          até o aniversário da vó Inês · faz 78
-        </div>
+      <SectionRow icon="cake" label="Aniversários da família" action={`${sorted.length} cadastrados`} />
+
+      {next ? (
+        <BigNumber
+          value={next.days === 0 ? "Hoje" : `${next.days} dias`}
+          sub={`${next.name}${next.nextAge ? ` · ${next.nextAge} anos` : ""}`}
+          accent
+        />
+      ) : (
+        <BigNumber value="—" sub="sem aniversários cadastrados" />
+      )}
+
+      <div style={{ padding: "14px 0 0" }}>
+        <InlineForm buttonLabel="Cadastrar aniversário">
+          {(close) => (
+            <form
+              action={async (fd) => {
+                "use server";
+                await createAniversario(fd);
+              }}
+              onSubmit={() => setTimeout(close, 0)}
+            >
+              <FormField label="Nome *">
+                <input name="name" required placeholder="Ex: Vó Inês" style={fieldStyle} />
+              </FormField>
+              <div style={{ display: "grid", gap: 8, gridTemplateColumns: "1fr 1fr" }}>
+                <FormField label="Dia/mês *" hint="MM-DD (ex: 11-08 = 11 de agosto)">
+                  <input
+                    name="monthDay"
+                    required
+                    pattern="\d{2}-\d{2}"
+                    placeholder="MM-DD"
+                    style={fieldStyle}
+                  />
+                </FormField>
+                <FormField label="Ano de nasc." hint="opcional · pra calcular idade">
+                  <input
+                    type="number"
+                    name="birthYear"
+                    placeholder="1948"
+                    style={fieldStyle}
+                  />
+                </FormField>
+              </div>
+              <FormField label="Relação">
+                <input
+                  name="relation"
+                  placeholder="Ex: avó da Marília, sobrinho"
+                  style={fieldStyle}
+                />
+              </FormField>
+              <FormField label="Observações">
+                <textarea name="notes" rows={2} style={fieldStyle} />
+              </FormField>
+              <SubmitButton>Salvar</SubmitButton>
+            </form>
+          )}
+        </InlineForm>
       </div>
 
       <div style={{ padding: "14px 20px 0" }}>
-        {dates.map((d, i) => (
-          <div
-            key={i}
+        {sorted.map((aniv, i) => (
+          <details
+            key={aniv.id}
             style={{
-              display: "flex",
-              gap: 14,
-              alignItems: "center",
+              borderBottom: i < sorted.length - 1 ? "0.5px solid var(--line-d)" : "none",
               padding: "12px 0",
-              borderBottom: i < dates.length - 1 ? "0.5px solid var(--line-d)" : "none",
             }}
           >
-            <div
+            <summary
               style={{
-                width: 44,
-                height: 44,
-                borderRadius: 12,
-                background: i === 0 ? "var(--accent)" : "var(--card2)",
-                color: i === 0 ? "var(--accent-on)" : "var(--ink)",
                 display: "flex",
-                flexDirection: "column",
+                gap: 14,
                 alignItems: "center",
-                justifyContent: "center",
-                flexShrink: 0,
+                cursor: "pointer",
+                listStyle: "none",
               }}
             >
-              <span className="ap-num" style={{ fontSize: 14, lineHeight: 1 }}>
-                {d.d.split(" ")[0]}
-              </span>
-              <span
+              <div
                 style={{
-                  fontSize: 8,
-                  fontWeight: 700,
-                  letterSpacing: "0.1em",
-                  textTransform: "uppercase",
-                  marginTop: 2,
+                  width: 44,
+                  height: 44,
+                  borderRadius: 12,
+                  background: i === 0 ? "var(--accent)" : "var(--card2)",
+                  color: i === 0 ? "var(--accent-on)" : "var(--ink)",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
                 }}
               >
-                {d.d.split(" ")[1]}
-              </span>
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 14, fontWeight: 700 }}>{d.name}</div>
-              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
-                {d.detail}
+                <span className="ap-num" style={{ fontSize: 14, lineHeight: 1 }}>
+                  {aniv.monthDay.split("-")[1]}
+                </span>
+                <span
+                  style={{
+                    fontSize: 8,
+                    fontWeight: 700,
+                    letterSpacing: "0.1em",
+                    textTransform: "uppercase",
+                    marginTop: 2,
+                  }}
+                >
+                  {MONTH_LABEL[parseInt(aniv.monthDay.split("-")[0], 10) - 1]}
+                </span>
               </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 700 }}>{aniv.name}</div>
+                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                  {[aniv.relation, aniv.nextAge ? `faz ${aniv.nextAge}` : null]
+                    .filter(Boolean)
+                    .join(" · ") || aniv.notes || "—"}
+                </div>
+              </div>
+              <span style={{ fontSize: 12, color: "var(--muted)", fontWeight: 600 }}>
+                {aniv.days < 10 ? `em ${aniv.days}d` : `${aniv.days}d`}
+              </span>
+              <DeleteBtn
+                action={async () => {
+                  "use server";
+                  await deleteAniversario(aniv.id);
+                }}
+                confirmMsg={`Excluir ${aniv.name}?`}
+              />
+            </summary>
+
+            <div style={{ paddingLeft: 58, paddingTop: 10 }}>
+              {aniv.notes && (
+                <p
+                  style={{
+                    fontSize: 12,
+                    color: "var(--muted-d)",
+                    marginBottom: 10,
+                    fontStyle: "italic",
+                  }}
+                >
+                  {aniv.notes}
+                </p>
+              )}
+
+              <div className="ap-eyebrow" style={{ marginBottom: 6 }}>
+                presentes dados
+              </div>
+              {aniv.presentes.length === 0 ? (
+                <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 8 }}>
+                  Nenhum presente registrado ainda.
+                </div>
+              ) : (
+                <ul style={{ listStyle: "none", padding: 0, marginBottom: 8 }}>
+                  {aniv.presentes.map((p) => (
+                    <li
+                      key={p.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        padding: "4px 0",
+                        fontSize: 12.5,
+                      }}
+                    >
+                      <span
+                        className="ap-num"
+                        style={{ fontSize: 12, color: "var(--muted)", minWidth: 36 }}
+                      >
+                        {p.year}
+                      </span>
+                      <span style={{ flex: 1 }}>{p.description}</span>
+                      <DeleteBtn
+                        action={async () => {
+                          "use server";
+                          await deletePresente(p.id);
+                        }}
+                        confirmMsg="Remover presente?"
+                      />
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <form
+                action={async (fd) => {
+                  "use server";
+                  await addPresente(fd);
+                }}
+                style={{ marginTop: 6 }}
+              >
+                <input type="hidden" name="aniversarioId" value={aniv.id} />
+                <div style={{ display: "grid", gap: 6, gridTemplateColumns: "60px 1fr auto" }}>
+                  <input
+                    type="number"
+                    name="year"
+                    required
+                    defaultValue={new Date().getFullYear()}
+                    placeholder="ano"
+                    style={{ ...fieldStyle, padding: "6px 10px", fontSize: 12 }}
+                  />
+                  <input
+                    name="description"
+                    required
+                    placeholder="O que vocês deram?"
+                    style={{ ...fieldStyle, padding: "6px 10px", fontSize: 12 }}
+                  />
+                  <button
+                    type="submit"
+                    style={{
+                      padding: "6px 12px",
+                      borderRadius: 10,
+                      background: "var(--accent)",
+                      color: "var(--accent-on)",
+                      border: "none",
+                      fontSize: 11.5,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    +
+                  </button>
+                </div>
+              </form>
             </div>
-            <span style={{ fontSize: 12, color: "var(--muted)", fontWeight: 600 }}>
-              {d.days < 10 ? `em ${d.days}d` : `${d.days}d`}
-            </span>
-          </div>
+          </details>
         ))}
       </div>
     </ScreenShell>

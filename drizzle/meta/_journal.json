@@ -15,6 +15,13 @@
       "when": 1779556637244,
       "tag": "0001_handy_archangel",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1779717374497,
+      "tag": "0002_unknown_alex_power",
+      "breakpoints": true
     }
   ]
 }

@@ -4,15 +4,17 @@ export type NavItem = {
   href: string;
   label: string;
   icon: IconName;
-  module: string; // nome do "módulo" exibido no header mobile
+  module: string;
 };
 
 export const NAV_ITEMS: NavItem[] = [
-  { href: "/", label: "Casa", icon: "home", module: "Casa" },
-  { href: "/financeiro", label: "Finanças", icon: "bag", module: "Finanças" },
-  { href: "/saude-exames", label: "Saúde", icon: "mask", module: "Saúde" },
-  { href: "/sonhos", label: "Sonhos", icon: "star", module: "Sonhos" },
-  { href: "/viagens", label: "Viagens", icon: "plane", module: "Viagens" },
-  { href: "/calendario", label: "Calendário", icon: "cal", module: "Calendário" },
+  { href: "/", label: "Início", icon: "home", module: "Início" },
+  { href: "/financeiro", label: "Finanças", icon: "bank", module: "Finanças" },
+  { href: "/compromissos", label: "Compromissos", icon: "cal", module: "Compromissos" },
+  { href: "/finais-de-semana", label: "Finais de Semana", icon: "heart", module: "Finais de Semana" },
   { href: "/aniversarios", label: "Aniversários", icon: "cake", module: "Aniversários" },
+  { href: "/viagens", label: "Viagens", icon: "plane", module: "Viagens" },
+  { href: "/sonhos", label: "Sonhos", icon: "star", module: "Sonhos" },
+  { href: "/supermercado", label: "Supermercado", icon: "bag", module: "Supermercado" },
+  { href: "/saude-exames", label: "Saúde", icon: "mask", module: "Saúde" },
 ];

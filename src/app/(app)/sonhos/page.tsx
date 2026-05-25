@@ -1,91 +1,229 @@
-import { BigNumber, Card, Progress, SectionRow } from "@/components/ap/atoms";
+import { desc, eq } from "drizzle-orm";
+
+import { BigNumber, SectionRow } from "@/components/ap/atoms";
+import { DeleteBtn, FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
 import { ScreenShell } from "@/components/ap/screen-shell";
+import {
+  createSonho,
+  deleteSonho,
+  markSonhoRealized,
+  reopenSonho,
+} from "@/app/actions/sonhos";
+import { auth } from "@/auth";
+import { db } from "@/db";
+import { sonhos, users } from "@/db/schema";
 
-const dreams = [
-  { title: "Meia-maratona do Rio", pct: 84, sub: "12 km feitos · 4×/sem", deadline: "ago/26", who: "Augusto" },
-  { title: "Itália em maio", pct: 62, sub: "R$ 18.600 reservado", deadline: "em 12 meses", who: "Casal" },
-  { title: "Aprender italiano", pct: 41, sub: "Nível A2 · Duolingo 220d", deadline: "sem prazo", who: "Camila" },
-  { title: "Casa na praia", pct: 38, sub: "R$ 76 mil de R$ 200 mil", deadline: "até 2028", who: "Casal" },
-];
+export default async function SonhosPage() {
+  const session = await auth();
+  if (!session?.user?.id) return null;
 
-export default function SonhosPage() {
+  const dbUser = await db.query.users.findFirst({
+    where: eq(users.id, session.user.id),
+  });
+  if (!dbUser?.householdId) return null;
+
+  const all = await db.query.sonhos.findMany({
+    where: eq(sonhos.householdId, dbUser.householdId),
+    orderBy: [desc(sonhos.createdAt)],
+  });
+
+  const active = all.filter((s) => s.status === "active");
+  const realized = all.filter((s) => s.status === "realized");
+
   return (
     <ScreenShell
-      userQ="O que a gente mais quer pros próximos 3 anos?"
+      userQ="O que vocês mais querem?"
       insight={
-        <>
-          A <b>meia-maratona tá quase</b> — se você bater 14km no domingo, passa de 90%. E se sobrar R$ 600/mês, a Itália vira em fevereiro.
-        </>
+        active.length > 0 ? (
+          <>
+            <b>{active.length}</b> {active.length === 1 ? "sonho" : "sonhos"} ativos
+            {realized.length > 0 ? <> · {realized.length} já realizados</> : null}. Continua lembrando deles todo dia.
+          </>
+        ) : (
+          <>Sonhos não foram feitos pra ficar guardados. Adiciona um abaixo — vou te lembrar deles sempre que voltar aqui.</>
+        )
       }
     >
-      <SectionRow icon="star" label="4 sonhos em andamento" action="2 com prazo" />
-      <BigNumber value="84%" sub="meia-maratona do Rio · agosto" accent />
+      <SectionRow
+        icon="star"
+        label={active.length > 0 ? "Sonhos ativos" : "Comece um sonho"}
+        action={`${active.length} ativos`}
+      />
 
-      <div
-        style={{
-          padding: "14px 20px 0",
-          display: "flex",
-          flexDirection: "column",
-          gap: 10,
-        }}
-      >
-        {dreams.map((d, i) => (
-          <Card key={i} pad={14} raised>
+      {active[0] ? (
+        <BigNumber value={active[0].title} sub={active[0].description ?? "ainda sem descrição"} accent />
+      ) : (
+        <BigNumber value="—" sub="nenhum sonho cadastrado" />
+      )}
+
+      <div style={{ padding: "14px 0 0" }}>
+        <InlineForm buttonLabel="Adicionar sonho">
+          {(close) => (
+            <form
+              action={async (fd) => {
+                "use server";
+                await createSonho(fd);
+              }}
+              onSubmit={() => setTimeout(close, 0)}
+            >
+              <FormField label="Título *">
+                <input
+                  name="title"
+                  required
+                  placeholder="Ex: casa na praia"
+                  style={fieldStyle}
+                />
+              </FormField>
+              <FormField label="Descrição">
+                <textarea
+                  name="description"
+                  rows={2}
+                  placeholder="Como vocês visualizam esse sonho?"
+                  style={fieldStyle}
+                />
+              </FormField>
+              <FormField label="URL de imagem" hint="opcional · cole link de uma imagem inspiração">
+                <input
+                  type="url"
+                  name="imageUrl"
+                  placeholder="https://..."
+                  style={fieldStyle}
+                />
+              </FormField>
+              <SubmitButton>Salvar sonho</SubmitButton>
+            </form>
+          )}
+        </InlineForm>
+      </div>
+
+      {active.length > 0 && (
+        <div style={{ padding: "16px 20px 0", display: "grid", gap: 12 }}>
+          {active.map((s) => (
+            <SonhoCard
+              key={s.id}
+              s={s}
+              actionLabel="Realizado"
+              onAction={async () => {
+                "use server";
+                await markSonhoRealized(s.id);
+              }}
+              onDelete={async () => {
+                "use server";
+                await deleteSonho(s.id);
+              }}
+            />
+          ))}
+        </div>
+      )}
+
+      {realized.length > 0 && (
+        <>
+          <SectionRow icon="heart" label="Já realizados" action={`${realized.length}`} />
+          <div style={{ padding: "0 20px", display: "grid", gap: 12 }}>
+            {realized.map((s) => (
+              <SonhoCard
+                key={s.id}
+                s={s}
+                actionLabel="Reabrir"
+                onAction={async () => {
+                  "use server";
+                  await reopenSonho(s.id);
+                }}
+                onDelete={async () => {
+                  "use server";
+                  await deleteSonho(s.id);
+                }}
+                realized
+              />
+            ))}
+          </div>
+        </>
+      )}
+    </ScreenShell>
+  );
+}
+
+function SonhoCard({
+  s,
+  actionLabel,
+  onAction,
+  onDelete,
+  realized,
+}: {
+  s: typeof sonhos.$inferSelect;
+  actionLabel: string;
+  onAction: () => Promise<void>;
+  onDelete: () => Promise<void>;
+  realized?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        borderRadius: 16,
+        background: "var(--card)",
+        overflow: "hidden",
+        opacity: realized ? 0.75 : 1,
+      }}
+    >
+      {s.imageUrl && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={s.imageUrl}
+          alt={s.title}
+          style={{
+            width: "100%",
+            aspectRatio: "16 / 9",
+            objectFit: "cover",
+            display: "block",
+          }}
+        />
+      )}
+      <div style={{ padding: 14 }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
             <div
               style={{
-                display: "flex",
-                alignItems: "baseline",
-                justifyContent: "space-between",
-                gap: 10,
+                fontSize: 16,
+                fontWeight: 700,
+                letterSpacing: "-0.01em",
+                color: realized ? "var(--muted-d)" : "var(--ink)",
+                textDecoration: realized ? "line-through" : "none",
               }}
             >
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div
-                  style={{
-                    fontSize: 9.5,
-                    fontWeight: 700,
-                    letterSpacing: "0.18em",
-                    textTransform: "uppercase",
-                    color: "var(--muted)",
-                  }}
-                >
-                  {d.deadline} · {d.who}
-                </div>
-                <div
-                  style={{
-                    fontSize: 17,
-                    fontWeight: 700,
-                    color: "var(--ink)",
-                    marginTop: 4,
-                    letterSpacing: "-0.01em",
-                  }}
-                >
-                  {d.title}
-                </div>
-                <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 2 }}>
-                  {d.sub}
-                </div>
-              </div>
-              <div
-                className="ap-num"
-                style={{
-                  fontSize: 22,
-                  color: d.pct >= 80 ? "var(--accent)" : "var(--ink)",
-                }}
-              >
-                {d.pct}%
-              </div>
+              {s.title}
             </div>
-            <div style={{ marginTop: 10 }}>
-              <Progress
-                value={d.pct}
-                color={d.pct >= 80 ? "var(--accent)" : "var(--ink-d)"}
-                h={3}
-              />
-            </div>
-          </Card>
-        ))}
+            {s.description && (
+              <div style={{ fontSize: 12.5, color: "var(--muted-d)", marginTop: 4 }}>
+                {s.description}
+              </div>
+            )}
+          </div>
+          <DeleteBtn action={onDelete} confirmMsg={`Excluir "${s.title}"?`} />
+        </div>
+        <form
+          action={async () => {
+            "use server";
+            await onAction();
+          }}
+          style={{ marginTop: 10 }}
+        >
+          <button
+            type="submit"
+            style={{
+              padding: "6px 14px",
+              borderRadius: 999,
+              background: "var(--card2)",
+              color: "var(--ink-d)",
+              border: "none",
+              fontSize: 11.5,
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            {actionLabel}
+          </button>
+        </form>
       </div>
-    </ScreenShell>
+    </div>
   );
 }

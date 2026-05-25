@@ -1,10 +1,18 @@
-import { eq, sql } from "drizzle-orm";
+import { asc, desc, eq, gte, sql } from "drizzle-orm";
+import Link from "next/link";
 
-import { BigNumber, ListRow, SectionRow } from "@/components/ap/atoms";
+import { BigNumber, Card, ListRow, SectionRow } from "@/components/ap/atoms";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import { auth } from "@/auth";
 import { db } from "@/db";
-import { transactions, users } from "@/db/schema";
+import {
+  aniversarios,
+  compromissos,
+  sonhos,
+  transactions,
+  users,
+  viagens,
+} from "@/db/schema";
 
 function formatBRL(n: number) {
   return n.toLocaleString("pt-BR", {
@@ -13,43 +21,90 @@ function formatBRL(n: number) {
   });
 }
 
-export default async function CasaPage() {
+function daysUntilMD(md: string): number {
+  const [m, d] = md.split("-").map(Number);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  let target = new Date(today.getFullYear(), m - 1, d);
+  if (target < today) target = new Date(today.getFullYear() + 1, m - 1, d);
+  return Math.round((target.getTime() - today.getTime()) / 86_400_000);
+}
+
+function daysUntilDate(d: string): number {
+  const [y, m, day] = d.split("-").map(Number);
+  const target = new Date(y, m - 1, day);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.round((target.getTime() - today.getTime()) / 86_400_000);
+}
+
+export default async function InicioPage() {
   const session = await auth();
   const firstName = session?.user?.name?.split(" ")[0] ?? "";
 
-  let saldoLivre = 0;
-  let txCount = 0;
-  let pendingCount = 0;
+  if (!session?.user?.id) return null;
+  const dbUser = await db.query.users.findFirst({
+    where: eq(users.id, session.user.id),
+  });
+  if (!dbUser?.householdId) return null;
 
-  if (session?.user?.id) {
-    const me = await db.query.users.findFirst({
-      where: eq(users.id, session.user.id),
-    });
-    if (me?.householdId) {
-      const monthStart = new Date();
-      monthStart.setDate(1);
-      monthStart.setHours(0, 0, 0, 0);
+  // === Dados do mês corrente ===
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
 
-      const totals = await db
-        .select({
-          totalDebit: sql<string>`coalesce(sum(case when ${transactions.kind} = 'debit' then ${transactions.amount}::numeric else 0 end), 0)::text`,
-          totalCredit: sql<string>`coalesce(sum(case when ${transactions.kind} = 'credit' then ${transactions.amount}::numeric else 0 end), 0)::text`,
-          count: sql<number>`count(*)::int`,
-          pending: sql<number>`count(*) filter (where ${transactions.status} = 'pending')::int`,
-        })
-        .from(transactions)
-        .where(
-          sql`${transactions.householdId} = ${me.householdId} AND ${transactions.occurredOn} >= ${monthStart.toISOString()} AND ${transactions.status} != 'ignored'`
-        )
-        .then((r) => r[0]);
+  const monthStats = await db
+    .select({
+      debit: sql<string>`coalesce(sum(case when ${transactions.kind} = 'debit' then ${transactions.amount}::numeric else 0 end), 0)::text`,
+      credit: sql<string>`coalesce(sum(case when ${transactions.kind} = 'credit' then ${transactions.amount}::numeric else 0 end), 0)::text`,
+      count: sql<number>`count(*)::int`,
+      pending: sql<number>`count(*) filter (where ${transactions.status} = 'pending')::int`,
+    })
+    .from(transactions)
+    .where(
+      sql`${transactions.householdId} = ${dbUser.householdId} AND ${transactions.status} != 'ignored' AND ${transactions.occurredOn} >= ${monthStart.toISOString()} AND ${transactions.occurredOn} < ${monthEnd.toISOString()}`
+    )
+    .then((r) => r[0]);
 
-      const debit = parseFloat(totals?.totalDebit ?? "0");
-      const credit = parseFloat(totals?.totalCredit ?? "0");
-      saldoLivre = credit - debit;
-      txCount = totals?.count ?? 0;
-      pendingCount = totals?.pending ?? 0;
-    }
-  }
+  const totalDebit = parseFloat(monthStats?.debit ?? "0");
+  const totalCredit = parseFloat(monthStats?.credit ?? "0");
+  const saldo = totalCredit - totalDebit;
+  const txCount = monthStats?.count ?? 0;
+  const pendingCount = monthStats?.pending ?? 0;
+
+  // === Próximo compromisso ===
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const nextCompromissos = await db.query.compromissos.findMany({
+    where: (c, { and: a }) =>
+      a(eq(c.householdId, dbUser.householdId!), gte(c.occurredOn, todayStr)),
+    orderBy: [asc(compromissos.occurredOn), asc(compromissos.time)],
+    limit: 3,
+  });
+
+  // === Próximas viagens ===
+  const upcomingTrips = await db.query.viagens.findMany({
+    where: (v, { and: a, ne }) =>
+      a(eq(v.householdId, dbUser.householdId!), ne(v.status, "past")),
+    orderBy: [asc(viagens.startDate)],
+    limit: 1,
+  });
+  const nextTrip = upcomingTrips[0];
+
+  // === Próximo aniversário ===
+  const allAniv = await db.query.aniversarios.findMany({
+    where: eq(aniversarios.householdId, dbUser.householdId),
+  });
+  const nextAniv = allAniv
+    .map((a) => ({ ...a, days: daysUntilMD(a.monthDay) }))
+    .sort((a, b) => a.days - b.days)[0];
+
+  // === Sonhos ativos ===
+  const activeSonhos = await db.query.sonhos.findMany({
+    where: (s, { and: a }) =>
+      a(eq(s.householdId, dbUser.householdId!), eq(s.status, "active")),
+    orderBy: [desc(sonhos.createdAt)],
+    limit: 6,
+  });
 
   const greeting = (() => {
     const h = new Date().getHours();
@@ -59,32 +114,7 @@ export default async function CasaPage() {
     return "boa noite";
   })();
 
-  const today = new Date().toLocaleDateString("pt-BR", {
-    weekday: "long",
-    day: "2-digit",
-    month: "short",
-  });
-
-  // Módulos — só Finanças tem dado real; resto é mock por enquanto
-  const modules = [
-    {
-      id: "fin",
-      label: "Finanças",
-      val: txCount > 0 ? `R$ ${formatBRL(Math.max(0, saldoLivre))}` : "—",
-      sub:
-        txCount > 0
-          ? pendingCount > 0
-            ? `${pendingCount} pendente${pendingCount === 1 ? "" : "s"} de revisão`
-            : `${txCount} transações no mês`
-          : "suba seu primeiro extrato",
-      icon: "bag" as const,
-    },
-    { id: "ex", label: "Saúde", val: "Em 23 dias", sub: "próximo check-up · em breve", icon: "mask" as const },
-    { id: "son", label: "Sonhos", val: "4 ativos", sub: "1 acima de 80% · em breve", icon: "star" as const },
-    { id: "via", label: "Viagens", val: "Lisboa", sub: "em 4 dias · 14 noites · em breve", icon: "plane" as const },
-    { id: "cal", label: "Calendário", val: "5 datas", sub: "nos próximos 7 dias · em breve", icon: "cal" as const },
-    { id: "aniv", label: "Aniversários", val: "Vó Inês", sub: "em 3 dias · em breve", icon: "cake" as const },
-  ];
+  const monthLabel = now.toLocaleDateString("pt-BR", { month: "long" });
 
   return (
     <ScreenShell
@@ -92,36 +122,269 @@ export default async function CasaPage() {
       insight={
         txCount > 0 ? (
           <>
-            {greeting === "boa noite" ? "Noite calma" : "Tudo certo"} aqui na casa —{" "}
-            <b>R$ {formatBRL(Math.max(0, saldoLivre))}</b>{" "}
-            {saldoLivre >= 0 ? "ainda livres" : "no vermelho"} no mês. Quer que eu liste os gastos da semana?
+            {saldo >= 0 ? "Vocês estão" : "Vocês estão"}{" "}
+            <b>{saldo >= 0 ? `com R$ ${formatBRL(saldo)} livres` : `R$ ${formatBRL(Math.abs(saldo))} no vermelho`}</b>{" "}
+            em {monthLabel}.
+            {pendingCount > 0 ? ` ${pendingCount} transações pra revisar.` : ""}
+            {nextCompromissos[0] && nextCompromissos[0].occurredOn === todayStr
+              ? ` Hoje tem ${nextCompromissos[0].title.toLowerCase()}.`
+              : ""}
           </>
         ) : (
-          <>
-            {greeting}, {firstName || "tudo bem"}! Ainda não temos dado financeiro — sobe o primeiro extrato e eu organizo tudo pra você.
-          </>
+          <>{greeting}, {firstName}. Cadastra umas contas, sobe um extrato — começo a montar o cenário.</>
         )
       }
     >
-      <SectionRow icon="chart" label={`Resumo de hoje · ${today}`} />
+      <SectionRow icon="home" label={`${greeting} · ${firstName || "tudo certo"}`} />
+
       <BigNumber
-        value={txCount > 0 ? `R$ ${formatBRL(Math.max(0, saldoLivre))}` : "—"}
-        sub={txCount > 0 ? "saldo livre do mês" : "ainda sem transações"}
+        value={txCount > 0 ? `R$ ${formatBRL(saldo)}` : "Família AP"}
+        sub={
+          txCount > 0
+            ? `${saldo >= 0 ? "livres" : "no vermelho"} · ${monthLabel}`
+            : "plataforma pronta — configura nos atalhos abaixo"
+        }
+        accent={txCount > 0 && saldo >= 0}
       />
 
-      <SectionRow icon="home" label="O que tá rolando" />
+      {/* Cards de stats */}
+      <div style={{ padding: "14px 20px 0", display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr" }}>
+        <Card pad={12}>
+          <div className="ap-eyebrow">despesas · {monthLabel}</div>
+          <div className="ap-num" style={{ fontSize: 18, color: "var(--alert)", marginTop: 4 }}>
+            R$ {formatBRL(totalDebit)}
+          </div>
+        </Card>
+        <Card pad={12}>
+          <div className="ap-eyebrow">receitas · {monthLabel}</div>
+          <div className="ap-num" style={{ fontSize: 18, color: "var(--ok)", marginTop: 4 }}>
+            R$ {formatBRL(totalCredit)}
+          </div>
+        </Card>
+      </div>
+
+      {/* Pendentes / próximos eventos */}
+      <SectionRow icon="cal" label="O que vem por aí" />
+
       <div style={{ padding: "0 20px" }}>
-        {modules.map((m, i) => (
+        {nextCompromissos.length > 0 ? (
+          nextCompromissos.map((c) => {
+            const d = daysUntilDate(c.occurredOn);
+            return (
+              <ListRow
+                key={c.id}
+                icon="cal"
+                title={c.title}
+                sub={
+                  d === 0
+                    ? `hoje${c.time ? ` · ${c.time}` : ""}`
+                    : d === 1
+                      ? "amanhã"
+                      : `em ${d} dias`
+                }
+                value={
+                  c.who ? (
+                    <span style={{ fontSize: 11, color: "var(--muted)" }}>{c.who}</span>
+                  ) : undefined
+                }
+              />
+            );
+          })
+        ) : (
+          <ListRow icon="cal" title="Compromissos" sub="sem nada agendado" value="—" last />
+        )}
+
+        {nextTrip && (
           <ListRow
-            key={m.id}
-            icon={m.icon}
-            title={m.label}
-            sub={m.sub}
-            value={m.val}
-            last={i === modules.length - 1}
+            icon="plane"
+            title={nextTrip.title}
+            sub={
+              nextTrip.startDate
+                ? `próxima viagem · em ${daysUntilDate(nextTrip.startDate)} dias`
+                : "próxima viagem"
+            }
+            value={
+              nextTrip.destinationCountry ? (
+                <span style={{ fontSize: 11, fontWeight: 700 }}>
+                  {nextTrip.destinationCountry.toUpperCase()}
+                </span>
+              ) : undefined
+            }
           />
-        ))}
+        )}
+
+        {nextAniv && nextAniv.days <= 60 && (
+          <ListRow
+            icon="cake"
+            title={`Aniversário · ${nextAniv.name}`}
+            sub={nextAniv.days === 0 ? "hoje" : `em ${nextAniv.days} dias`}
+            value={
+              nextAniv.birthYear ? (
+                <span style={{ fontSize: 11, color: "var(--muted)" }}>
+                  faz {new Date().getFullYear() - nextAniv.birthYear + (nextAniv.days > 0 ? 0 : 0)}
+                </span>
+              ) : undefined
+            }
+            last={!pendingCount}
+          />
+        )}
+
+        {pendingCount > 0 && (
+          <Link
+            href="/financeiro/transacoes?status=pending"
+            style={{ textDecoration: "none", color: "inherit" }}
+          >
+            <ListRow
+              icon="bag"
+              title="Transações pendentes"
+              sub="revisar e classificar"
+              value={
+                <span className="ap-num" style={{ fontSize: 16, color: "var(--accent)" }}>
+                  {pendingCount}
+                </span>
+              }
+              last
+            />
+          </Link>
+        )}
+      </div>
+
+      {/* Carrossel de sonhos (linha horizontal) */}
+      {activeSonhos.length > 0 && (
+        <>
+          <SectionRow icon="star" label="Sonhos da família" action={`${activeSonhos.length} ativos`} />
+          <div
+            style={{
+              padding: "0 0 0 20px",
+              display: "flex",
+              gap: 10,
+              overflowX: "auto",
+              scrollSnapType: "x mandatory",
+            }}
+          >
+            {activeSonhos.map((s) => (
+              <Link
+                key={s.id}
+                href="/sonhos"
+                style={{
+                  textDecoration: "none",
+                  color: "inherit",
+                  flexShrink: 0,
+                  width: 180,
+                  scrollSnapAlign: "start",
+                }}
+              >
+                <div
+                  style={{
+                    borderRadius: 14,
+                    background: "var(--card)",
+                    overflow: "hidden",
+                    height: 200,
+                    display: "flex",
+                    flexDirection: "column",
+                  }}
+                >
+                  {s.imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={s.imageUrl}
+                      alt={s.title}
+                      style={{
+                        width: "100%",
+                        flex: 1,
+                        objectFit: "cover",
+                      }}
+                    />
+                  ) : (
+                    <div
+                      style={{
+                        flex: 1,
+                        background: "var(--card2)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        color: "var(--muted)",
+                        fontSize: 11,
+                      }}
+                    >
+                      sem imagem
+                    </div>
+                  )}
+                  <div style={{ padding: "8px 10px" }}>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 700,
+                        color: "var(--ink)",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {s.title}
+                    </div>
+                  </div>
+                </div>
+              </Link>
+            ))}
+            {/* spacer no fim */}
+            <div style={{ width: 20, flexShrink: 0 }} />
+          </div>
+        </>
+      )}
+
+      {/* Atalhos rápidos */}
+      <SectionRow icon="home" label="Atalhos" />
+
+      <div
+        style={{
+          padding: "0 20px",
+          display: "grid",
+          gap: 8,
+          gridTemplateColumns: "1fr 1fr",
+        }}
+      >
+        <QuickLink href="/financeiro/upload" label="Subir extrato" sub="PDF" accent />
+        <QuickLink href="/compromissos" label="Compromissos" sub="agendar" />
+        <QuickLink href="/finais-de-semana" label="Fins de semana" sub="programar" />
+        <QuickLink href="/supermercado" label="Supermercado" sub="estoque" />
       </div>
     </ScreenShell>
+  );
+}
+
+function QuickLink({
+  href,
+  label,
+  sub,
+  accent,
+}: {
+  href: string;
+  label: string;
+  sub: string;
+  accent?: boolean;
+}) {
+  return (
+    <Link href={href} style={{ textDecoration: "none", color: "inherit" }}>
+      <div
+        style={{
+          padding: 14,
+          borderRadius: 14,
+          background: accent ? "var(--accent)" : "var(--card)",
+          color: accent ? "var(--accent-on)" : "var(--ink)",
+        }}
+      >
+        <div style={{ fontSize: 13.5, fontWeight: 700 }}>{label}</div>
+        <div
+          style={{
+            fontSize: 10.5,
+            color: accent ? "rgba(0,0,0,0.6)" : "var(--muted)",
+            marginTop: 4,
+          }}
+        >
+          {sub}
+        </div>
+      </div>
+    </Link>
   );
 }

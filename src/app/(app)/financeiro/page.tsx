@@ -1,10 +1,12 @@
 import { eq, sql } from "drizzle-orm";
+import Link from "next/link";
 
-import { BigNumber, ListRow, SectionRow, StackBar } from "@/components/ap/atoms";
+import { BigNumber, Card, SectionRow, StackBar } from "@/components/ap/atoms";
+import { Icon } from "@/components/ap/icon";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import { auth } from "@/auth";
 import { db } from "@/db";
-import { categories, transactions, users } from "@/db/schema";
+import { bankAccounts, categories, transactions, users } from "@/db/schema";
 
 function formatBRL(n: number) {
   return n.toLocaleString("pt-BR", {
@@ -15,16 +17,6 @@ function formatBRL(n: number) {
 
 const CAT_COLORS = ["var(--accent)", "var(--alert)", "#5DA9FF", "#B57FFF", "#7BD86F"];
 
-const ICON_FOR_CAT: Record<string, "fork" | "home" | "mask" | "bag" | "plane" | "cake" | "star"> = {
-  Alimentação: "fork",
-  Moradia: "home",
-  Casa: "home",
-  Saúde: "mask",
-  Lazer: "star",
-  Viagens: "plane",
-  Transporte: "bag",
-};
-
 export default async function FinanceiroPage() {
   const session = await auth();
   if (!session?.user?.id) return null;
@@ -34,187 +26,197 @@ export default async function FinanceiroPage() {
   });
   if (!dbUser?.householdId) return null;
 
-  // Mês corrente
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
   const monthLabel = now.toLocaleDateString("pt-BR", { month: "long" });
-  const daysInMonth = Math.ceil(
-    (Date.now() - monthStart.getTime()) / (1000 * 60 * 60 * 24)
-  );
 
-  // Total de débitos do mês + agrupamento por categoria
-  const grouped = await db
+  // Agregados do mês
+  const monthAgg = await db
     .select({
-      categoryId: transactions.categoryId,
+      totalDebit: sql<string>`coalesce(sum(case when ${transactions.kind} = 'debit' then ${transactions.amount}::numeric else 0 end), 0)::text`,
+      totalCredit: sql<string>`coalesce(sum(case when ${transactions.kind} = 'credit' then ${transactions.amount}::numeric else 0 end), 0)::text`,
+      txCount: sql<number>`count(*)::int`,
+      pendingCount: sql<number>`count(*) filter (where ${transactions.status} = 'pending')::int`,
+    })
+    .from(transactions)
+    .where(
+      sql`${transactions.householdId} = ${dbUser.householdId} AND ${transactions.status} != 'ignored' AND ${transactions.occurredOn} >= ${monthStart.toISOString()} AND ${transactions.occurredOn} < ${monthEnd.toISOString()}`
+    )
+    .then((r) => r[0]);
+
+  const totalDebit = parseFloat(monthAgg?.totalDebit ?? "0");
+  const totalCredit = parseFloat(monthAgg?.totalCredit ?? "0");
+  const txCount = monthAgg?.txCount ?? 0;
+  const pendingCount = monthAgg?.pendingCount ?? 0;
+  const saldo = totalCredit - totalDebit;
+
+  // Top categorias do mês (despesas)
+  const byCat = await db
+    .select({
       categoryName: categories.name,
       total: sql<string>`sum(${transactions.amount}::numeric)::text`,
-      count: sql<number>`count(*)::int`,
     })
     .from(transactions)
     .leftJoin(categories, eq(transactions.categoryId, categories.id))
     .where(
       sql`${transactions.householdId} = ${dbUser.householdId} AND ${transactions.kind} = 'debit' AND ${transactions.status} != 'ignored' AND ${transactions.occurredOn} >= ${monthStart.toISOString()} AND ${transactions.occurredOn} < ${monthEnd.toISOString()}`
     )
-    .groupBy(transactions.categoryId, categories.name);
+    .groupBy(categories.name);
 
-  const total = grouped.reduce((sum, g) => sum + parseFloat(g.total), 0);
-
-  // Top 4 categorias com nome
-  const named = grouped
-    .filter((g) => g.categoryName)
-    .map((g) => ({
-      name: g.categoryName!,
-      val: parseFloat(g.total),
-      pct: total > 0 ? Math.round((parseFloat(g.total) / total) * 100) : 0,
+  const named = byCat
+    .filter((c) => c.categoryName)
+    .map((c) => ({
+      name: c.categoryName!,
+      val: parseFloat(c.total),
     }))
     .sort((a, b) => b.val - a.val)
     .slice(0, 4);
 
-  const uncategorizedTotal = grouped
-    .filter((g) => !g.categoryName)
-    .reduce((sum, g) => sum + parseFloat(g.total), 0);
-  const uncategorizedPct = total > 0 ? Math.round((uncategorizedTotal / total) * 100) : 0;
-
-  // StackBar segments — top 4 + outros
-  const usedPct = named.reduce((sum, n) => sum + n.pct, 0);
-  const restPct = Math.max(0, 100 - usedPct);
+  const totalCatTop4 = named.reduce((sum, c) => sum + c.val, 0);
+  const rest = totalDebit - totalCatTop4;
   const segments = [
-    ...named.map((c, i) => ({ value: c.pct, color: CAT_COLORS[i] })),
-    { value: restPct, color: "var(--card2)" },
+    ...named.map((c, i) => ({
+      value: totalDebit > 0 ? (c.val / totalDebit) * 100 : 0,
+      color: CAT_COLORS[i],
+    })),
+    {
+      value: totalDebit > 0 ? (rest / totalDebit) * 100 : 100,
+      color: "var(--card2)",
+    },
   ];
 
-  // Empty state — se não tem nada
-  if (total === 0) {
-    return (
-      <ScreenShell
-        userQ="Fala AP, me mostra os gastos desse mês"
-        insight={<>Ainda sem transações nesse mês. Suba um extrato ou fatura — eu extraio tudo em ~30 segundos.</>}
-      >
-        <SectionRow icon="chart" label="Gastos por categoria" action={`${monthLabel} · sem dados`} />
-        <BigNumber value="R$ 0,00" sub="nenhuma despesa registrada esse mês" />
-        <div style={{ padding: "20px" }}>
-          <a
-            href="/financeiro/upload"
-            style={{
-              display: "block",
-              padding: "16px",
-              borderRadius: 16,
-              background: "var(--card)",
-              color: "var(--ink-d)",
-              fontSize: 13.5,
-              textDecoration: "none",
-              textAlign: "center",
-            }}
-          >
-            Subir um PDF →
-          </a>
-        </div>
-      </ScreenShell>
-    );
-  }
+  const accounts = await db.query.bankAccounts.findMany({
+    where: eq(bankAccounts.householdId, dbUser.householdId),
+    limit: 10,
+  });
 
   return (
     <ScreenShell
-      userQ="Fala AP, me mostra os gastos desse mês"
+      userQ="Como tá o financeiro este mês?"
       insight={
-        named.length > 0 ? (
-          <>
-            Vocês gastaram <b>R$ {formatBRL(total)}</b> em {monthLabel}.{" "}
-            {named[0].name} foi o maior com <b>{named[0].pct}%</b>.{" "}
-            {uncategorizedTotal > 0
-              ? `Ainda tem R$ ${formatBRL(uncategorizedTotal)} sem categoria — quer revisar?`
-              : ""}
-          </>
+        txCount === 0 ? (
+          <>Sem dados desse mês. Suba um PDF de extrato ou fatura.</>
         ) : (
-          <>R$ {formatBRL(total)} em despesas, mas nada categorizado ainda. Comece editando categorias na lista — vira regra automática.</>
+          <>
+            {saldo >= 0 ? "Vocês sobraram" : "Faltou"} <b>R$ {formatBRL(Math.abs(saldo))}</b> em {monthLabel}.{" "}
+            {pendingCount > 0 ? `${pendingCount} transações ainda precisam ser revisadas.` : "Tudo categorizado."}
+          </>
         )
       }
     >
-      <SectionRow icon="chart" label="Gastos por categoria" action={`${monthLabel} · ${daysInMonth} dias`} />
-      <BigNumber value={`R$ ${formatBRL(total)}`} sub={`${grouped.reduce((s, g) => s + g.count, 0)} transações`} />
+      <SectionRow icon="bank" label={`Visão de ${monthLabel}`} action={`${txCount} transações`} />
 
-      <div style={{ padding: "12px 20px 0" }}>
-        <StackBar h={6} segments={segments} />
-      </div>
+      <BigNumber
+        value={txCount > 0 ? `R$ ${formatBRL(Math.abs(saldo))}` : "—"}
+        sub={
+          txCount > 0
+            ? saldo >= 0
+              ? "saldo positivo · receitas − despesas"
+              : "no vermelho · revisar gastos"
+            : "ainda sem transações"
+        }
+        accent={txCount > 0 && saldo >= 0}
+      />
 
-      <div style={{ padding: "14px 20px 0" }}>
-        {named.map((c, i) => {
-          const icon = ICON_FOR_CAT[c.name] ?? "bag";
-          return (
-            <ListRow
-              key={c.name}
-              icon={icon}
-              title={c.name}
-              sub={`${c.pct}% dos gastos`}
-              value={`R$ ${formatBRL(c.val)}`}
-              color={CAT_COLORS[i]}
-              last={i === named.length - 1 && uncategorizedPct === 0}
-            />
-          );
-        })}
-        {uncategorizedPct > 0 && (
-          <ListRow
-            icon="file"
-            title="Sem categoria"
-            sub={`${uncategorizedPct}% · revisar`}
-            value={`R$ ${formatBRL(uncategorizedTotal)}`}
-            color="var(--muted)"
-            last
-          />
-        )}
-      </div>
+      {txCount > 0 && (
+        <>
+          <div style={{ padding: "12px 20px 0" }}>
+            <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr" }}>
+              <Card pad={12}>
+                <div className="ap-eyebrow">despesas</div>
+                <div className="ap-num" style={{ fontSize: 18, color: "var(--alert)", marginTop: 4 }}>
+                  R$ {formatBRL(totalDebit)}
+                </div>
+              </Card>
+              <Card pad={12}>
+                <div className="ap-eyebrow">receitas</div>
+                <div className="ap-num" style={{ fontSize: 18, color: "var(--ok)", marginTop: 4 }}>
+                  R$ {formatBRL(totalCredit)}
+                </div>
+              </Card>
+            </div>
+          </div>
 
-      <div style={{ padding: "20px" }}>
-        <a
-          href="/financeiro/transacoes"
-          style={{
-            display: "block",
-            padding: "14px",
-            borderRadius: 16,
-            background: "var(--card)",
-            color: "var(--ink)",
-            fontSize: 13.5,
-            fontWeight: 600,
-            textDecoration: "none",
-            textAlign: "center",
-          }}
-        >
-          Ver todas as transações →
-        </a>
-        <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
-          <a
-            href="/financeiro/upload"
-            style={{
-              flex: 1,
-              padding: "12px",
-              borderRadius: 16,
-              background: "var(--surf)",
-              color: "var(--ink-d)",
-              fontSize: 12.5,
-              textDecoration: "none",
-              textAlign: "center",
-            }}
-          >
-            Subir PDF
-          </a>
-          <a
-            href="/financeiro/categorias"
-            style={{
-              flex: 1,
-              padding: "12px",
-              borderRadius: 16,
-              background: "var(--surf)",
-              color: "var(--ink-d)",
-              fontSize: 12.5,
-              textDecoration: "none",
-              textAlign: "center",
-            }}
-          >
-            Categorias
-          </a>
-        </div>
+          {named.length > 0 && (
+            <div style={{ padding: "14px 20px 0" }}>
+              <StackBar h={6} segments={segments} />
+              <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 4 }}>
+                {named.map((c, i) => (
+                  <div
+                    key={c.name}
+                    style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}
+                  >
+                    <span
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: 4,
+                        background: CAT_COLORS[i],
+                      }}
+                    />
+                    <span style={{ flex: 1, color: "var(--ink-d)" }}>{c.name}</span>
+                    <span className="ap-num" style={{ fontSize: 12 }}>
+                      R$ {formatBRL(c.val)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      <SectionRow icon="bag" label="Atalhos" />
+
+      <div style={{ padding: "0 20px", display: "grid", gap: 8, gridTemplateColumns: "1fr 1fr" }}>
+        <Shortcut href="/financeiro/transacoes" icon="bag" label="Transações" sub="ver e classificar" />
+        <Shortcut href="/financeiro/dre" icon="chart" label="DRE" sub="receitas e despesas do mês" />
+        <Shortcut href="/financeiro/upload" icon="file" label="Subir PDF" sub="extrato ou fatura" accent />
+        <Shortcut href="/financeiro/contas" icon="bank" label="Contas" sub={`${accounts.length} cadastradas`} />
+        <Shortcut href="/financeiro/categorias" icon="star" label="Categorias" sub="gerenciar" />
       </div>
     </ScreenShell>
+  );
+}
+
+function Shortcut({
+  href,
+  icon,
+  label,
+  sub,
+  accent,
+}: {
+  href: string;
+  icon: Parameters<typeof Icon>[0]["name"];
+  label: string;
+  sub: string;
+  accent?: boolean;
+}) {
+  return (
+    <Link href={href} style={{ textDecoration: "none", color: "inherit" }}>
+      <div
+        style={{
+          padding: 14,
+          borderRadius: 16,
+          background: accent ? "var(--accent)" : "var(--card)",
+          color: accent ? "var(--accent-on)" : "var(--ink)",
+          display: "flex",
+          flexDirection: "column",
+          gap: 6,
+        }}
+      >
+        <Icon name={icon} size={18} color="currentColor" stroke={1.8} />
+        <div style={{ fontSize: 14, fontWeight: 700 }}>{label}</div>
+        <div
+          style={{
+            fontSize: 10.5,
+            color: accent ? "rgba(0,0,0,0.6)" : "var(--muted)",
+          }}
+        >
+          {sub}
+        </div>
+      </div>
+    </Link>
   );
 }

@@ -297,10 +297,13 @@ export function Sparkline({
 }
 
 // ────────────────────────────────────────────────────────────
-// MemberChips — A + C sobrepostos no header
+// MemberChips — círculos sobrepostos (default A + M)
 // ────────────────────────────────────────────────────────────
-type MemberChipsProps = { size?: number };
-export function MemberChips({ size = 28 }: MemberChipsProps) {
+type MemberChipsProps = {
+  size?: number;
+  letters?: [string, string];
+};
+export function MemberChips({ size = 28, letters = ["A", "M"] }: MemberChipsProps) {
   return (
     <div style={{ display: "flex" }}>
       <div
@@ -318,7 +321,7 @@ export function MemberChips({ size = 28 }: MemberChipsProps) {
           color: "var(--ink)",
         }}
       >
-        A
+        {letters[0]}
       </div>
       <div
         style={{
@@ -336,7 +339,7 @@ export function MemberChips({ size = 28 }: MemberChipsProps) {
           color: "var(--accent-on)",
         }}
       >
-        C
+        {letters[1]}
       </div>
     </div>
   );

@@ -1,7 +1,12 @@
 import { eq, sql } from "drizzle-orm";
 
 import { BigNumber, Card, SectionRow } from "@/components/ap/atoms";
+import { DeleteBtn, FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
 import { ScreenShell } from "@/components/ap/screen-shell";
+import {
+  createCategoria,
+  deleteCategoria,
+} from "@/app/actions/categorias";
 import { auth } from "@/auth";
 import { db } from "@/db";
 import { categories, transactions, users } from "@/db/schema";
@@ -40,124 +45,169 @@ export default async function CategoriasPage() {
   function childrenOf(parentId: string) {
     return all.filter((c) => c.parentId === parentId);
   }
-
-  function treeCount(parentId: string): number {
-    let total = countByCategory.get(parentId) ?? 0;
-    for (const child of childrenOf(parentId)) {
-      total += countByCategory.get(child.id) ?? 0;
-    }
-    return total;
+  function tree(id: string): number {
+    let t = countByCategory.get(id) ?? 0;
+    for (const c of childrenOf(id)) t += countByCategory.get(c.id) ?? 0;
+    return t;
   }
-
-  const totalUsed = [...expenseParents, ...incomeParents].filter(
-    (c) => treeCount(c.id) > 0
-  ).length;
 
   return (
     <ScreenShell
-      userQ="Quais categorias tenho disponíveis?"
+      userQ="Quero gerenciar nossas categorias"
       insight={
         <>
-          <b>{all.length}</b> categorias prontas pra família. Toda categoria que você atribui a uma transação vira regra automática.
+          <b>{all.length}</b> categorias no total. Quando você edita uma transação, a categoria escolhida vira regra automática pra próximas iguais.
         </>
       }
     >
-      <SectionRow icon="bag" label="Categorias" action={`${totalUsed} em uso`} />
-      <BigNumber value={String(all.length)} sub={`${expenseParents.length} despesas · ${incomeParents.length} receitas`} />
+      <SectionRow icon="bag" label="Categorias" action={`${all.length}`} />
+      <BigNumber
+        value={String(all.length)}
+        sub={`${expenseParents.length} despesas (categoria mãe) · ${incomeParents.length} receitas`}
+      />
 
-      <div style={{ padding: "14px 20px 0" }}>
-        <div className="ap-eyebrow" style={{ marginBottom: 10 }}>
-          despesas
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {expenseParents.map((parent) => {
-            const subs = childrenOf(parent.id);
-            const c = treeCount(parent.id);
-            return (
-              <Card key={parent.id} pad={12} raised={c > 0}>
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    gap: 8,
-                  }}
-                >
-                  <span style={{ fontSize: 13.5, fontWeight: 600 }}>{parent.name}</span>
-                  {c > 0 && (
+      <div style={{ padding: "14px 0 0" }}>
+        <InlineForm buttonLabel="Criar categoria">
+          {(close) => (
+            <form
+              action={async (fd) => {
+                "use server";
+                await createCategoria(fd);
+              }}
+              onSubmit={() => setTimeout(close, 0)}
+            >
+              <FormField label="Nome *">
+                <input name="name" required placeholder="Ex: Combustível" style={fieldStyle} />
+              </FormField>
+              <FormField label="Tipo *">
+                <select name="kind" defaultValue="expense" style={fieldStyle}>
+                  <option value="expense">Despesa</option>
+                  <option value="income">Receita</option>
+                </select>
+              </FormField>
+              <FormField label="Subcategoria de…" hint="opcional · deixe vazio pra categoria principal">
+                <select name="parentId" defaultValue="" style={fieldStyle}>
+                  <option value="">— principal —</option>
+                  {[...expenseParents, ...incomeParents].map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </FormField>
+              <FormField label="Cor (hex)">
+                <input name="color" placeholder="#B8FF5C" style={fieldStyle} />
+              </FormField>
+              <SubmitButton>Criar categoria</SubmitButton>
+            </form>
+          )}
+        </InlineForm>
+      </div>
+
+      <SectionRow icon="bag" label="Despesas" action={`${expenseParents.length}`} />
+      <div style={{ padding: "0 20px", display: "flex", flexDirection: "column", gap: 8 }}>
+        {expenseParents.map((parent) => {
+          const subs = childrenOf(parent.id);
+          const t = tree(parent.id);
+          return (
+            <Card key={parent.id} pad={12} raised={t > 0}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
+                <span style={{ fontSize: 13.5, fontWeight: 600 }}>{parent.name}</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  {t > 0 && (
                     <span
                       className="ap-num"
                       style={{ fontSize: 13, color: "var(--accent)" }}
                     >
-                      {c}
+                      {t}
                     </span>
                   )}
-                </div>
-                {subs.length > 0 && (
-                  <div
-                    style={{
-                      marginTop: 8,
-                      display: "flex",
-                      gap: 6,
-                      flexWrap: "wrap",
+                  <DeleteBtn
+                    action={async () => {
+                      "use server";
+                      await deleteCategoria(parent.id);
                     }}
-                  >
-                    {subs.map((sub) => {
-                      const sc = countByCategory.get(sub.id) ?? 0;
-                      return (
-                        <span
-                          key={sub.id}
-                          style={{
-                            padding: "3px 9px",
-                            borderRadius: 999,
-                            fontSize: 11,
-                            background: "var(--card2)",
-                            color: sc > 0 ? "var(--ink-d)" : "var(--muted)",
-                          }}
-                        >
-                          {sub.name}
-                          {sc > 0 && (
-                            <span style={{ marginLeft: 5, opacity: 0.6 }}>· {sc}</span>
-                          )}
-                        </span>
-                      );
-                    })}
-                  </div>
-                )}
-              </Card>
-            );
-          })}
-        </div>
-      </div>
-
-      <div style={{ padding: "20px 20px 0" }}>
-        <div className="ap-eyebrow" style={{ marginBottom: 10 }}>
-          receitas
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {incomeParents.map((parent) => {
-            const c = treeCount(parent.id);
-            return (
-              <Card key={parent.id} pad={12} raised={c > 0}>
+                    confirmMsg={`Excluir "${parent.name}"? Transações ficarão sem categoria.`}
+                  />
+                </div>
+              </div>
+              {subs.length > 0 && (
                 <div
                   style={{
+                    marginTop: 8,
                     display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    gap: 8,
+                    gap: 6,
+                    flexWrap: "wrap",
                   }}
                 >
-                  <span style={{ fontSize: 13.5, fontWeight: 600 }}>{parent.name}</span>
-                  {c > 0 && (
+                  {subs.map((sub) => {
+                    const sc = countByCategory.get(sub.id) ?? 0;
+                    return (
+                      <span
+                        key={sub.id}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 6,
+                          padding: "3px 9px",
+                          borderRadius: 999,
+                          fontSize: 11,
+                          background: "var(--card2)",
+                          color: sc > 0 ? "var(--ink-d)" : "var(--muted)",
+                        }}
+                      >
+                        {sub.name}
+                        {sc > 0 && <span style={{ opacity: 0.6 }}>· {sc}</span>}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+            </Card>
+          );
+        })}
+      </div>
+
+      <SectionRow icon="bag" label="Receitas" action={`${incomeParents.length}`} />
+      <div style={{ padding: "0 20px", display: "flex", flexDirection: "column", gap: 8 }}>
+        {incomeParents.map((parent) => {
+          const t = tree(parent.id);
+          return (
+            <Card key={parent.id} pad={12} raised={t > 0}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
+                <span style={{ fontSize: 13.5, fontWeight: 600 }}>{parent.name}</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  {t > 0 && (
                     <span className="ap-num" style={{ fontSize: 13, color: "var(--ok)" }}>
-                      {c}
+                      {t}
                     </span>
                   )}
+                  <DeleteBtn
+                    action={async () => {
+                      "use server";
+                      await deleteCategoria(parent.id);
+                    }}
+                    confirmMsg={`Excluir "${parent.name}"?`}
+                  />
                 </div>
-              </Card>
-            );
-          })}
-        </div>
+              </div>
+            </Card>
+          );
+        })}
       </div>
     </ScreenShell>
   );

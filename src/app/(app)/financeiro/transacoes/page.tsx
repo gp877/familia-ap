@@ -1,14 +1,19 @@
 import { and, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
 import Link from "next/link";
 
-import { BigNumber, Pill, SectionRow } from "@/components/ap/atoms";
+import { BigNumber, SectionRow } from "@/components/ap/atoms";
 import { ScreenShell } from "@/components/ap/screen-shell";
-import { auth } from "@/auth";
-import { CategorySelect, type CategoryOption } from "@/components/category-select";
 import { TransactionFilters } from "@/components/transaction-filters";
-import { TransactionStatusToggle } from "@/components/transaction-status-toggle";
+import { TransactionsMultiSelect } from "@/components/ap/transactions-multi-select";
+import { auth } from "@/auth";
+import type { CategoryOption } from "@/components/category-select";
 import { db } from "@/db";
-import { categories, transactions, users } from "@/db/schema";
+import {
+  bankAccounts,
+  categories,
+  transactions,
+  users,
+} from "@/db/schema";
 
 function formatBRL(n: number) {
   return n.toLocaleString("pt-BR", {
@@ -17,27 +22,22 @@ function formatBRL(n: number) {
   });
 }
 
-function formatDate(d: Date) {
-  return new Date(d).toLocaleDateString("pt-BR", {
-    day: "2-digit",
-    month: "short",
-  });
-}
-
 function monthBounds(yyyymm: string): { start: Date; end: Date } | null {
   const m = /^(\d{4})-(\d{2})$/.exec(yyyymm);
   if (!m) return null;
   const year = parseInt(m[1], 10);
   const month = parseInt(m[2], 10);
-  const start = new Date(year, month - 1, 1);
-  const end = new Date(year, month, 1);
-  return { start, end };
+  return {
+    start: new Date(year, month - 1, 1),
+    end: new Date(year, month, 1),
+  };
 }
 
 type SearchParams = Promise<{
   month?: string;
   status?: string;
   uncategorized?: string;
+  account?: string;
 }>;
 
 export default async function TransacoesPage({
@@ -66,6 +66,9 @@ export default async function TransacoesPage({
   if (sp.uncategorized === "1") {
     conds.push(isNull(transactions.categoryId));
   }
+  if (sp.account) {
+    conds.push(eq(transactions.bankAccountId, sp.account));
+  }
 
   const monthsRow = await db
     .select({
@@ -77,16 +80,19 @@ export default async function TransacoesPage({
     .orderBy(sql`to_char(${transactions.occurredOn}, 'YYYY-MM') desc`);
   const availableMonths = monthsRow.map((r) => r.m).filter(Boolean);
 
-  const [allCategories, txs] = await Promise.all([
+  const [allCategories, allAccounts, txs] = await Promise.all([
     db.query.categories.findMany({
       where: eq(categories.householdId, dbUser.householdId),
       with: { parent: true },
       orderBy: (c, { asc }) => [asc(c.name)],
     }),
+    db.query.bankAccounts.findMany({
+      where: eq(bankAccounts.householdId, dbUser.householdId),
+      orderBy: (a, { asc }) => [asc(a.name)],
+    }),
     db.query.transactions.findMany({
       where: and(...conds),
       orderBy: [desc(transactions.occurredOn), desc(transactions.createdAt)],
-      with: { category: true },
       limit: 500,
     }),
   ]);
@@ -96,7 +102,6 @@ export default async function TransacoesPage({
     label: c.parent ? `${c.parent.name} > ${c.name}` : c.name,
   }));
 
-  const pendingCount = txs.filter((t) => t.status === "pending").length;
   const totalDebit = txs
     .filter((t) => t.kind === "debit" && t.status !== "ignored")
     .reduce((s, t) => s + parseFloat(t.amount), 0);
@@ -104,7 +109,10 @@ export default async function TransacoesPage({
     .filter((t) => t.kind === "credit" && t.status !== "ignored")
     .reduce((s, t) => s + parseFloat(t.amount), 0);
 
-  const filterApplied = !!(sp.month || sp.status || sp.uncategorized);
+  const filterApplied = !!(sp.month || sp.status || sp.uncategorized || sp.account);
+  const activeAccount = sp.account
+    ? allAccounts.find((a) => a.id === sp.account)
+    : null;
 
   if (txs.length === 0 && availableMonths.length === 0) {
     return (
@@ -136,22 +144,33 @@ export default async function TransacoesPage({
     );
   }
 
+  // Prepare data for client component
+  const txsForClient = txs.map((tx) => ({
+    id: tx.id,
+    occurredOn: new Date(tx.occurredOn).toISOString(),
+    description: tx.description,
+    rawDescription: tx.rawDescription,
+    amount: tx.amount,
+    kind: tx.kind,
+    categoryId: tx.categoryId,
+    status: tx.status,
+    bankAccountId: tx.bankAccountId,
+  }));
+
   return (
     <ScreenShell
-      userQ="Me mostra todas as transações"
+      userQ={
+        activeAccount ? `Quero ver os lançamentos de ${activeAccount.name}` : "Me mostra todas as transações"
+      }
       insight={
-        pendingCount > 0 ? (
-          <>
-            <b>{pendingCount}</b> transações ainda pendentes de revisão. Toda edição de categoria vira regra automática.
-          </>
-        ) : (
-          <>{txs.length} transações {filterApplied ? "no filtro" : "no total"}. Tudo revisado.</>
-        )
+        <>
+          Selecione transações pra ver a soma. Clique na categoria pra editar — vira regra automática.
+        </>
       }
     >
       <SectionRow
         icon="bag"
-        label="Transações"
+        label={activeAccount ? activeAccount.name : "Transações"}
         action={`${txs.length} ${filterApplied ? "filtradas" : "totais"}`}
       />
 
@@ -161,6 +180,7 @@ export default async function TransacoesPage({
         </div>
         <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
           em despesas · receitas: R$ {formatBRL(totalCredit)}
+          {activeAccount ? ` · ${activeAccount.name}` : ""}
         </div>
       </div>
 
@@ -168,97 +188,55 @@ export default async function TransacoesPage({
         <TransactionFilters availableMonths={availableMonths} />
       </div>
 
-      {txs.length === 0 ? (
-        <div style={{ padding: "30px 20px", textAlign: "center", color: "var(--muted)", fontSize: 13 }}>
-          Nenhuma transação com esses filtros.
-        </div>
-      ) : (
-        <div style={{ padding: "8px 20px 0" }}>
-          {txs.map((tx, i) => {
-            const amount = parseFloat(tx.amount);
+      {/* Filtro de conta */}
+      {allAccounts.length > 0 && (
+        <div style={{ padding: "8px 20px 0", display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <Link
+            href="/financeiro/transacoes"
+            style={{
+              padding: "5px 12px",
+              borderRadius: 999,
+              fontSize: 11.5,
+              fontWeight: 600,
+              background: !sp.account ? "var(--card)" : "transparent",
+              color: !sp.account ? "var(--ink)" : "var(--muted-d)",
+              textDecoration: "none",
+              border: "1px solid var(--line-d)",
+            }}
+          >
+            Todas as contas
+          </Link>
+          {allAccounts.map((a) => {
+            const isActive = sp.account === a.id;
+            const params = new URLSearchParams({ ...sp, account: a.id });
             return (
-              <div
-                key={tx.id}
+              <Link
+                key={a.id}
+                href={`/financeiro/transacoes?${params.toString()}`}
                 style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 6,
-                  padding: "12px 0",
-                  borderBottom:
-                    i < txs.length - 1 ? "0.5px solid var(--line-d)" : "none",
-                  opacity: tx.status === "ignored" ? 0.4 : 1,
+                  padding: "5px 12px",
+                  borderRadius: 999,
+                  fontSize: 11.5,
+                  fontWeight: 600,
+                  background: isActive ? "var(--card)" : "transparent",
+                  color: isActive ? "var(--ink)" : "var(--muted-d)",
+                  textDecoration: "none",
+                  border: "1px solid var(--line-d)",
                 }}
               >
-                <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div
-                      style={{
-                        fontSize: 13.5,
-                        fontWeight: 600,
-                        color: "var(--ink)",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {tx.description}
-                    </div>
-                    <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
-                      {formatDate(tx.occurredOn)} · {tx.rawDescription.slice(0, 64)}
-                      {tx.rawDescription.length > 64 ? "…" : ""}
-                    </div>
-                  </div>
-                  <div
-                    className="ap-num"
-                    style={{
-                      fontSize: 14,
-                      color: tx.kind === "debit" ? "var(--ink)" : "var(--ok)",
-                      flexShrink: 0,
-                    }}
-                  >
-                    {tx.kind === "debit" ? "−" : "+"} R$ {formatBRL(amount)}
-                  </div>
-                </div>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <CategorySelect
-                    transactionId={tx.id}
-                    currentCategoryId={tx.categoryId}
-                    options={categoryOptions}
-                  />
-                  <Pill
-                    tone={
-                      tx.status === "confirmed"
-                        ? "ok"
-                        : tx.status === "ignored"
-                          ? "muted"
-                          : "alert"
-                    }
-                  >
-                    {tx.status === "confirmed"
-                      ? "ok"
-                      : tx.status === "ignored"
-                        ? "ignorada"
-                        : "pendente"}
-                  </Pill>
-                  <div style={{ marginLeft: "auto" }}>
-                    <TransactionStatusToggle
-                      transactionId={tx.id}
-                      status={tx.status}
-                    />
-                  </div>
-                </div>
-              </div>
+                {a.name}
+              </Link>
             );
           })}
         </div>
       )}
+
+      <div style={{ marginTop: 8 }}>
+        <TransactionsMultiSelect
+          transactions={txsForClient}
+          categoryOptions={categoryOptions}
+        />
+      </div>
     </ScreenShell>
   );
 }
