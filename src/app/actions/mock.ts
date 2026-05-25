@@ -470,15 +470,19 @@ export async function seedDemoData() {
     { date: dateOffsetFromDow(0, 1), title: "Almoço família AP (demo)", notes: null },
   ];
   for (const f of fdsDates) {
-    const exists = await db.query.finsDeSemana.findFirst({
+    const exists = await db.query.compromissos.findFirst({
       where: (x, { eq, and }) =>
-        and(eq(x.householdId, householdId), eq(x.weekendDate, f.date)),
+        and(
+          eq(x.householdId, householdId),
+          eq(x.occurredOn, f.date),
+          eq(x.title, f.title)
+        ),
     });
     if (!exists) {
-      await db.insert(finsDeSemana).values({
+      await db.insert(compromissos).values({
         householdId,
         createdById: userId,
-        weekendDate: f.date,
+        occurredOn: f.date,
         title: f.title,
         notes: f.notes,
       });

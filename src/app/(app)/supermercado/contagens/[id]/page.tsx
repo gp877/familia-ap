@@ -7,6 +7,7 @@ import { BackButton } from "@/components/ap/inline-form";
 import { InlineEditInput } from "@/components/ap/inline-edit-input";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import {
+  clearContagem,
   closeContagem,
   closeContagemAndCreatePedido,
   patchContagemItem,
@@ -129,25 +130,46 @@ export default async function ContagemDetailPage({
               Encerrar + gerar pedido das faltas →
             </button>
           </form>
-          <form action={closeContagem}>
-            <input type="hidden" name="id" value={contagem.id} />
-            <button
-              type="submit"
-              style={{
-                width: "100%",
-                padding: "10px 14px",
-                borderRadius: 12,
-                background: "transparent",
-                color: "var(--muted-d)",
-                border: "1px solid var(--line-d)",
-                fontWeight: 600,
-                fontSize: 12,
-                cursor: "pointer",
-              }}
-            >
-              Só encerrar (sem pedido)
-            </button>
-          </form>
+          <div style={{ display: "flex", gap: 8 }}>
+            <form action={closeContagem} style={{ flex: 1 }}>
+              <input type="hidden" name="id" value={contagem.id} />
+              <button
+                type="submit"
+                style={{
+                  width: "100%",
+                  padding: "10px 14px",
+                  borderRadius: 12,
+                  background: "transparent",
+                  color: "var(--muted-d)",
+                  border: "1px solid var(--line-d)",
+                  fontWeight: 600,
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                Só encerrar (sem pedido)
+              </button>
+            </form>
+            <form action={clearContagem}>
+              <input type="hidden" name="id" value={contagem.id} />
+              <button
+                type="submit"
+                style={{
+                  padding: "10px 14px",
+                  borderRadius: 12,
+                  background: "transparent",
+                  color: "var(--alert)",
+                  border: "1px solid var(--alert)",
+                  fontWeight: 600,
+                  fontSize: 12,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                Limpar
+              </button>
+            </form>
+          </div>
         </div>
       )}
 

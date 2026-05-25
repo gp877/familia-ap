@@ -11,7 +11,6 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/", label: "Início", icon: "home", module: "Início" },
   { href: "/financeiro", label: "Finanças", icon: "bank", module: "Finanças" },
   { href: "/compromissos", label: "Compromissos", icon: "cal", module: "Compromissos" },
-  { href: "/finais-de-semana", label: "Finais de Semana", icon: "heart", module: "Finais de Semana" },
   { href: "/aniversarios", label: "Aniversários", icon: "cake", module: "Aniversários" },
   { href: "/viagens", label: "Viagens", icon: "plane", module: "Viagens" },
   { href: "/sonhos", label: "Sonhos", icon: "star", module: "Sonhos" },

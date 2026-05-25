@@ -1,9 +1,9 @@
-import { asc, eq, gte, lte } from "drizzle-orm";
-import Link from "next/link";
+import { asc, desc, eq, gte, lte } from "drizzle-orm";
 
 import { BigNumber, SectionRow } from "@/components/ap/atoms";
 import { DeleteBtn } from "@/components/ap/inline-form";
 import { InlineEditInput } from "@/components/ap/inline-edit-input";
+import { MonthChips } from "@/components/ap/month-chips";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import { ViewToggle } from "@/components/ap/view-toggle";
 import {
@@ -11,26 +11,75 @@ import {
   deleteCompromisso,
   patchCompromisso,
 } from "@/app/actions/compromissos";
+import { AddCompromissoCard } from "./add-compromisso-card";
 import { auth } from "@/auth";
 import { db } from "@/db";
 import { compromissos, users } from "@/db/schema";
 
 const DOW_LABEL = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
+const ORDINAL = ["1º", "2º", "3º", "4º", "5º", "6º"];
 
-function todayStr() {
-  return new Date().toISOString().slice(0, 10);
+function formatDay(dStr: string) {
+  const [, , day] = dStr.split("-").map(Number);
+  return String(day).padStart(2, "0");
 }
-function dateAhead(days: number) {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+function formatMonthAbbrev(dStr: string) {
+  const [y, m, d] = dStr.split("-").map(Number);
+  return new Date(y, m - 1, d)
+    .toLocaleDateString("pt-BR", { month: "short" })
+    .replace(".", "");
 }
-function formatDay(d: string) {
-  return d.slice(8, 10);
+function dateToISO(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-type SearchParams = Promise<{ range?: string; view?: string }>;
+type DayCell = { date: string; dow: number };
+type WeekendCluster = {
+  days: DayCell[];
+  startMonth: number;
+  endMonth: number;
+};
+
+function weekendsThatTouchMonth(year: number, month1: number): WeekendCluster[] {
+  const monthStart = new Date(year, month1 - 1, 1);
+  const monthEnd = new Date(year, month1, 0);
+  const windowStart = new Date(monthStart);
+  windowStart.setDate(monthStart.getDate() - 7);
+  const windowEnd = new Date(monthEnd);
+  windowEnd.setDate(monthEnd.getDate() + 7);
+
+  const clusters: WeekendCluster[] = [];
+  const seen = new Set<string>();
+
+  for (let d = new Date(windowStart); d <= windowEnd; d.setDate(d.getDate() + 1)) {
+    if (d.getDay() === 6) {
+      const sat = new Date(d);
+      const fri = new Date(d);
+      fri.setDate(sat.getDate() - 1);
+      const sun = new Date(d);
+      sun.setDate(sat.getDate() + 1);
+      const inTarget = [fri, sat, sun].some(
+        (x) => x.getFullYear() === year && x.getMonth() + 1 === month1
+      );
+      if (!inTarget) continue;
+      const key = dateToISO(sat);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      clusters.push({
+        days: [
+          { date: dateToISO(fri), dow: 5 },
+          { date: dateToISO(sat), dow: 6 },
+          { date: dateToISO(sun), dow: 0 },
+        ],
+        startMonth: fri.getMonth() + 1,
+        endMonth: sun.getMonth() + 1,
+      });
+    }
+  }
+  return clusters;
+}
+
+type SearchParams = Promise<{ month?: string; view?: string }>;
 
 export default async function CompromissosPage({
   searchParams,
@@ -38,9 +87,6 @@ export default async function CompromissosPage({
   searchParams: SearchParams;
 }) {
   const sp = await searchParams;
-  const range = sp.range ?? "week"; // today | week | month | all
-  const isList = sp.view === "list";
-
   const session = await auth();
   if (!session?.user?.id) return null;
   const dbUser = await db.query.users.findFirst({
@@ -48,60 +94,79 @@ export default async function CompromissosPage({
   });
   if (!dbUser?.householdId) return null;
 
-  const t = todayStr();
-  const rangeDays =
-    range === "today" ? 1 : range === "week" ? 7 : range === "month" ? 30 : null;
+  const view = sp.view; // undefined=resumo, "calendar", "list"
+  const now = new Date();
+  const monthStr =
+    sp.month ?? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const [yearN, monthN] = monthStr.split("-").map(Number);
 
-  let upcoming: (typeof compromissos.$inferSelect)[];
+  const clusters = weekendsThatTouchMonth(yearN, monthN);
 
-  if (isList || range === "all") {
-    upcoming = await db.query.compromissos.findMany({
-      where: eq(compromissos.householdId, dbUser.householdId),
-      orderBy: isList
-        ? [asc(compromissos.occurredOn), asc(compromissos.time)]
-        : [asc(compromissos.occurredOn), asc(compromissos.time)],
-      limit: 300,
-    });
-  } else {
-    const end = dateAhead(rangeDays! - 1);
-    upcoming = await db.query.compromissos.findMany({
-      where: (c, { and: a }) =>
-        a(
-          eq(c.householdId, dbUser.householdId!),
-          gte(c.occurredOn, t),
-          lte(c.occurredOn, end)
-        ),
-      orderBy: [asc(compromissos.occurredOn), asc(compromissos.time)],
-    });
-  }
+  const monthStartDate = new Date(yearN, monthN - 1, 1);
+  const monthEndDate = new Date(yearN, monthN, 0);
+  const monthStartStr = dateToISO(monthStartDate);
+  const monthEndStr = dateToISO(monthEndDate);
 
-  // Para o modo "day cards": gera N dias a partir de hoje
-  const days: string[] = [];
-  if (!isList && rangeDays) {
-    for (let i = 0; i < rangeDays; i++) days.push(dateAhead(i));
-  }
+  // Em modo lista pegamos TUDO; senão só o mês (estendido pra incluir FDS que cruzam)
+  const isList = view === "list";
+  const isCalendar = view === "calendar";
 
-  const byDate = new Map<string, typeof upcoming>();
-  for (const c of upcoming) {
+  const fetchRangeStart = clusters.length
+    ? clusters[0].days[0].date
+    : monthStartStr;
+  const fetchRangeEnd = clusters.length
+    ? clusters[clusters.length - 1].days[2].date
+    : monthEndStr;
+  // Pega o range maior (cobrir mês inteiro + cluster transbordo)
+  const rangeStart = fetchRangeStart < monthStartStr ? fetchRangeStart : monthStartStr;
+  const rangeEnd = fetchRangeEnd > monthEndStr ? fetchRangeEnd : monthEndStr;
+
+  const allCompromissos = isList
+    ? await db.query.compromissos.findMany({
+        where: eq(compromissos.householdId, dbUser.householdId),
+        orderBy: [desc(compromissos.occurredOn), asc(compromissos.time)],
+        limit: 300,
+      })
+    : await db.query.compromissos.findMany({
+        where: (c, { and: a }) =>
+          a(
+            eq(c.householdId, dbUser.householdId!),
+            gte(c.occurredOn, rangeStart),
+            lte(c.occurredOn, rangeEnd)
+          ),
+        orderBy: [asc(compromissos.occurredOn), asc(compromissos.time)],
+      });
+
+  // Mapa: data → lista de compromissos
+  const byDate = new Map<string, typeof allCompromissos>();
+  for (const c of allCompromissos) {
     const arr = byDate.get(c.occurredOn) ?? [];
     arr.push(c);
     byDate.set(c.occurredOn, arr);
   }
 
-  const next = upcoming.find((c) => c.occurredOn >= t);
+  const totalInMonth = allCompromissos.filter(
+    (c) => c.occurredOn >= monthStartStr && c.occurredOn <= monthEndStr
+  ).length;
+
+  const monthLabel = new Date(yearN, monthN - 1, 1).toLocaleDateString("pt-BR", {
+    month: "long",
+    year: "numeric",
+  });
+  const todayISO = dateToISO(new Date());
 
   return (
     <ScreenShell
       userQ="O que tem nos próximos dias?"
       insight={
-        next ? (
+        allCompromissos.length > 0 ? (
           <>
-            Próximo: <b>{next.title}</b>{" "}
-            {next.occurredOn === t ? "hoje" : `· ${next.occurredOn.slice(8, 10)}/${next.occurredOn.slice(5, 7)}`}
-            {next.time ? ` às ${next.time}` : ""}.
+            <b>{isList ? allCompromissos.length : totalInMonth}</b> compromisso
+            {(isList ? allCompromissos.length : totalInMonth) === 1 ? "" : "s"}{" "}
+            {isList ? "no histórico" : `em ${monthLabel}`}.
           </>
         ) : (
-          <>Sem compromissos. Digite no campo de cada dia abaixo · Enter salva.</>
+          <>Adicione o próximo compromisso · botão abaixo abre rápido.</>
         )
       }
     >
@@ -111,165 +176,167 @@ export default async function CompromissosPage({
         action={
           <ViewToggle
             basePath="/compromissos"
-            current={sp.view}
-            extraParams={{ range: sp.range }}
+            current={view}
+            extraParams={{ month: sp.month }}
+            options={[
+              { key: null, label: "Resumo" },
+              { key: "calendar", label: "Calendário" },
+              { key: "list", label: "Lista" },
+            ]}
           />
         }
       />
 
-      {!isList && (
-        <div style={{ padding: "0 20px 8px", display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {[
-            { key: "today", label: "Hoje" },
-            { key: "week", label: "7 dias" },
-            { key: "month", label: "30 dias" },
-            { key: "all", label: "Tudo" },
-          ].map((r) => {
-            const isActive = range === r.key;
-            return (
-              <Link
-                key={r.key}
-                href={`/compromissos?range=${r.key}`}
-                style={{
-                  padding: "5px 14px",
-                  borderRadius: 999,
-                  fontSize: 11.5,
-                  fontWeight: 700,
-                  background: isActive ? "var(--accent)" : "var(--card)",
-                  color: isActive ? "var(--accent-on)" : "var(--muted-d)",
-                  textDecoration: "none",
-                  border: isActive ? "none" : "1px solid var(--line-d)",
-                }}
-              >
-                {r.label}
-              </Link>
-            );
-          })}
-        </div>
+      {!isList && !isCalendar && (
+        <MonthChips basePath="/compromissos" currentMonth={monthStr} />
       )}
 
       <BigNumber
-        value={isList || range === "all" ? String(upcoming.length) : `${upcoming.length}`}
-        sub={
-          range === "today"
-            ? "hoje"
-            : range === "week"
-              ? "nos próximos 7 dias"
-              : range === "month"
-                ? "nos próximos 30 dias"
-                : isList
-                  ? "no histórico"
-                  : "no total"
-        }
+        value={isList ? String(allCompromissos.length) : String(totalInMonth)}
+        sub={isList ? "no histórico" : `em ${monthLabel}`}
       />
 
-      {isList || range === "all" ? (
-        <ListView upcoming={upcoming} />
+      {/* Botão GRANDE de adicionar compromisso — visível em todas as views */}
+      <div style={{ padding: "20px 16px 0" }}>
+        <AddCompromissoCard defaultDate={todayISO} />
+      </div>
+
+      {isList ? (
+        <ListView upcoming={allCompromissos} />
+      ) : isCalendar ? (
+        <CalendarView
+          year={yearN}
+          month={monthN}
+          byDate={byDate}
+          monthStr={monthStr}
+        />
       ) : (
-        <DayCardsView days={days} byDate={byDate} />
+        <ClustersView
+          clusters={clusters}
+          byDate={byDate}
+          targetMonth={monthN}
+        />
       )}
     </ScreenShell>
   );
 }
 
-function DayCardsView({
-  days,
+// ────────────────────────────────────────────────────────────
+// RESUMO: cards de fim de semana
+// ────────────────────────────────────────────────────────────
+function ClustersView({
+  clusters,
   byDate,
+  targetMonth,
 }: {
-  days: string[];
+  clusters: WeekendCluster[];
   byDate: Map<string, (typeof compromissos.$inferSelect)[]>;
+  targetMonth: number;
 }) {
-  const t = todayStr();
   return (
     <div
       style={{
-        padding: "14px 16px 0",
+        padding: "24px 16px 0",
         display: "flex",
         flexDirection: "column",
-        gap: 10,
+        gap: 22, // respiro generoso entre FDS
       }}
     >
-      {days.map((date) => {
-        const items = byDate.get(date) ?? [];
-        const dt = new Date(date + "T00:00:00");
-        const dow = dt.getDay();
-        const isToday = date === t;
-        const isWeekend = dow === 0 || dow === 6;
+      {clusters.map((cluster, idx) => {
+        const fri = cluster.days[0];
+        const sun = cluster.days[2];
+        const crossesMonth = cluster.startMonth !== cluster.endMonth;
+        const ordinal = ORDINAL[idx] ?? `${idx + 1}º`;
+        const filledDays = cluster.days.filter((d) => (byDate.get(d.date)?.length ?? 0) > 0)
+          .length;
+        const rangeLabel = crossesMonth
+          ? `${formatDay(fri.date)} ${formatMonthAbbrev(fri.date)} → ${formatDay(sun.date)} ${formatMonthAbbrev(sun.date)}`
+          : `${formatDay(fri.date)}–${formatDay(sun.date)} ${formatMonthAbbrev(fri.date)}`;
         return (
           <div
-            key={date}
+            key={idx}
             style={{
               background: "var(--card)",
-              borderRadius: 16,
-              border: isToday ? "1px solid var(--accent)" : "0.5px solid var(--line-d)",
+              borderRadius: 20,
               overflow: "hidden",
+              border: "0.5px solid var(--line-d)",
             }}
           >
-            {/* Header do dia */}
+            {/* Header arejado */}
             <div
               style={{
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
-                padding: "10px 14px",
-                background: "var(--surf)",
-                borderBottom: items.length > 0 ? "1px solid var(--line-d)" : "none",
+                padding: "18px 20px",
               }}
             >
-              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
                 <span
                   className="ap-num"
                   style={{
-                    fontSize: 22,
+                    fontSize: 28,
                     fontWeight: 800,
-                    color: isToday ? "var(--accent)" : "var(--ink)",
-                    letterSpacing: "-0.04em",
+                    letterSpacing: "-0.05em",
+                    color: "var(--accent)",
                     lineHeight: 1,
                   }}
                 >
-                  {formatDay(date)}
+                  {ordinal}
                 </span>
                 <span
                   style={{
-                    fontSize: 10,
-                    fontWeight: 800,
-                    letterSpacing: "0.14em",
+                    fontSize: 11,
+                    color: "var(--muted-d)",
+                    fontWeight: 700,
+                    letterSpacing: "0.06em",
                     textTransform: "uppercase",
-                    color: isWeekend ? "var(--accent)" : "var(--muted)",
                   }}
                 >
-                  {DOW_LABEL[dow]}
-                  {isToday ? " · hoje" : ""}
+                  fim de semana
                 </span>
               </div>
-              <span
-                style={{
-                  fontSize: 10.5,
-                  color: "var(--muted)",
-                  fontWeight: 600,
-                }}
-              >
-                {items.length === 0
-                  ? "livre"
-                  : `${items.length} ${items.length === 1 ? "evento" : "eventos"}`}
-              </span>
+              <div style={{ textAlign: "right" }}>
+                <div
+                  className="ap-num"
+                  style={{
+                    fontSize: 11.5,
+                    color: "var(--ink-d)",
+                    fontWeight: 700,
+                  }}
+                >
+                  {rangeLabel}
+                </div>
+                <div
+                  style={{
+                    fontSize: 9,
+                    color: filledDays === 3 ? "var(--accent)" : "var(--muted)",
+                    fontWeight: 700,
+                    letterSpacing: "0.1em",
+                    textTransform: "uppercase",
+                    marginTop: 3,
+                  }}
+                >
+                  {filledDays}/3 com plano
+                </div>
+              </div>
             </div>
 
-            {/* Lista de itens */}
-            {items.length > 0 && (
-              <div>
-                {items.map((c, i) => (
-                  <CompromissoRow
-                    key={c.id}
-                    c={c}
-                    isLast={i === items.length - 1}
+            {/* Dias do FDS — respiro entre dias */}
+            <div style={{ padding: "0 20px 18px", display: "flex", flexDirection: "column", gap: 14 }}>
+              {cluster.days.map((d) => {
+                const inTarget =
+                  new Date(d.date + "T00:00:00").getMonth() + 1 === targetMonth;
+                return (
+                  <DayBlock
+                    key={d.date}
+                    day={d}
+                    items={byDate.get(d.date) ?? []}
+                    dimmed={!inTarget}
                   />
-                ))}
-              </div>
-            )}
-
-            {/* Quick add inline (sempre presente) */}
-            <QuickAddDayRow date={date} />
+                );
+              })}
+            </div>
           </div>
         );
       })}
@@ -277,107 +344,294 @@ function DayCardsView({
   );
 }
 
-function CompromissoRow({
-  c,
-  isLast,
+function DayBlock({
+  day,
+  items,
+  dimmed,
 }: {
-  c: typeof compromissos.$inferSelect;
-  isLast: boolean;
+  day: DayCell;
+  items: (typeof compromissos.$inferSelect)[];
+  dimmed: boolean;
 }) {
   return (
     <div
       style={{
         display: "grid",
-        gridTemplateColumns: "56px 1fr auto",
-        alignItems: "center",
-        gap: 10,
-        padding: "10px 14px",
-        borderBottom: isLast ? "1px solid var(--line-d)" : "0.5px solid var(--line-d)",
+        gridTemplateColumns: "44px 1fr",
+        gap: 14,
+        opacity: dimmed ? 0.5 : 1,
       }}
     >
-      <InlineEditInput
-        initialValue={c.time ?? ""}
-        action={patchCompromisso}
-        hiddenFields={{ id: c.id }}
-        fieldName="time"
-        placeholder="--:--"
-        fontSize={12}
-        fontWeight={700}
-        color="var(--accent)"
-      />
-      <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 1 }}>
+      {/* Data centralizada */}
+      <div style={{ textAlign: "center", paddingTop: 4 }}>
+        <div
+          className="ap-num"
+          style={{
+            fontSize: 22,
+            fontWeight: 800,
+            color: items.length > 0 ? "var(--ink)" : "var(--muted-d)",
+            lineHeight: 1,
+            letterSpacing: "-0.04em",
+          }}
+        >
+          {formatDay(day.date)}
+        </div>
+        <div
+          style={{
+            fontSize: 9,
+            fontWeight: 800,
+            letterSpacing: "0.16em",
+            textTransform: "uppercase",
+            color: day.dow === 6 ? "var(--accent)" : "var(--muted)",
+            marginTop: 6,
+          }}
+        >
+          {DOW_LABEL[day.dow]}
+        </div>
+      </div>
+
+      {/* Lista de compromissos + quick-add inline */}
+      <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 6, paddingTop: 6 }}>
+        {items.length === 0 && (
+          <div
+            style={{
+              fontSize: 11,
+              color: "var(--muted)",
+              fontStyle: "italic",
+              marginBottom: 2,
+            }}
+          >
+            livre
+          </div>
+        )}
+        {items.map((c) => (
+          <CompromissoRow key={c.id} c={c} />
+        ))}
+        <QuickAddDay date={day.date} />
+      </div>
+    </div>
+  );
+}
+
+function CompromissoRow({ c }: { c: typeof compromissos.$inferSelect }) {
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "auto 1fr auto",
+        alignItems: "start",
+        gap: 8,
+      }}
+    >
+      <span
+        style={{
+          fontSize: 11,
+          color: "var(--accent)",
+          fontWeight: 700,
+          paddingTop: 2,
+          minWidth: 28,
+        }}
+      >
+        {c.time ?? "·"}
+      </span>
+      <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 0 }}>
         <InlineEditInput
           initialValue={c.title}
           action={patchCompromisso}
           hiddenFields={{ id: c.id }}
           fieldName="title"
-          placeholder="(título)"
           fontSize={13.5}
           fontWeight={600}
         />
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <InlineEditInput
-            initialValue={c.who ?? ""}
-            action={patchCompromisso}
-            hiddenFields={{ id: c.id }}
-            fieldName="who"
-            placeholder="+ quem"
-            fontSize={11}
-            fontWeight={400}
-            color="var(--muted-d)"
-          />
-          {c.location && (
-            <InlineEditInput
-              initialValue={c.location}
-              action={patchCompromisso}
-              hiddenFields={{ id: c.id }}
-              fieldName="location"
-              placeholder="+ local"
-              fontSize={11}
-              fontWeight={400}
-              color="var(--muted-d)"
-            />
-          )}
-        </div>
+        {(c.who || c.location || c.notes) && (
+          <div style={{ fontSize: 11, color: "var(--muted-d)", lineHeight: 1.4 }}>
+            {[c.who, c.location, c.notes].filter(Boolean).join(" · ")}
+          </div>
+        )}
       </div>
       <DeleteBtn action={deleteCompromisso.bind(null, c.id)} confirmMsg={null} />
     </div>
   );
 }
 
-function QuickAddDayRow({ date }: { date: string }) {
+function QuickAddDay({ date }: { date: string }) {
   return (
     <div
       style={{
         display: "grid",
-        gridTemplateColumns: "56px 1fr",
+        gridTemplateColumns: "auto 1fr",
+        gap: 8,
         alignItems: "center",
-        gap: 10,
-        padding: "8px 14px",
+        paddingTop: 2,
       }}
     >
-      <span
-        style={{
-          fontSize: 11,
-          color: "var(--muted)",
-          fontWeight: 700,
-        }}
-      >
-        +
-      </span>
+      <span style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, minWidth: 28 }}>+</span>
       <InlineEditInput
         initialValue=""
         action={createCompromisso}
         hiddenFields={{ occurredOn: date }}
-        placeholder="adicionar compromisso · Enter salva"
+        placeholder="adicionar"
         fontSize={12.5}
-        fontWeight={500}
         color="var(--muted-d)"
       />
     </div>
   );
 }
 
+// ────────────────────────────────────────────────────────────
+// CALENDÁRIO: mês completo com compromissos
+// ────────────────────────────────────────────────────────────
+function CalendarView({
+  year,
+  month,
+  byDate,
+  monthStr,
+}: {
+  year: number;
+  month: number;
+  byDate: Map<string, (typeof compromissos.$inferSelect)[]>;
+  monthStr: string;
+}) {
+  const firstDay = new Date(year, month - 1, 1);
+  const lastDay = new Date(year, month, 0);
+  const startDow = firstDay.getDay();
+  const totalDays = lastDay.getDate();
+  const todayISO = dateToISO(new Date());
+
+  type Cell = { date: string; dow: number; inMonth: boolean };
+  const cells: Cell[] = [];
+  for (let i = startDow - 1; i >= 0; i--) {
+    const d = new Date(year, month - 1, -i);
+    cells.push({ date: dateToISO(d), dow: d.getDay(), inMonth: false });
+  }
+  for (let i = 1; i <= totalDays; i++) {
+    const d = new Date(year, month - 1, i);
+    cells.push({ date: dateToISO(d), dow: d.getDay(), inMonth: true });
+  }
+  while (cells.length % 7 !== 0) {
+    const last = cells[cells.length - 1];
+    const d = new Date(last.date + "T00:00:00");
+    d.setDate(d.getDate() + 1);
+    cells.push({ date: dateToISO(d), dow: d.getDay(), inMonth: false });
+  }
+
+  const weeks: Cell[][] = [];
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+
+  return (
+    <>
+      <div style={{ padding: "16px 16px 0" }}>
+        <MonthChips
+          basePath="/compromissos"
+          currentMonth={monthStr}
+          extraParams={{ view: "calendar" }}
+        />
+      </div>
+      <div style={{ padding: "12px 14px 24px" }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(7, 1fr)",
+            gap: 4,
+            marginBottom: 6,
+          }}
+        >
+          {DOW_LABEL.map((d) => (
+            <div
+              key={d}
+              style={{
+                fontSize: 9,
+                fontWeight: 800,
+                letterSpacing: "0.12em",
+                textTransform: "uppercase",
+                color: "var(--muted)",
+                textAlign: "center",
+                paddingBottom: 4,
+              }}
+            >
+              {d}
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          {weeks.map((wk, wi) => (
+            <div key={wi} style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
+              {wk.map((c) => {
+                const isWeekend = c.dow === 0 || c.dow === 6;
+                const items = byDate.get(c.date) ?? [];
+                const hasItems = items.length > 0;
+                const isToday = c.date === todayISO;
+                return (
+                  <div
+                    key={c.date}
+                    style={{
+                      minHeight: 72,
+                      padding: 6,
+                      borderRadius: 8,
+                      background: hasItems || isWeekend ? "var(--card)" : "transparent",
+                      border: isToday
+                        ? "1px solid var(--accent)"
+                        : isWeekend
+                          ? "1px solid var(--line-d)"
+                          : "1px solid transparent",
+                      opacity: c.inMonth ? 1 : 0.4,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 2,
+                    }}
+                  >
+                    <div
+                      className="ap-num"
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: isToday
+                          ? "var(--accent)"
+                          : hasItems
+                            ? "var(--ink)"
+                            : "var(--muted-d)",
+                        lineHeight: 1,
+                      }}
+                    >
+                      {formatDay(c.date)}
+                    </div>
+                    {items.slice(0, 3).map((it) => (
+                      <div
+                        key={it.id}
+                        style={{
+                          fontSize: 9.5,
+                          fontWeight: 600,
+                          lineHeight: 1.2,
+                          color: "var(--ink-d)",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                        title={it.title}
+                      >
+                        {it.time && <span style={{ color: "var(--accent)" }}>{it.time} </span>}
+                        {it.title}
+                      </div>
+                    ))}
+                    {items.length > 3 && (
+                      <div style={{ fontSize: 9, color: "var(--muted)" }}>
+                        +{items.length - 3}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ────────────────────────────────────────────────────────────
+// LISTA: cronológica
+// ────────────────────────────────────────────────────────────
 function ListView({
   upcoming,
 }: {
@@ -390,39 +644,40 @@ function ListView({
           fontSize: 13,
           color: "var(--muted)",
           textAlign: "center",
-          padding: "20px 0",
+          padding: "30px 0",
         }}
       >
-        Nenhum compromisso.
+        Nenhum compromisso ainda. Adicione com o botão acima.
       </div>
     );
   }
   return (
-    <div style={{ padding: "14px 20px 0" }}>
+    <div style={{ padding: "20px 20px 0" }}>
       {upcoming.map((c, i) => {
         const dt = new Date(c.occurredOn + "T00:00:00");
         const dow = dt.getDay();
+        const isWeekend = dow === 0 || dow === 6;
         return (
           <div
             key={c.id}
             style={{
               display: "grid",
-              gridTemplateColumns: "52px 1fr auto",
+              gridTemplateColumns: "56px 1fr auto",
               alignItems: "center",
-              gap: 12,
-              padding: "10px 0",
-              borderBottom:
-                i < upcoming.length - 1 ? "0.5px solid var(--line-d)" : "none",
+              gap: 14,
+              padding: "12px 0",
+              borderBottom: i < upcoming.length - 1 ? "0.5px solid var(--line-d)" : "none",
             }}
           >
             <div style={{ textAlign: "center" }}>
               <div
                 className="ap-num"
                 style={{
-                  fontSize: 16,
-                  fontWeight: 700,
-                  color: "var(--ink-d)",
+                  fontSize: 18,
+                  fontWeight: 800,
+                  color: isWeekend ? "var(--accent)" : "var(--ink)",
                   lineHeight: 1,
+                  letterSpacing: "-0.04em",
                 }}
               >
                 {formatDay(c.occurredOn)}
@@ -430,33 +685,41 @@ function ListView({
               <div
                 style={{
                   fontSize: 9,
-                  fontWeight: 700,
-                  letterSpacing: "0.1em",
+                  fontWeight: 800,
+                  letterSpacing: "0.14em",
                   textTransform: "uppercase",
-                  color: dow === 0 || dow === 6 ? "var(--accent)" : "var(--muted)",
-                  marginTop: 2,
+                  color: isWeekend ? "var(--accent)" : "var(--muted)",
+                  marginTop: 3,
                 }}
               >
-                {DOW_LABEL[dow]}
+                {DOW_LABEL[dow]} · {formatMonthAbbrev(c.occurredOn)}
               </div>
             </div>
             <div style={{ minWidth: 0 }}>
-              <InlineEditInput
-                initialValue={c.title}
-                action={patchCompromisso}
-                hiddenFields={{ id: c.id }}
-                fieldName="title"
-                fontSize={13.5}
-                fontWeight={600}
-              />
-              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 1 }}>
-                {[c.time, c.who, c.location].filter(Boolean).join(" · ") || "—"}
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                {c.time && (
+                  <span style={{ fontSize: 12, color: "var(--accent)", fontWeight: 700 }}>
+                    {c.time}
+                  </span>
+                )}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <InlineEditInput
+                    initialValue={c.title}
+                    action={patchCompromisso}
+                    hiddenFields={{ id: c.id }}
+                    fieldName="title"
+                    fontSize={13.5}
+                    fontWeight={600}
+                  />
+                </div>
               </div>
+              {(c.who || c.location || c.notes) && (
+                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                  {[c.who, c.location, c.notes].filter(Boolean).join(" · ")}
+                </div>
+              )}
             </div>
-            <DeleteBtn
-              action={deleteCompromisso.bind(null, c.id)}
-              confirmMsg={null}
-            />
+            <DeleteBtn action={deleteCompromisso.bind(null, c.id)} confirmMsg={null} />
           </div>
         );
       })}

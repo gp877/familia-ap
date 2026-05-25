@@ -318,6 +318,18 @@ export default async function SupermercadoPage() {
           label="Contagens"
           sub={`${contagensRecentes.length} recentes`}
         />
+        <ShortcutLink
+          href="/supermercado/historico"
+          icon="bag"
+          label="Histórico pedidos"
+          sub={`${pedidos.length} registrados`}
+        />
+        <ShortcutLink
+          href="/supermercado/fornecedores"
+          icon="bank"
+          label="Fornecedores"
+          sub="e-mail e whatsapp"
+        />
       </div>
 
       {/* Pedidos recentes */}

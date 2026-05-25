@@ -1,4 +1,4 @@
-import { asc, desc, eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 
 import { BigNumber, SectionRow } from "@/components/ap/atoms";
 import { DeleteBtn, FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
@@ -17,6 +17,7 @@ import { db } from "@/db";
 import { aniversarios, users } from "@/db/schema";
 
 const MONTH_LABEL = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+const MONTH_FULL = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 
 function daysUntil(monthDay: string): number {
   const [m, d] = monthDay.split("-").map(Number);
@@ -51,7 +52,7 @@ export default async function AniversariosPage({
   searchParams: SearchParams;
 }) {
   const sp = await searchParams;
-  const isList = sp.view === "list";
+  const isAnual = sp.view === "anual";
 
   const session = await auth();
   if (!session?.user?.id) return null;
@@ -65,18 +66,35 @@ export default async function AniversariosPage({
     with: {
       presentes: { orderBy: (p, { desc: d }) => [d(p.year)] },
     },
-    orderBy: isList ? [desc(aniversarios.createdAt)] : [asc(aniversarios.monthDay)],
+    orderBy: [asc(aniversarios.monthDay)],
   });
 
-  const sorted = [...all]
-    .map((a) => ({
-      ...a,
-      days: daysUntil(a.monthDay),
-      nextAge: computeAge(a.birthYear, a.monthDay),
-    }))
-    .sort((a, b) => (isList ? 0 : a.days - b.days));
+  const enriched = all.map((a) => ({
+    ...a,
+    days: daysUntil(a.monthDay),
+    nextAge: computeAge(a.birthYear, a.monthDay),
+  }));
 
+  const sorted = [...enriched].sort((a, b) => a.days - b.days);
   const next = sorted[0];
+
+  // Agrupar por mês (1-12) — pra view anual
+  const byMonth = new Map<number, typeof enriched>();
+  for (const a of enriched) {
+    const m = parseInt(a.monthDay.split("-")[0], 10);
+    const arr = byMonth.get(m) ?? [];
+    arr.push(a);
+    byMonth.set(m, arr);
+  }
+  // Dentro de cada mês, ordenar por dia
+  for (const arr of byMonth.values()) {
+    arr.sort((a, b) => {
+      const da = parseInt(a.monthDay.split("-")[1], 10);
+      const db = parseInt(b.monthDay.split("-")[1], 10);
+      return da - db;
+    });
+  }
+  const currentMonth = new Date().getMonth() + 1;
 
   return (
     <ScreenShell
@@ -96,7 +114,14 @@ export default async function AniversariosPage({
         icon="cake"
         label="Aniversários da família"
         action={
-          <ViewToggle basePath="/aniversarios" current={sp.view} />
+          <ViewToggle
+            basePath="/aniversarios"
+            current={sp.view}
+            options={[
+              { key: null, label: "Próximos" },
+              { key: "anual", label: "Anual" },
+            ]}
+          />
         }
       />
 
@@ -140,12 +165,14 @@ export default async function AniversariosPage({
         </InlineForm>
       </div>
 
-      {/* Lista — cada card é uma "person card" */}
+      {isAnual ? (
+        <AnualView byMonth={byMonth} currentMonth={currentMonth} />
+      ) : (
       <div style={{ padding: "16px 16px 0", display: "flex", flexDirection: "column", gap: 10 }}>
         {sorted.map((aniv, idx) => {
           const m = parseInt(aniv.monthDay.split("-")[0], 10);
           const d = parseInt(aniv.monthDay.split("-")[1], 10);
-          const isNext = !isList && idx === 0;
+          const isNext = idx === 0;
           return (
             <details
               key={aniv.id}
@@ -337,6 +364,122 @@ export default async function AniversariosPage({
           );
         })}
       </div>
+      )}
     </ScreenShell>
+  );
+}
+
+function AnualView({
+  byMonth,
+  currentMonth,
+}: {
+  byMonth: Map<number, { id: string; name: string; monthDay: string; birthYear: number | null; nextAge: number | null }[]>;
+  currentMonth: number;
+}) {
+  return (
+    <div
+      style={{
+        padding: "20px 16px 0",
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gap: 10,
+      }}
+    >
+      {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => {
+        const arr = byMonth.get(m) ?? [];
+        const isCurrent = m === currentMonth;
+        return (
+          <div
+            key={m}
+            style={{
+              background: "var(--card)",
+              borderRadius: 14,
+              border: isCurrent ? "1px solid var(--accent)" : "0.5px solid var(--line-d)",
+              padding: 12,
+              minHeight: 100,
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 800,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  color: isCurrent ? "var(--accent)" : "var(--ink)",
+                }}
+              >
+                {MONTH_FULL[m - 1]}
+              </span>
+              <span
+                style={{
+                  fontSize: 10,
+                  color: arr.length > 0 ? "var(--muted-d)" : "var(--muted)",
+                  fontWeight: 700,
+                }}
+              >
+                {arr.length || "—"}
+              </span>
+            </div>
+            {arr.length === 0 ? (
+              <div style={{ fontSize: 10.5, color: "var(--muted)", fontStyle: "italic" }}>
+                vazio
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {arr.map((aniv) => {
+                  const dia = parseInt(aniv.monthDay.split("-")[1], 10);
+                  return (
+                    <div
+                      key={aniv.id}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "24px 1fr",
+                        alignItems: "baseline",
+                        gap: 6,
+                      }}
+                    >
+                      <span
+                        className="ap-num"
+                        style={{
+                          fontSize: 13,
+                          fontWeight: 700,
+                          color: "var(--muted)",
+                          textAlign: "right",
+                        }}
+                      >
+                        {String(dia).padStart(2, "0")}
+                      </span>
+                      <div style={{ minWidth: 0 }}>
+                        <div
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 600,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                          title={aniv.name}
+                        >
+                          {aniv.name}
+                        </div>
+                        {aniv.nextAge && (
+                          <div style={{ fontSize: 9.5, color: "var(--muted)" }}>
+                            faz {aniv.nextAge}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }

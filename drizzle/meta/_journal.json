@@ -50,6 +50,13 @@
       "when": 1779729137314,
       "tag": "0006_confused_triton",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1779730111781,
+      "tag": "0007_real_thor",
+      "breakpoints": true
     }
   ]
 }

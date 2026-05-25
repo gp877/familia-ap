@@ -628,6 +628,31 @@ export const supermercadoContagens = pgTable(
   (c) => [index("supermercado_contagem_household_idx").on(c.householdId, c.contagemDate)]
 );
 
+// Fornecedores (supermercados que recebem o pedido)
+export const supermercadoFornecedores = pgTable(
+  "supermercado_fornecedor",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    email: text("email"),
+    whatsapp: text("whatsapp"),
+    notes: text("notes"),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (f) => [index("supermercado_fornecedor_household_idx").on(f.householdId, f.isActive)]
+);
+
+export const supermercadoFornecedorRelations = relations(supermercadoFornecedores, ({ one }) => ({
+  household: one(households, {
+    fields: [supermercadoFornecedores.householdId],
+    references: [households.id],
+  }),
+}));
+
 export const supermercadoContagemItens = pgTable(
   "supermercado_contagem_item",
   {

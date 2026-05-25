@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
 import { MobileTop } from "@/components/ap/mobile-top";
+import { ScrollTopOnNav } from "@/components/ap/scroll-top-on-nav";
 import { WebSidebar } from "@/components/ap/web-sidebar";
 import { auth } from "@/auth";
 import { db } from "@/db";
@@ -46,6 +47,7 @@ export default async function AppLayout({
       className="flex min-h-screen w-full"
       style={{ background: "var(--bg)", color: "var(--ink)" }}
     >
+      <ScrollTopOnNav />
       <WebSidebar userName={myFirstName} partnerName={partnerName} />
       <div className="flex min-h-screen flex-1 flex-col" style={{ minWidth: 0 }}>
         <MobileTop />

@@ -8,6 +8,7 @@ import { db } from "@/db";
 import {
   supermercadoContagemItens,
   supermercadoContagens,
+  supermercadoFornecedores,
   supermercadoItens,
   supermercadoPedidoItens,
   supermercadoPedidos,
@@ -500,6 +501,72 @@ export async function closeContagemAndCreatePedido(formData: FormData) {
   } else {
     redirect("/supermercado/contagens");
   }
+}
+
+/** Zera todas as countedQty de uma contagem aberta (refazer do zero). */
+export async function clearContagem(formData: FormData) {
+  const { householdId } = await requireUserAndHousehold();
+  const id = formData.get("id") as string;
+  if (!id) return;
+  const c = await db.query.supermercadoContagens.findFirst({
+    where: eq(supermercadoContagens.id, id),
+  });
+  if (!c || c.householdId !== householdId) return;
+  if (c.status === "closed") return;
+  await db
+    .update(supermercadoContagemItens)
+    .set({ countedQty: null })
+    .where(eq(supermercadoContagemItens.contagemId, id));
+  revalidatePath(`/supermercado/contagens/${id}`);
+}
+
+// ── Fornecedores ───────────────────────────────────────────────────
+export async function createFornecedor(formData: FormData) {
+  const { householdId } = await requireUserAndHousehold();
+  const name = (formData.get("name") as string)?.trim();
+  if (!name) throw new Error("Nome obrigatório");
+  await db.insert(supermercadoFornecedores).values({
+    householdId,
+    name,
+    email: ((formData.get("email") as string) || "").trim() || null,
+    whatsapp: ((formData.get("whatsapp") as string) || "").trim() || null,
+    notes: ((formData.get("notes") as string) || "").trim() || null,
+  });
+  revalidatePath("/supermercado/fornecedores");
+  revalidatePath("/supermercado");
+}
+
+export async function patchFornecedor(formData: FormData) {
+  const { householdId } = await requireUserAndHousehold();
+  const id = formData.get("id") as string;
+  if (!id) return;
+  const f = await db.query.supermercadoFornecedores.findFirst({
+    where: eq(supermercadoFornecedores.id, id),
+  });
+  if (!f || f.householdId !== householdId) return;
+  const patch: Record<string, string | null> = {};
+  for (const key of ["name", "email", "whatsapp", "notes"]) {
+    if (formData.has(key)) {
+      const v = ((formData.get(key) as string) || "").trim();
+      if (key === "name" && !v) continue;
+      patch[key] = v || null;
+    }
+  }
+  if (Object.keys(patch).length === 0) return;
+  await db.update(supermercadoFornecedores).set(patch).where(eq(supermercadoFornecedores.id, id));
+  revalidatePath("/supermercado/fornecedores");
+}
+
+export async function deleteFornecedor(id: string) {
+  const { householdId } = await requireUserAndHousehold();
+  const f = await db.query.supermercadoFornecedores.findFirst({
+    where: eq(supermercadoFornecedores.id, id),
+  });
+  if (!f || f.householdId !== householdId) return;
+  await db
+    .delete(supermercadoFornecedores)
+    .where(eq(supermercadoFornecedores.id, id));
+  revalidatePath("/supermercado/fornecedores");
 }
 
 export async function deleteContagem(formData: FormData) {

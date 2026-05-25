@@ -15,7 +15,6 @@ import { db } from "@/db";
 import {
   aniversarios,
   compromissos,
-  finsDeSemana,
   messages,
   pesagens,
   sonhos,
@@ -349,14 +348,15 @@ async function executeToolCall(
         return { name, result: `Item adicionado: "${args.name}".` };
       }
       case "criar_fim_de_semana": {
-        await db.insert(finsDeSemana).values({
+        // mantido por compatibilidade — cria compromisso (módulo unificado)
+        await db.insert(compromissos).values({
           householdId,
           createdById: userId,
-          weekendDate: args.date as string,
+          occurredOn: args.date as string,
           title: args.title as string,
           notes: (args.notes as string) || null,
         });
-        revalidatePath("/finais-de-semana");
+        revalidatePath("/compromissos");
         return { name, result: `Programação salva em ${args.date}: "${args.title}".` };
       }
       case "consultar_gastos_mes": {
