@@ -14,14 +14,56 @@ import { auth } from "@/auth";
 import { db } from "@/db";
 import { finsDeSemana, users } from "@/db/schema";
 
-const DOW_LABEL = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+const DOW_LABEL = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
 
-function formatDateBr(dStr: string) {
+function formatDay(dStr: string) {
+  const [, , day] = dStr.split("-").map(Number);
+  return String(day).padStart(2, "0");
+}
+
+function formatMonthShort(dStr: string) {
   const [y, m, d] = dStr.split("-").map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString("pt-BR", {
-    day: "2-digit",
-    month: "short",
-  });
+  return new Date(y, m - 1, d)
+    .toLocaleDateString("pt-BR", { month: "short" })
+    .replace(".", "");
+}
+
+// Cores por dia: sex = neutro com leve borda, sáb = accent, dom = card2 quente
+function dayStyle(dow: number): {
+  cellBg: string;
+  cellBorder: string;
+  tagBg: string;
+  tagFg: string;
+  tagWeight: number;
+} {
+  if (dow === 5) {
+    // sex — leve, dia "warm-up"
+    return {
+      cellBg: "var(--card)",
+      cellBorder: "transparent",
+      tagBg: "var(--card2)",
+      tagFg: "var(--muted-d)",
+      tagWeight: 600,
+    };
+  }
+  if (dow === 6) {
+    // sáb — protagonista
+    return {
+      cellBg: "var(--card)",
+      cellBorder: "var(--accent)",
+      tagBg: "var(--accent)",
+      tagFg: "var(--accent-on)",
+      tagWeight: 800,
+    };
+  }
+  // dom — quente, encerramento
+  return {
+    cellBg: "var(--card)",
+    cellBorder: "transparent",
+    tagBg: "#3a2d20",
+    tagFg: "#e9c89c",
+    tagWeight: 700,
+  };
 }
 
 type SearchParams = Promise<{ month?: string; view?: string }>;
@@ -63,8 +105,6 @@ export default async function FinaisDeSemanaPage({
   const monthStartStr = monthStart.toISOString().slice(0, 10);
   const monthEndStr = monthEnd.toISOString().slice(0, 10);
 
-  // Em modo lista: pega TODAS as entradas, ordenadas por data desc (mais recentes primeiro).
-  // Em modo resumo: só as do mês selecionado.
   const entries = isList
     ? await db.query.finsDeSemana.findMany({
         where: eq(finsDeSemana.householdId, dbUser.householdId),
@@ -81,11 +121,11 @@ export default async function FinaisDeSemanaPage({
         orderBy: [asc(finsDeSemana.weekendDate), asc(finsDeSemana.createdAt)],
       });
 
-  const entriesByDate = new Map<string, typeof entries>();
+  // 1 entry por data (a mais recente vence — action faz upsert mas pode haver
+  // legados; pegamos a última inserida)
+  const entryByDate = new Map<string, typeof entries[number]>();
   for (const e of entries) {
-    const arr = entriesByDate.get(e.weekendDate) ?? [];
-    arr.push(e);
-    entriesByDate.set(e.weekendDate, arr);
+    entryByDate.set(e.weekendDate, e);
   }
 
   // Agrupar por fim-de-semana (sex/sáb/dom consecutivos)
@@ -118,16 +158,18 @@ export default async function FinaisDeSemanaPage({
     year: "numeric",
   });
 
+  const filledCount = weekendDays.filter((d) => entryByDate.has(d.date)).length;
+
   return (
     <ScreenShell
       userQ="Como tão nossos finais de semana esse mês?"
       insight={
         entries.length > 0 ? (
           <>
-            <b>{entries.length}</b> {entries.length === 1 ? "programação" : "programações"} em {monthLabel}. Digite direto no dia pra adicionar.
+            <b>{filledCount}</b> de {weekendDays.length} dias preenchidos em {monthLabel}. Digite na linha pra programar.
           </>
         ) : (
-          <>Nenhum plano ainda. Clique no dia abaixo e <b>digite</b> direto pra adicionar — Enter salva.</>
+          <>Nenhum plano ainda. Digite na linha do dia (Enter salva). Um título por dia.</>
         )
       }
     >
@@ -148,11 +190,11 @@ export default async function FinaisDeSemanaPage({
       )}
 
       <BigNumber
-        value={`${entries.length}`}
+        value={isList ? `${entries.length}` : `${filledCount}/${weekendDays.length}`}
         sub={
           isList
-            ? `${entries.length === 1 ? "programação" : "programações"} no histórico`
-            : `${entries.length === 1 ? "programação" : "programações"} em ${monthLabel}`
+            ? `programações no histórico`
+            : `dias preenchidos · ${monthLabel}`
         }
       />
 
@@ -163,45 +205,75 @@ export default async function FinaisDeSemanaPage({
               Nenhuma programação ainda.
             </div>
           ) : (
-            entries.map((e, i) => (
-              <div
-                key={e.id}
-                style={{
-                  display: "flex",
-                  gap: 12,
-                  alignItems: "center",
-                  padding: "10px 0",
-                  borderBottom:
-                    i < entries.length - 1 ? "0.5px solid var(--line-d)" : "none",
-                }}
-              >
+            entries.map((e, i) => {
+              const dt = new Date(e.weekendDate + "T00:00:00");
+              const s = dayStyle(dt.getDay());
+              return (
                 <div
+                  key={e.id}
                   style={{
-                    width: 50,
-                    textAlign: "right",
-                    fontSize: 11,
-                    fontWeight: 700,
-                    letterSpacing: "0.08em",
-                    textTransform: "uppercase",
-                    color: "var(--muted)",
+                    display: "grid",
+                    gridTemplateColumns: "60px 1fr auto",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "10px 0",
+                    borderBottom:
+                      i < entries.length - 1 ? "0.5px solid var(--line-d)" : "none",
                   }}
                 >
-                  {formatDateBr(e.weekendDate)}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 600 }}>{e.title}</div>
-                  {e.notes && (
-                    <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 1 }}>
-                      {e.notes}
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "baseline",
+                      gap: 6,
+                      padding: "4px 8px",
+                      borderRadius: 8,
+                      background: s.tagBg,
+                      color: s.tagFg,
+                      justifyContent: "center",
+                    }}
+                  >
+                    <span
+                      className="ap-num"
+                      style={{ fontSize: 14, fontWeight: s.tagWeight, lineHeight: 1 }}
+                    >
+                      {formatDay(e.weekendDate)}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 9,
+                        fontWeight: 700,
+                        letterSpacing: "0.1em",
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      {DOW_LABEL[dt.getDay()]}
+                    </span>
+                  </div>
+                  <div style={{ minWidth: 0 }}>
+                    <div
+                      style={{
+                        fontSize: 13.5,
+                        fontWeight: 600,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {e.title}
                     </div>
-                  )}
+                    <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 1 }}>
+                      {formatMonthShort(e.weekendDate)}{" "}
+                      {new Date(e.weekendDate + "T00:00:00").getFullYear()}
+                    </div>
+                  </div>
+                  <DeleteBtn
+                    action={deleteFimDeSemana.bind(null, e.id)}
+                    confirmMsg="Excluir?"
+                  />
                 </div>
-                <DeleteBtn
-                  action={deleteFimDeSemana.bind(null, e.id)}
-                  confirmMsg="Excluir?"
-                />
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       ) : (
@@ -210,7 +282,7 @@ export default async function FinaisDeSemanaPage({
             padding: "14px 20px 0",
             display: "flex",
             flexDirection: "column",
-            gap: 12,
+            gap: 16,
           }}
         >
           {weekends.map((w, idx) => {
@@ -220,18 +292,14 @@ export default async function FinaisDeSemanaPage({
             }[];
             if (days.length === 0) return null;
             return (
-              <div
-                key={idx}
-                style={{
-                  borderRadius: 16,
-                  background: "var(--surf)",
-                  padding: 12,
-                }}
-              >
-                {days.map((d) => {
-                  const items = entriesByDate.get(d.date) ?? [];
-                  return <DayRow key={d.date} day={d} items={items} />;
-                })}
+              <div key={idx} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {days.map((d) => (
+                  <DayCell
+                    key={d.date}
+                    day={d}
+                    entry={entryByDate.get(d.date) ?? null}
+                  />
+                ))}
               </div>
             );
           })}
@@ -241,73 +309,105 @@ export default async function FinaisDeSemanaPage({
   );
 }
 
-function DayRow({
+function DayCell({
   day,
-  items,
+  entry,
 }: {
   day: { date: string; dow: number };
-  items: typeof finsDeSemana.$inferSelect[];
+  entry: typeof finsDeSemana.$inferSelect | null;
 }) {
+  const s = dayStyle(day.dow);
+  const hasEntry = !!entry;
   return (
-    <div style={{ marginBottom: 8, borderBottom: "0.5px solid var(--line-d)", paddingBottom: 8 }}>
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "56px 1fr auto",
+        alignItems: "center",
+        gap: 10,
+        padding: "8px 12px",
+        background: s.cellBg,
+        borderRadius: 12,
+        border: `1px solid ${s.cellBorder}`,
+      }}
+    >
       <div
         style={{
           display: "flex",
-          alignItems: "center",
-          gap: 8,
-          marginBottom: 4,
+          alignItems: "baseline",
+          gap: 5,
+          padding: "5px 10px",
+          borderRadius: 8,
+          background: s.tagBg,
+          color: s.tagFg,
+          justifyContent: "center",
         }}
       >
         <span
+          className="ap-num"
+          style={{ fontSize: 14, fontWeight: s.tagWeight, lineHeight: 1 }}
+        >
+          {formatDay(day.date)}
+        </span>
+        <span
           style={{
-            fontSize: 10,
+            fontSize: 9,
             fontWeight: 700,
-            letterSpacing: "0.12em",
+            letterSpacing: "0.1em",
             textTransform: "uppercase",
-            color: "var(--muted)",
-            width: 30,
           }}
         >
           {DOW_LABEL[day.dow]}
         </span>
-        <span className="ap-num" style={{ fontSize: 16, color: "var(--ink)" }}>
-          {formatDateBr(day.date)}
-        </span>
       </div>
 
-      {items.map((item) => (
-        <div
-          key={item.id}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            padding: "3px 0 3px 38px",
-          }}
-        >
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13, fontWeight: 600 }}>{item.title}</div>
-            {item.notes && (
-              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 1 }}>
-                {item.notes}
-              </div>
-            )}
+      {/* Título inline: se houver, mostra como texto; se vazio, mostra input quick-add */}
+      {hasEntry ? (
+        <div style={{ minWidth: 0 }}>
+          <div
+            style={{
+              fontSize: 13.5,
+              fontWeight: 600,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+            title={entry!.title}
+          >
+            {entry!.title}
           </div>
-          <DeleteBtn
-            action={deleteFimDeSemana.bind(null, item.id)}
-            confirmMsg="Excluir?"
-          />
+          {entry!.notes && (
+            <div
+              style={{
+                fontSize: 11,
+                color: "var(--muted)",
+                marginTop: 1,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {entry!.notes}
+            </div>
+          )}
         </div>
-      ))}
-
-      {/* Linha inline pra adicionar — sem botão, só Enter */}
-      <div style={{ paddingLeft: 38, paddingTop: 2 }}>
+      ) : (
         <QuickAddInput
           action={createFimDeSemana}
           hiddenFields={{ weekendDate: day.date }}
-          placeholder={items.length === 0 ? "+ que tal? (Enter pra salvar)" : "+ adicionar mais..."}
+          placeholder="livre · digite pra programar"
+          fontSize={13}
         />
-      </div>
+      )}
+
+      {hasEntry ? (
+        <DeleteBtn
+          action={deleteFimDeSemana.bind(null, entry!.id)}
+          confirmMsg="Limpar este dia?"
+        />
+      ) : (
+        <div style={{ width: 28 }} />
+      )}
     </div>
   );
 }

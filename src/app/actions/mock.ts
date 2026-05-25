@@ -446,35 +446,43 @@ export async function seedDemoData() {
   }
 
   // ── FINS DE SEMANA ─────────────────────────────────────────
-  const existingFds = await db.query.finsDeSemana.findMany({
-    where: (f, { eq, like, and }) =>
-      and(eq(f.householdId, householdId), like(f.title, "%(demo)%")),
-    limit: 1,
-  });
-  if (existingFds.length === 0) {
-    // Próximo sábado e domingo
-    const today = new Date();
-    const daysUntilSat = (6 - today.getDay() + 7) % 7 || 7;
-    const sat = new Date(today);
-    sat.setDate(today.getDate() + daysUntilSat);
-    const sun = new Date(sat);
-    sun.setDate(sat.getDate() + 1);
-
-    await db.insert(finsDeSemana).values([
-      {
+  // Idempotente por (householdId, weekendDate) — se a data já tem entry,
+  // não insere de novo. Cobre últimos 2 fins de semana + próximos 2.
+  const today = new Date();
+  function dateOffsetFromDow(targetDow: number, weeksAhead: number): string {
+    const t = new Date(today);
+    t.setHours(0, 0, 0, 0);
+    const diff = (targetDow - t.getDay() + 7) % 7 + weeksAhead * 7;
+    t.setDate(t.getDate() + diff);
+    return t.toISOString().slice(0, 10);
+  }
+  // Sex/sáb/dom do passado e futuro próximos
+  const fdsDates = [
+    { date: dateOffsetFromDow(5, -2), title: "Drink em casa com Pedro (demo)", notes: "comprar gelo" },
+    { date: dateOffsetFromDow(6, -2), title: "Praia da Pipa (demo)", notes: "sair às 7h" },
+    { date: dateOffsetFromDow(0, -2), title: "Almoço vó Inês (demo)", notes: null },
+    { date: dateOffsetFromDow(5, -1), title: "Cinema · Duna 3 (demo)", notes: null },
+    { date: dateOffsetFromDow(6, -1), title: "Aniversário sobrinho (demo)", notes: "presente já comprado" },
+    { date: dateOffsetFromDow(5, 0), title: "Happy hour (demo)", notes: null },
+    { date: dateOffsetFromDow(6, 0), title: "Praia + Sushi (demo)", notes: "checar maré" },
+    { date: dateOffsetFromDow(0, 0), title: "Domingo de Marília trabalhando (demo)", notes: null },
+    { date: dateOffsetFromDow(6, 1), title: "Trilha Genipabu (demo)", notes: "água + frutas" },
+    { date: dateOffsetFromDow(0, 1), title: "Almoço família AP (demo)", notes: null },
+  ];
+  for (const f of fdsDates) {
+    const exists = await db.query.finsDeSemana.findFirst({
+      where: (x, { eq, and }) =>
+        and(eq(x.householdId, householdId), eq(x.weekendDate, f.date)),
+    });
+    if (!exists) {
+      await db.insert(finsDeSemana).values({
         householdId,
         createdById: userId,
-        weekendDate: sat.toISOString().slice(0, 10),
-        title: "Praia (demo)",
-        notes: "Sair cedo, levar guarda-sol",
-      },
-      {
-        householdId,
-        createdById: userId,
-        weekendDate: sun.toISOString().slice(0, 10),
-        title: "Almoço família (demo)",
-      },
-    ]);
+        weekendDate: f.date,
+        title: f.title,
+        notes: f.notes,
+      });
+    }
   }
 
   // ── ANIVERSÁRIOS ─────────────────────────────────────────
@@ -706,6 +714,94 @@ export async function seedDemoData() {
     ]);
   }
 
+  // ── SUPERMERCADO · PEDIDOS ─────────────────────────────────
+  const existingPedidos = await db.query.supermercadoPedidos.findMany({
+    where: (p, { eq, like, and }) =>
+      and(eq(p.householdId, householdId), like(p.title, "%(demo)%")),
+    limit: 1,
+  });
+  if (existingPedidos.length === 0) {
+    // Pedido 1: draft (em montagem)
+    const [pedidoDraft] = await db
+      .insert(supermercadoPedidos)
+      .values({
+        householdId,
+        createdById: userId,
+        title: "Compra semanal (demo)",
+        status: "draft",
+      })
+      .returning();
+    await db.insert(supermercadoPedidoItens).values([
+      {
+        pedidoId: pedidoDraft.id,
+        nameSnapshot: "Leite integral",
+        quantity: "4.00",
+        unit: "L",
+        estimatedPrice: "5.49",
+      },
+      {
+        pedidoId: pedidoDraft.id,
+        nameSnapshot: "Pão de forma",
+        quantity: "2.00",
+        unit: "un",
+        estimatedPrice: "9.90",
+      },
+      {
+        pedidoId: pedidoDraft.id,
+        nameSnapshot: "Maçãs",
+        quantity: "1.00",
+        unit: "kg",
+        estimatedPrice: "8.99",
+      },
+      {
+        pedidoId: pedidoDraft.id,
+        nameSnapshot: "Frango peito",
+        quantity: "2.00",
+        unit: "kg",
+        estimatedPrice: "26.90",
+      },
+    ]);
+
+    // Pedido 2: já enviado pra fornecedor
+    const [pedidoSent] = await db
+      .insert(supermercadoPedidos)
+      .values({
+        householdId,
+        createdById: userId,
+        title: "Compra mês passado (demo)",
+        status: "received",
+        sentAt: new Date(Date.now() - 14 * 86_400_000),
+        receivedAt: new Date(Date.now() - 12 * 86_400_000),
+      })
+      .returning();
+    await db.insert(supermercadoPedidoItens).values([
+      {
+        pedidoId: pedidoSent.id,
+        nameSnapshot: "Café",
+        quantity: "2.00",
+        unit: "pct",
+        estimatedPrice: "18.90",
+        isChecked: true,
+      },
+      {
+        pedidoId: pedidoSent.id,
+        nameSnapshot: "Detergente",
+        quantity: "3.00",
+        unit: "un",
+        estimatedPrice: "3.99",
+        isChecked: true,
+      },
+      {
+        pedidoId: pedidoSent.id,
+        nameSnapshot: "Arroz 5kg",
+        quantity: "1.00",
+        unit: "pct",
+        estimatedPrice: "32.00",
+        isChecked: true,
+      },
+    ]);
+  }
+
   // ── SAÚDE · EXAMES + RESULTADOS estruturados ───────────────
   const existingExames = await db.query.exames.findMany({
     where: (e, { eq, like, and }) =>
@@ -916,6 +1012,16 @@ export async function clearDemoData() {
     .where(
       and(eq(supermercadoItens.householdId, householdId), like(supermercadoItens.name, "%(demo)%"))
     );
+  // supermercadoPedidos: cascade nos itens via FK
+  await db
+    .delete(supermercadoPedidos)
+    .where(
+      and(
+        eq(supermercadoPedidos.householdId, householdId),
+        like(supermercadoPedidos.title, "%(demo)%")
+      )
+    );
+  // exames: cascade nos resultados via FK
   await db
     .delete(exames)
     .where(and(eq(exames.householdId, householdId), like(exames.name, "%(demo)%")));

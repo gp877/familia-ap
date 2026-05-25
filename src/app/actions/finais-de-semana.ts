@@ -1,25 +1,45 @@
 "use server";
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
 import { db } from "@/db";
 import { finsDeSemana } from "@/db/schema";
 import { requireUserAndHousehold } from "@/lib/auth-helpers";
 
+/**
+ * Cria OU substitui a programação do dia. Regra: uma única linha por
+ * (householdId, weekendDate). Digitar de novo sobrescreve.
+ */
 export async function createFimDeSemana(formData: FormData) {
   const { householdId, userId } = await requireUserAndHousehold();
   const weekendDate = formData.get("weekendDate") as string;
   const title = (formData.get("title") as string)?.trim();
   if (!weekendDate || !title) throw new Error("Data e título obrigatórios");
 
-  await db.insert(finsDeSemana).values({
-    householdId,
-    createdById: userId,
-    weekendDate,
-    title,
-    notes: ((formData.get("notes") as string) || "").trim() || null,
+  const notes = ((formData.get("notes") as string) || "").trim() || null;
+
+  const existing = await db.query.finsDeSemana.findFirst({
+    where: and(
+      eq(finsDeSemana.householdId, householdId),
+      eq(finsDeSemana.weekendDate, weekendDate)
+    ),
   });
+
+  if (existing) {
+    await db
+      .update(finsDeSemana)
+      .set({ title, notes })
+      .where(eq(finsDeSemana.id, existing.id));
+  } else {
+    await db.insert(finsDeSemana).values({
+      householdId,
+      createdById: userId,
+      weekendDate,
+      title,
+      notes,
+    });
+  }
 
   revalidatePath("/finais-de-semana");
 }
