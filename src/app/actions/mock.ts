@@ -666,51 +666,18 @@ export async function seedDemoData() {
   });
   if (existingItems.length === 0) {
     await db.insert(supermercadoItens).values([
-      {
-        householdId,
-        name: "Leite integral (demo)",
-        category: "Mercado",
-        unit: "L",
-        defaultQty: "6.00",
-        currentStock: "2.00",
-        estimatedPrice: "5.49",
-      },
-      {
-        householdId,
-        name: "Pão de forma (demo)",
-        category: "Mercado",
-        unit: "un",
-        defaultQty: "2.00",
-        currentStock: "0.00",
-        estimatedPrice: "9.90",
-      },
-      {
-        householdId,
-        name: "Maçãs (demo)",
-        category: "Frutas",
-        unit: "kg",
-        defaultQty: "2.00",
-        currentStock: "1.00",
-        estimatedPrice: "8.99",
-      },
-      {
-        householdId,
-        name: "Detergente (demo)",
-        category: "Limpeza",
-        unit: "un",
-        defaultQty: "3.00",
-        currentStock: "3.00",
-        estimatedPrice: "3.99",
-      },
-      {
-        householdId,
-        name: "Café (demo)",
-        category: "Mercado",
-        unit: "pct",
-        defaultQty: "2.00",
-        currentStock: "1.00",
-        estimatedPrice: "18.90",
-      },
+      { householdId, name: "Leite integral (demo)", brand: "Italac", location: "Geladeira", category: "Mercado", unit: "L", defaultQty: "6.00", minStock: "6.00", currentStock: "2.00", estimatedPrice: "5.49", sortOrder: 10 },
+      { householdId, name: "Pão de forma (demo)", brand: "Pullman", location: "Prateleira 1", category: "Padaria", unit: "un", defaultQty: "2.00", minStock: "2.00", currentStock: "0.00", estimatedPrice: "9.90", sortOrder: 20 },
+      { householdId, name: "Maçãs (demo)", location: "Fruteira", category: "Frutas", unit: "kg", defaultQty: "2.00", minStock: "2.00", currentStock: "1.00", estimatedPrice: "8.99", sortOrder: 30 },
+      { householdId, name: "Detergente (demo)", brand: "Ypê", location: "Armário 2", category: "Limpeza", unit: "un", defaultQty: "3.00", minStock: "3.00", currentStock: "3.00", estimatedPrice: "3.99", sortOrder: 40 },
+      { householdId, name: "Café (demo)", brand: "Santa Clara", location: "Prateleira 1", category: "Mercado", unit: "pct", defaultQty: "2.00", minStock: "2.00", currentStock: "1.00", estimatedPrice: "18.90", sortOrder: 50 },
+      { householdId, name: "Frango peito (demo)", location: "Geladeira", category: "Carnes", unit: "kg", defaultQty: "2.00", minStock: "2.00", currentStock: "0.00", estimatedPrice: "26.90", sortOrder: 60 },
+      { householdId, name: "Arroz 5kg (demo)", brand: "Tio João", location: "Armário 1", category: "Mercado", unit: "pct", defaultQty: "1.00", minStock: "1.00", currentStock: "1.00", estimatedPrice: "32.00", sortOrder: 70 },
+      { householdId, name: "Iogurte natural (demo)", brand: "Vigor", location: "Geladeira", category: "Mercado", unit: "un", defaultQty: "4.00", minStock: "4.00", currentStock: "1.00", estimatedPrice: "4.20", sortOrder: 80 },
+      { householdId, name: "Sabão em pó (demo)", brand: "OMO", location: "Armário 2", category: "Limpeza", unit: "pct", defaultQty: "1.00", minStock: "1.00", currentStock: "1.00", estimatedPrice: "18.50", sortOrder: 90 },
+      { householdId, name: "Banana prata (demo)", location: "Fruteira", category: "Frutas", unit: "kg", defaultQty: "2.00", minStock: "2.00", currentStock: "0.50", estimatedPrice: "6.90", sortOrder: 100 },
+      { householdId, name: "Macarrão espaguete (demo)", brand: "Renata", location: "Armário 1", category: "Mercado", unit: "pct", defaultQty: "3.00", minStock: "3.00", currentStock: "1.00", estimatedPrice: "5.50", sortOrder: 110 },
+      { householdId, name: "Azeite extra virgem (demo)", brand: "Andorinha", location: "Armário 1", category: "Mercado", unit: "un", defaultQty: "1.00", minStock: "1.00", currentStock: "0.00", estimatedPrice: "32.90", sortOrder: 120 },
     ]);
   }
 

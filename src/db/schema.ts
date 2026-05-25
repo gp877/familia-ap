@@ -586,17 +586,66 @@ export const supermercadoItens = pgTable(
       .notNull()
       .references(() => households.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
-    category: text("category"), // ex: "padaria", "limpeza", "frutas"
+    category: text("category"), // tipo do produto: "Mercado", "Padaria", "Limpeza", "Frutas"
+    location: text("location"), // localização física: "Prateleira 1", "Armário 2", "Geladeira"
+    brand: text("brand"), // marca preferida ou obrigatória
     unit: text("unit").notNull().default("un"), // "un", "kg", "L", "pct"
-    defaultQty: numeric("default_qty", { precision: 10, scale: 2 }), // qtd habitual
-    currentStock: numeric("current_stock", { precision: 10, scale: 2 }), // contagem atual
+    defaultQty: numeric("default_qty", { precision: 10, scale: 2 }), // qtd habitual de compra
+    minStock: numeric("min_stock", { precision: 10, scale: 2 }), // estoque mínimo (alvo). Pedido = minStock - currentStock
+    currentStock: numeric("current_stock", { precision: 10, scale: 2 }), // contagem atual (última)
     estimatedPrice: numeric("estimated_price", { precision: 10, scale: 2 }),
+    monthlyAvg: numeric("monthly_avg", { precision: 10, scale: 2 }), // média de compra/mês (calculado)
     lastBoughtAt: timestamp("last_bought_at", { withTimezone: true }),
     isActive: boolean("is_active").notNull().default(true),
     sortOrder: integer("sort_order").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (i) => [index("supermercado_item_household_idx").on(i.householdId, i.isActive)]
+  (i) => [
+    index("supermercado_item_household_idx").on(i.householdId, i.isActive),
+    index("supermercado_item_sort_idx").on(i.householdId, i.sortOrder),
+  ]
+);
+
+// Contagens de estoque — registro do dia X com snapshot de cada item.
+export const contagemStatusEnum = pgEnum("contagem_status", ["open", "closed"]);
+export const supermercadoContagens = pgTable(
+  "supermercado_contagem",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    createdById: text("created_by_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    contagemDate: date("contagem_date").notNull(),
+    status: contagemStatusEnum("status").notNull().default("open"),
+    notes: text("notes"),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    pedidoId: uuid("pedido_id"), // FK opcional pra pedido gerado a partir da contagem
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (c) => [index("supermercado_contagem_household_idx").on(c.householdId, c.contagemDate)]
+);
+
+export const supermercadoContagemItens = pgTable(
+  "supermercado_contagem_item",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    contagemId: uuid("contagem_id")
+      .notNull()
+      .references(() => supermercadoContagens.id, { onDelete: "cascade" }),
+    itemId: uuid("item_id").references(() => supermercadoItens.id, {
+      onDelete: "set null",
+    }),
+    nameSnapshot: text("name_snapshot").notNull(),
+    locationSnapshot: text("location_snapshot"),
+    unitSnapshot: text("unit_snapshot").notNull().default("un"),
+    minStockSnapshot: numeric("min_stock_snapshot", { precision: 10, scale: 2 }),
+    countedQty: numeric("counted_qty", { precision: 10, scale: 2 }), // qtd contada (null = não contado)
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (ci) => [index("supermercado_contagem_item_contagem_idx").on(ci.contagemId)]
 );
 
 export const supermercadoPedidos = pgTable(
@@ -880,6 +929,32 @@ export const supermercadoItemRelations = relations(supermercadoItens, ({ one }) 
     references: [households.id],
   }),
 }));
+
+export const supermercadoContagemRelations = relations(supermercadoContagens, ({ one, many }) => ({
+  household: one(households, {
+    fields: [supermercadoContagens.householdId],
+    references: [households.id],
+  }),
+  items: many(supermercadoContagemItens),
+  pedido: one(supermercadoPedidos, {
+    fields: [supermercadoContagens.pedidoId],
+    references: [supermercadoPedidos.id],
+  }),
+}));
+
+export const supermercadoContagemItemRelations = relations(
+  supermercadoContagemItens,
+  ({ one }) => ({
+    contagem: one(supermercadoContagens, {
+      fields: [supermercadoContagemItens.contagemId],
+      references: [supermercadoContagens.id],
+    }),
+    item: one(supermercadoItens, {
+      fields: [supermercadoContagemItens.itemId],
+      references: [supermercadoItens.id],
+    }),
+  })
+);
 
 export const supermercadoPedidoRelations = relations(supermercadoPedidos, ({ one, many }) => ({
   household: one(households, {

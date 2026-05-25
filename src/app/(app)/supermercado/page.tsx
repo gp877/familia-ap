@@ -1,323 +1,353 @@
-import { asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import Link from "next/link";
 
 import { BigNumber, Card, Pill, SectionRow } from "@/components/ap/atoms";
-import { DeleteBtn, FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
+import { Icon } from "@/components/ap/icon";
 import { ScreenShell } from "@/components/ap/screen-shell";
-import { StockInput } from "@/components/ap/stock-input";
-import { InlineEditInput } from "@/components/ap/inline-edit-input";
 import {
+  createContagemAndGo,
   createEmptyPedidoAndGo,
-  createItem,
   createPedidoFromShortfallAndGo,
-  deleteItem,
-  patchItem,
 } from "@/app/actions/supermercado";
 import { auth } from "@/auth";
 import { db } from "@/db";
-import { supermercadoItens, supermercadoPedidos, users } from "@/db/schema";
+import {
+  supermercadoContagens,
+  supermercadoItens,
+  supermercadoPedidos,
+  users,
+} from "@/db/schema";
 
 export default async function SupermercadoPage() {
   const session = await auth();
   if (!session?.user?.id) return null;
-
   const dbUser = await db.query.users.findFirst({
     where: eq(users.id, session.user.id),
   });
   if (!dbUser?.householdId) return null;
 
+  const householdId = dbUser.householdId;
+
   const items = await db.query.supermercadoItens.findMany({
-    where: eq(supermercadoItens.householdId, dbUser.householdId),
-    orderBy: [asc(supermercadoItens.category), asc(supermercadoItens.name)],
+    where: eq(supermercadoItens.householdId, householdId),
+    orderBy: [asc(supermercadoItens.sortOrder), asc(supermercadoItens.name)],
   });
+
+  const itemsNeedingBuy = items.filter((i) => {
+    if (!i.minStock) return false;
+    const cur = i.currentStock ? parseFloat(i.currentStock) : 0;
+    const min = parseFloat(i.minStock);
+    return cur < min;
+  });
+  const shortfallTotal = itemsNeedingBuy.reduce((sum, i) => {
+    const min = parseFloat(i.minStock!);
+    const cur = i.currentStock ? parseFloat(i.currentStock) : 0;
+    return sum + Math.max(0, min - cur);
+  }, 0);
+
+  const contagemAberta = await db.query.supermercadoContagens.findFirst({
+    where: and(
+      eq(supermercadoContagens.householdId, householdId),
+      eq(supermercadoContagens.status, "open")
+    ),
+  });
+
+  const contagensRecentes = await db.query.supermercadoContagens.findMany({
+    where: eq(supermercadoContagens.householdId, householdId),
+    orderBy: [desc(supermercadoContagens.contagemDate)],
+    limit: 3,
+  });
+
+  const draftPedidos = await db
+    .select({ c: sql<number>`count(*)::int` })
+    .from(supermercadoPedidos)
+    .where(
+      and(
+        eq(supermercadoPedidos.householdId, householdId),
+        eq(supermercadoPedidos.status, "draft")
+      )
+    )
+    .then((r) => r[0]?.c ?? 0);
 
   const pedidos = await db.query.supermercadoPedidos.findMany({
-    where: eq(supermercadoPedidos.householdId, dbUser.householdId),
+    where: eq(supermercadoPedidos.householdId, householdId),
     orderBy: [desc(supermercadoPedidos.createdAt)],
-    limit: 20,
+    limit: 6,
   });
 
-  const itemCount = await db
-    .select({ count: sql<number>`count(*) filter (where ${supermercadoPedidos.status} = 'draft')::int` })
-    .from(supermercadoPedidos)
-    .where(eq(supermercadoPedidos.householdId, dbUser.householdId))
-    .then((r) => r[0]?.count ?? 0);
-
-  // contagem de itens com estoque abaixo do padrão
-  const itemsNeedingBuy = items.filter(
-    (i) =>
-      i.defaultQty &&
-      (i.currentStock === null ||
-        parseFloat(i.currentStock) < parseFloat(i.defaultQty))
-  );
+  const cycleStatus = contagemAberta
+    ? "contagem"
+    : draftPedidos > 0
+      ? "pedido"
+      : "ocioso";
 
   return (
     <ScreenShell
       userQ="Vamos organizar a compra?"
       insight={
-        itemsNeedingBuy.length > 0 ? (
+        contagemAberta ? (
           <>
-            <b>{itemsNeedingBuy.length}</b> {itemsNeedingBuy.length === 1 ? "item" : "itens"} abaixo do estoque padrão. Posso gerar o pedido?
+            Contagem <b>em andamento</b>. Continue de onde parou e gere o pedido ao final.
+          </>
+        ) : itemsNeedingBuy.length > 0 ? (
+          <>
+            <b>{itemsNeedingBuy.length}</b> {itemsNeedingBuy.length === 1 ? "item" : "itens"} abaixo do mínimo. Faltam <b>{shortfallTotal.toFixed(0)}</b> unidades no total.
           </>
         ) : items.length > 0 ? (
-          <>Estoque OK. Quando faltar algo, basta marcar a quantidade nova aqui.</>
+          <>Estoque OK. Faça uma contagem quando quiser revisar.</>
         ) : (
-          <>Comece cadastrando os itens que vocês compram com frequência. Eu sugiro o que falta.</>
+          <>Cadastre os produtos primeiro em <Link href="/supermercado/produtos" style={{ color: "var(--accent)", fontWeight: 700 }}>Produtos</Link>.</>
         )
       }
     >
-      <SectionRow icon="bag" label="Itens do supermercado" action={`${items.length} cadastrados`} />
+      <SectionRow icon="bag" label="Supermercado" />
 
       <BigNumber
-        value={`${itemsNeedingBuy.length}`}
-        sub={`${itemsNeedingBuy.length === 1 ? "item" : "itens"} abaixo do padrão · ${itemCount} pedido${itemCount === 1 ? "" : "s"} aberto${itemCount === 1 ? "" : "s"}`}
+        value={String(itemsNeedingBuy.length)}
+        sub={`${itemsNeedingBuy.length === 1 ? "item" : "itens"} abaixo do mínimo · ${items.length} cadastrados`}
         accent={itemsNeedingBuy.length > 0}
       />
 
-      <div style={{ padding: "14px 20px 0", display: "flex", gap: 10 }}>
-        <form action={createPedidoFromShortfallAndGo} style={{ flex: 1 }}>
-          <button
-            type="submit"
-            disabled={itemsNeedingBuy.length === 0}
-            style={{
-              width: "100%",
-              padding: "10px 16px",
-              borderRadius: 14,
-              background: itemsNeedingBuy.length === 0 ? "var(--card2)" : "var(--accent)",
-              color: itemsNeedingBuy.length === 0 ? "var(--muted)" : "var(--accent-on)",
-              border: "none",
-              fontWeight: 700,
-              fontSize: 13,
-              cursor: itemsNeedingBuy.length === 0 ? "not-allowed" : "pointer",
-            }}
+      {/* Ciclo de compra — cards "passo a passo" */}
+      <div style={{ padding: "14px 16px 0" }}>
+        <div
+          style={{
+            fontSize: 9.5,
+            color: "var(--muted)",
+            fontWeight: 800,
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
+            marginBottom: 8,
+            padding: "0 4px",
+          }}
+        >
+          Ciclo de compra
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          {/* PASSO 1: Contagem */}
+          <CycleCard
+            step={1}
+            label="Contagem"
+            active={cycleStatus === "contagem" || cycleStatus === "ocioso"}
+            done={false}
           >
-            Gerar pedido (faltas)
-          </button>
-        </form>
-        <form action={createEmptyPedidoAndGo} style={{ flex: 1 }}>
-          <button
-            type="submit"
-            style={{
-              width: "100%",
-              padding: "10px 16px",
-              borderRadius: 14,
-              background: "var(--card)",
-              color: "var(--ink-d)",
-              border: "1px solid var(--line-d)",
-              fontWeight: 600,
-              fontSize: 13,
-              cursor: "pointer",
-            }}
-          >
-            Novo pedido vazio
-          </button>
-        </form>
-      </div>
-
-      <div style={{ padding: "14px 0 0" }}>
-        <InlineForm buttonLabel="Cadastrar item">
-          <form action={createItem}>
-            <FormField label="O que é? *">
-              <input
-                name="name"
-                required
-                autoFocus
-                placeholder="Ex: leite integral"
-                style={fieldStyle}
-              />
-            </FormField>
-            <div style={{ display: "grid", gap: 8, gridTemplateColumns: "1fr 1fr" }}>
-              <FormField label="Categoria">
-                <input
-                  name="category"
-                  list="supermercado-cat"
-                  placeholder="comece a digitar..."
-                  style={fieldStyle}
-                />
-                <datalist id="supermercado-cat">
-                  <option value="Mercado" />
-                  <option value="Padaria" />
-                  <option value="Frutas" />
-                  <option value="Verduras" />
-                  <option value="Carnes" />
-                  <option value="Bebidas" />
-                  <option value="Limpeza" />
-                  <option value="Higiene" />
-                  <option value="Pet" />
-                </datalist>
-              </FormField>
-              <FormField label="Unidade">
-                <input
-                  name="unit"
-                  list="supermercado-unit"
-                  defaultValue="un"
-                  style={fieldStyle}
-                />
-                <datalist id="supermercado-unit">
-                  <option value="un" />
-                  <option value="kg" />
-                  <option value="g" />
-                  <option value="L" />
-                  <option value="mL" />
-                  <option value="pct" />
-                  <option value="cx" />
-                </datalist>
-              </FormField>
-            </div>
-
-            <details style={{ marginBottom: 10 }}>
-              <summary
+            {contagemAberta ? (
+              <Link
+                href={`/supermercado/contagens/${contagemAberta.id}`}
                 style={{
-                  cursor: "pointer",
+                  display: "block",
+                  padding: "8px 12px",
+                  borderRadius: 10,
+                  background: "var(--accent)",
+                  color: "var(--accent-on)",
+                  textAlign: "center",
                   fontSize: 12,
-                  color: "var(--muted)",
-                  padding: "4px 0",
-                  listStyle: "none",
-                  fontWeight: 600,
+                  fontWeight: 700,
+                  textDecoration: "none",
+                  marginTop: 8,
                 }}
               >
-                + qtd padrão e preço estimado (opcionais)
-              </summary>
-              <div style={{ marginTop: 8, display: "grid", gap: 8, gridTemplateColumns: "1fr 1fr" }}>
-                <FormField label="Qtd padrão" hint="qtd que vocês compram normalmente">
-                  <input
-                    type="number"
-                    step="0.01"
-                    name="defaultQty"
-                    placeholder="2"
-                    style={fieldStyle}
-                  />
-                </FormField>
-                <FormField label="Preço estimado (R$)">
-                  <input
-                    type="number"
-                    step="0.01"
-                    name="estimatedPrice"
-                    placeholder="5.50"
-                    style={fieldStyle}
-                  />
-                </FormField>
-              </div>
-            </details>
-            <SubmitButton>Salvar item</SubmitButton>
-          </form>
-        </InlineForm>
+                continuar →
+              </Link>
+            ) : (
+              <form action={createContagemAndGo}>
+                <button
+                  type="submit"
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    borderRadius: 10,
+                    background: "var(--accent)",
+                    color: "var(--accent-on)",
+                    border: "none",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    marginTop: 8,
+                  }}
+                >
+                  iniciar nova
+                </button>
+              </form>
+            )}
+          </CycleCard>
+
+          {/* PASSO 2: Pedido */}
+          <CycleCard
+            step={2}
+            label="Pedido"
+            active={cycleStatus === "pedido"}
+            done={false}
+          >
+            <form action={createPedidoFromShortfallAndGo}>
+              <button
+                type="submit"
+                disabled={itemsNeedingBuy.length === 0}
+                style={{
+                  width: "100%",
+                  padding: "8px 12px",
+                  borderRadius: 10,
+                  background:
+                    itemsNeedingBuy.length === 0 ? "var(--card2)" : "var(--accent)",
+                  color:
+                    itemsNeedingBuy.length === 0 ? "var(--muted)" : "var(--accent-on)",
+                  border: "none",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: itemsNeedingBuy.length === 0 ? "not-allowed" : "pointer",
+                  marginTop: 8,
+                }}
+              >
+                gerar das faltas
+              </button>
+            </form>
+            <form action={createEmptyPedidoAndGo}>
+              <button
+                type="submit"
+                style={{
+                  width: "100%",
+                  padding: "6px 10px",
+                  borderRadius: 10,
+                  background: "transparent",
+                  color: "var(--muted-d)",
+                  border: "1px solid var(--line-d)",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  marginTop: 4,
+                }}
+              >
+                pedido vazio
+              </button>
+            </form>
+          </CycleCard>
+        </div>
       </div>
 
-      <SectionRow icon="bag" label="Estoque" action={`${items.length}`} />
-
-      <div style={{ padding: "0 20px" }}>
-        {items.length === 0 ? (
-          <div style={{ fontSize: 13, color: "var(--muted)", textAlign: "center", padding: "20px 0" }}>
-            Nenhum item cadastrado.
-          </div>
-        ) : (
-          items.map((item, i) => {
-            const stock = item.currentStock ? parseFloat(item.currentStock) : null;
-            const need = item.defaultQty ? parseFloat(item.defaultQty) : null;
-            const low = need !== null && (stock === null || stock < need);
-            return (
-              <div
-                key={item.id}
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr auto auto auto",
-                  alignItems: "center",
-                  gap: 8,
-                  padding: "10px 0",
-                  borderBottom: i < items.length - 1 ? "0.5px solid var(--line-d)" : "none",
-                }}
-              >
-                <div style={{ minWidth: 0 }}>
-                  <InlineEditInput
-                    initialValue={item.name}
-                    action={patchItem}
-                    hiddenFields={{ id: item.id }}
-                    fieldName="name"
-                    fontSize={13.5}
-                    fontWeight={600}
-                  />
-                  <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 2 }}>
-                    <InlineEditInput
-                      initialValue={item.category ?? ""}
-                      action={patchItem}
-                      hiddenFields={{ id: item.id }}
-                      fieldName="category"
-                      placeholder="+ categoria"
-                      fontSize={11}
-                      color="var(--muted-d)"
-                    />
-                    <span style={{ fontSize: 10, color: "var(--muted)" }}>·</span>
-                    <InlineEditInput
-                      initialValue={item.unit ?? "un"}
-                      action={patchItem}
-                      hiddenFields={{ id: item.id }}
-                      fieldName="unit"
-                      placeholder="un"
-                      fontSize={11}
-                      color="var(--muted-d)"
-                    />
+      {/* Itens com falta — preview */}
+      {itemsNeedingBuy.length > 0 && (
+        <>
+          <SectionRow icon="bag" label="Faltando agora" action={`${itemsNeedingBuy.length}`} />
+          <div style={{ padding: "0 20px" }}>
+            {itemsNeedingBuy.slice(0, 8).map((item, i) => {
+              const min = parseFloat(item.minStock!);
+              const cur = item.currentStock ? parseFloat(item.currentStock) : 0;
+              const need = Math.max(0, min - cur);
+              return (
+                <div
+                  key={item.id}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr auto auto",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "8px 0",
+                    borderBottom:
+                      i < Math.min(8, itemsNeedingBuy.length) - 1
+                        ? "0.5px solid var(--line-d)"
+                        : "none",
+                  }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>
+                      {item.name}
+                      {item.brand && (
+                        <span style={{ color: "var(--muted)", fontWeight: 400, fontSize: 11, marginLeft: 4 }}>
+                          · {item.brand}
+                        </span>
+                      )}
+                    </div>
+                    {item.location && (
+                      <div style={{ fontSize: 10, color: "var(--muted)" }}>
+                        {item.location}
+                      </div>
+                    )}
                   </div>
-                </div>
-                {/* Estoque atual */}
-                <StockInput
-                  itemId={item.id}
-                  defaultStock={item.currentStock}
-                  low={low}
-                />
-                {/* Padrão (qtd habitual) */}
-                <div style={{ width: 60 }}>
-                  <div
+                  <span
                     style={{
-                      fontSize: 9,
+                      fontSize: 11,
                       color: "var(--muted)",
-                      textAlign: "right",
-                      letterSpacing: "0.06em",
-                      textTransform: "uppercase",
-                      fontWeight: 700,
+                      whiteSpace: "nowrap",
                     }}
                   >
-                    padrão
-                  </div>
-                  <InlineEditInput
-                    initialValue={item.defaultQty ?? ""}
-                    action={patchItem}
-                    hiddenFields={{ id: item.id }}
-                    fieldName="defaultQty"
-                    placeholder="—"
-                    fontSize={12}
-                    fontWeight={600}
-                  />
+                    {cur} de {min} {item.unit}
+                  </span>
+                  <span
+                    className="ap-num"
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 800,
+                      color: "var(--alert)",
+                      minWidth: 40,
+                      textAlign: "right",
+                    }}
+                  >
+                    +{need.toFixed(0)}
+                  </span>
                 </div>
-                <DeleteBtn
-                  action={deleteItem.bind(null, item.id)}
-                  confirmMsg={null}
-                />
+              );
+            })}
+            {itemsNeedingBuy.length > 8 && (
+              <div style={{ fontSize: 11, color: "var(--muted)", textAlign: "center", padding: "8px 0" }}>
+                +{itemsNeedingBuy.length - 8} outros…
               </div>
-            );
-          })
-        )}
+            )}
+          </div>
+        </>
+      )}
+
+      {/* Atalhos */}
+      <SectionRow icon="bag" label="Atalhos" />
+      <div
+        style={{
+          padding: "0 20px",
+          display: "grid",
+          gap: 8,
+          gridTemplateColumns: "1fr 1fr",
+        }}
+      >
+        <ShortcutLink
+          href="/supermercado/produtos"
+          icon="bag"
+          label="Produtos"
+          sub={`${items.length} cadastrados`}
+        />
+        <ShortcutLink
+          href="/supermercado/contagens"
+          icon="cal"
+          label="Contagens"
+          sub={`${contagensRecentes.length} recentes`}
+        />
       </div>
 
+      {/* Pedidos recentes */}
       {pedidos.length > 0 && (
         <>
-          <SectionRow icon="bag" label="Pedidos recentes" action={`${pedidos.length}`} />
-          <div style={{ padding: "0 20px", display: "flex", flexDirection: "column", gap: 8 }}>
+          <SectionRow icon="bag" label="Pedidos" action={`${pedidos.length}`} />
+          <div style={{ padding: "0 20px", display: "flex", flexDirection: "column", gap: 6 }}>
             {pedidos.map((p) => (
               <Link
                 key={p.id}
                 href={`/supermercado/pedidos/${p.id}`}
                 style={{ textDecoration: "none", color: "inherit" }}
               >
-                <Card pad={12}>
+                <Card pad={10}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 13, fontWeight: 600 }}>{p.title}</div>
-                      <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 2 }}>
+                      <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 1 }}>
                         {new Date(p.createdAt).toLocaleDateString("pt-BR")}
                       </div>
                     </div>
-                    <Pill tone={p.status === "received" ? "ok" : p.status === "sent" ? "accent" : "muted"}>
+                    <Pill
+                      tone={
+                        p.status === "received"
+                          ? "ok"
+                          : p.status === "sent"
+                            ? "accent"
+                            : "muted"
+                      }
+                    >
                       {p.status === "draft"
                         ? "rascunho"
                         : p.status === "sent"
@@ -334,5 +364,81 @@ export default async function SupermercadoPage() {
         </>
       )}
     </ScreenShell>
+  );
+}
+
+function CycleCard({
+  step,
+  label,
+  active,
+  done,
+  children,
+}: {
+  step: number;
+  label: string;
+  active: boolean;
+  done: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      style={{
+        background: "var(--card)",
+        borderRadius: 16,
+        border: active ? "1px solid var(--accent)" : "0.5px solid var(--line-d)",
+        padding: 12,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+        <span
+          className="ap-num"
+          style={{
+            fontSize: 18,
+            fontWeight: 800,
+            color: done ? "var(--ok)" : active ? "var(--accent)" : "var(--muted)",
+            letterSpacing: "-0.04em",
+            lineHeight: 1,
+          }}
+        >
+          {step}
+        </span>
+        <span style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-d)" }}>
+          {label}
+        </span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function ShortcutLink({
+  href,
+  icon,
+  label,
+  sub,
+}: {
+  href: string;
+  icon: Parameters<typeof Icon>[0]["name"];
+  label: string;
+  sub: string;
+}) {
+  return (
+    <Link href={href} style={{ textDecoration: "none", color: "inherit" }}>
+      <div
+        style={{
+          padding: 12,
+          borderRadius: 14,
+          background: "var(--card)",
+          border: "0.5px solid var(--line-d)",
+          display: "flex",
+          flexDirection: "column",
+          gap: 4,
+        }}
+      >
+        <Icon name={icon} size={16} color="var(--ink)" stroke={1.8} />
+        <div style={{ fontSize: 13, fontWeight: 700 }}>{label}</div>
+        <div style={{ fontSize: 10.5, color: "var(--muted)" }}>{sub}</div>
+      </div>
+    </Link>
   );
 }
