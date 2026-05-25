@@ -137,14 +137,7 @@ export default async function SupermercadoPage() {
 
       <div style={{ padding: "14px 0 0" }}>
         <InlineForm buttonLabel="Cadastrar item">
-          {(close) => (
-            <form
-              action={async (fd) => {
-                "use server";
-                await createItem(fd);
-              }}
-              onSubmit={() => setTimeout(close, 0)}
-            >
+          <form action={createItem}>
               <FormField label="Nome do item *">
                 <input
                   name="name"
@@ -187,9 +180,8 @@ export default async function SupermercadoPage() {
                   />
                 </FormField>
               </div>
-              <SubmitButton>Salvar item</SubmitButton>
-            </form>
-          )}
+            <SubmitButton>Salvar item</SubmitButton>
+          </form>
         </InlineForm>
       </div>
 
@@ -251,10 +243,7 @@ export default async function SupermercadoPage() {
                   />
                 </form>
                 <DeleteBtn
-                  action={async () => {
-                    "use server";
-                    await deleteItem(item.id);
-                  }}
+                  action={deleteItem.bind(null, item.id)}
                   confirmMsg={`Excluir "${item.name}"?`}
                 />
               </div>

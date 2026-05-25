@@ -88,14 +88,7 @@ export default async function ViagensPage() {
 
       <div style={{ padding: "14px 0 0" }}>
         <InlineForm buttonLabel="Cadastrar viagem">
-          {(close) => (
-            <form
-              action={async (fd) => {
-                "use server";
-                await createViagem(fd);
-              }}
-              onSubmit={() => setTimeout(close, 0)}
-            >
+          <form action={createViagem}>
               <FormField label="Título *">
                 <input
                   name="title"
@@ -166,9 +159,8 @@ export default async function ViagensPage() {
               <FormField label="Notas">
                 <textarea name="notes" rows={2} style={fieldStyle} />
               </FormField>
-              <SubmitButton>Salvar viagem</SubmitButton>
-            </form>
-          )}
+            <SubmitButton>Salvar viagem</SubmitButton>
+          </form>
         </InlineForm>
       </div>
 

@@ -1,29 +1,25 @@
 "use client";
 
-import { Plus, X } from "lucide-react";
-import { useState, useTransition } from "react";
+import { X } from "lucide-react";
+import { useTransition } from "react";
 
 import { Icon } from "@/components/ap/icon";
 
-type Props = {
+type InlineFormProps = {
   buttonLabel: string;
-  children: (close: () => void) => React.ReactNode;
+  children: React.ReactNode;
 };
 
 /**
- * Toggle inline pra mostrar/esconder um formulário em qualquer página.
- * children recebe a função `close` pra fechar após submit.
+ * Toggle inline com `<details>` nativo — server component compatível,
+ * sem render prop e sem state cliente. Aceita JSX direto como children.
  */
-export function InlineForm({ buttonLabel, children }: Props) {
-  const [open, setOpen] = useState(false);
+export function InlineForm({ buttonLabel, children }: InlineFormProps) {
   return (
     <div style={{ padding: "0 20px" }}>
-      {!open ? (
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
+      <details style={{ width: "100%" }}>
+        <summary
           style={{
-            width: "100%",
             padding: "10px 14px",
             borderRadius: 14,
             background: "var(--card)",
@@ -36,45 +32,24 @@ export function InlineForm({ buttonLabel, children }: Props) {
             gap: 8,
             fontSize: 13,
             fontWeight: 500,
+            listStyle: "none",
+            userSelect: "none",
           }}
         >
           <Icon name="plus" size={15} stroke={2} />
           {buttonLabel}
-        </button>
-      ) : (
+        </summary>
         <div
           style={{
+            marginTop: 8,
             padding: 14,
             borderRadius: 16,
             background: "var(--card)",
-            position: "relative",
           }}
         >
-          <button
-            type="button"
-            onClick={() => setOpen(false)}
-            aria-label="Fechar"
-            style={{
-              position: "absolute",
-              top: 8,
-              right: 8,
-              width: 28,
-              height: 28,
-              borderRadius: 14,
-              background: "transparent",
-              color: "var(--muted)",
-              border: "none",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <X size={14} />
-          </button>
-          {children(() => setOpen(false))}
+          {children}
         </div>
-      )}
+      </details>
     </div>
   );
 }
@@ -128,25 +103,22 @@ export const fieldStyle: React.CSSProperties = {
 
 export function SubmitButton({
   children,
-  pending,
 }: {
   children: React.ReactNode;
-  pending?: boolean;
 }) {
   return (
     <button
       type="submit"
-      disabled={pending}
       style={{
         width: "100%",
         padding: "10px 16px",
         borderRadius: 14,
-        background: pending ? "var(--card2)" : "var(--accent)",
-        color: pending ? "var(--muted)" : "var(--accent-on)",
+        background: "var(--accent)",
+        color: "var(--accent-on)",
         border: "none",
         fontWeight: 700,
         fontSize: 13.5,
-        cursor: pending ? "not-allowed" : "pointer",
+        cursor: "pointer",
         marginTop: 6,
       }}
     >
@@ -155,11 +127,15 @@ export function SubmitButton({
   );
 }
 
+/**
+ * Botão de excluir que chama uma server action.
+ * Aceita server action via prop (Next.js suporta isso).
+ */
 export function DeleteBtn({
   action,
   confirmMsg = "Excluir?",
 }: {
-  action: () => Promise<void>;
+  action: () => Promise<void> | void;
   confirmMsg?: string;
 }) {
   const [isPending, startTransition] = useTransition();
@@ -193,5 +169,3 @@ export function DeleteBtn({
     </button>
   );
 }
-
-export { Plus };

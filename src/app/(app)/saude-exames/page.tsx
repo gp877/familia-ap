@@ -65,14 +65,7 @@ export default async function ExamesPage() {
 
       <div style={{ padding: "14px 0 0" }}>
         <InlineForm buttonLabel="Cadastrar exame">
-          {(close) => (
-            <form
-              action={async (fd) => {
-                "use server";
-                await createExame(fd);
-              }}
-              onSubmit={() => setTimeout(close, 0)}
-            >
+          <form action={createExame}>
               <div style={{ display: "grid", gap: 8, gridTemplateColumns: "1fr 1fr" }}>
                 <FormField label="Quem *" hint="Augusto, Marília…">
                   <input name="who" required placeholder="Augusto" style={fieldStyle} />
@@ -124,9 +117,8 @@ export default async function ExamesPage() {
                   style={fieldStyle}
                 />
               </FormField>
-              <SubmitButton>Salvar exame</SubmitButton>
-            </form>
-          )}
+            <SubmitButton>Salvar exame</SubmitButton>
+          </form>
         </InlineForm>
       </div>
 
@@ -222,10 +214,7 @@ export default async function ExamesPage() {
                 )}
               </div>
               <DeleteBtn
-                action={async () => {
-                  "use server";
-                  await deleteExame(e.id);
-                }}
+                action={deleteExame.bind(null, e.id)}
                 confirmMsg={`Excluir "${e.name}"?`}
               />
             </div>

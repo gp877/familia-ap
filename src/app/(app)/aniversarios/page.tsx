@@ -95,49 +95,41 @@ export default async function AniversariosPage() {
 
       <div style={{ padding: "14px 0 0" }}>
         <InlineForm buttonLabel="Cadastrar aniversário">
-          {(close) => (
-            <form
-              action={async (fd) => {
-                "use server";
-                await createAniversario(fd);
-              }}
-              onSubmit={() => setTimeout(close, 0)}
-            >
-              <FormField label="Nome *">
-                <input name="name" required placeholder="Ex: Vó Inês" style={fieldStyle} />
-              </FormField>
-              <div style={{ display: "grid", gap: 8, gridTemplateColumns: "1fr 1fr" }}>
-                <FormField label="Dia/mês *" hint="MM-DD (ex: 11-08 = 11 de agosto)">
-                  <input
-                    name="monthDay"
-                    required
-                    pattern="\d{2}-\d{2}"
-                    placeholder="MM-DD"
-                    style={fieldStyle}
-                  />
-                </FormField>
-                <FormField label="Ano de nasc." hint="opcional · pra calcular idade">
-                  <input
-                    type="number"
-                    name="birthYear"
-                    placeholder="1948"
-                    style={fieldStyle}
-                  />
-                </FormField>
-              </div>
-              <FormField label="Relação">
+          <form action={createAniversario}>
+            <FormField label="Nome *">
+              <input name="name" required placeholder="Ex: Vó Inês" style={fieldStyle} />
+            </FormField>
+            <div style={{ display: "grid", gap: 8, gridTemplateColumns: "1fr 1fr" }}>
+              <FormField label="Dia/mês *" hint="MM-DD (ex: 11-08 = 11 de agosto)">
                 <input
-                  name="relation"
-                  placeholder="Ex: avó da Marília, sobrinho"
+                  name="monthDay"
+                  required
+                  pattern="\d{2}-\d{2}"
+                  placeholder="MM-DD"
                   style={fieldStyle}
                 />
               </FormField>
-              <FormField label="Observações">
-                <textarea name="notes" rows={2} style={fieldStyle} />
+              <FormField label="Ano de nasc." hint="opcional · pra calcular idade">
+                <input
+                  type="number"
+                  name="birthYear"
+                  placeholder="1948"
+                  style={fieldStyle}
+                />
               </FormField>
-              <SubmitButton>Salvar</SubmitButton>
-            </form>
-          )}
+            </div>
+            <FormField label="Relação">
+              <input
+                name="relation"
+                placeholder="Ex: avó da Marília, sobrinho"
+                style={fieldStyle}
+              />
+            </FormField>
+            <FormField label="Observações">
+              <textarea name="notes" rows={2} style={fieldStyle} />
+            </FormField>
+            <SubmitButton>Salvar</SubmitButton>
+          </form>
         </InlineForm>
       </div>
 
@@ -200,10 +192,7 @@ export default async function AniversariosPage() {
                 {aniv.days < 10 ? `em ${aniv.days}d` : `${aniv.days}d`}
               </span>
               <DeleteBtn
-                action={async () => {
-                  "use server";
-                  await deleteAniversario(aniv.id);
-                }}
+                action={deleteAniversario.bind(null, aniv.id)}
                 confirmMsg={`Excluir ${aniv.name}?`}
               />
             </summary>
@@ -250,10 +239,7 @@ export default async function AniversariosPage() {
                       </span>
                       <span style={{ flex: 1 }}>{p.description}</span>
                       <DeleteBtn
-                        action={async () => {
-                          "use server";
-                          await deletePresente(p.id);
-                        }}
+                        action={deletePresente.bind(null, p.id)}
                         confirmMsg="Remover presente?"
                       />
                     </li>
@@ -261,13 +247,7 @@ export default async function AniversariosPage() {
                 </ul>
               )}
 
-              <form
-                action={async (fd) => {
-                  "use server";
-                  await addPresente(fd);
-                }}
-                style={{ marginTop: 6 }}
-              >
+              <form action={addPresente} style={{ marginTop: 6 }}>
                 <input type="hidden" name="aniversarioId" value={aniv.id} />
                 <div style={{ display: "grid", gap: 6, gridTemplateColumns: "60px 1fr auto" }}>
                   <input

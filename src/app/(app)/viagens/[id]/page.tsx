@@ -77,11 +77,7 @@ export default async function ViagemDetail({
         label={viagem.title}
         action={
           <DeleteBtn
-            action={async () => {
-              "use server";
-              await deleteViagem(viagem.id);
-              // redirect handled by parent revalidate
-            }}
+            action={deleteViagem.bind(null, viagem.id)}
             confirmMsg={`Excluir viagem "${viagem.title}"?`}
           />
         }
@@ -143,10 +139,7 @@ export default async function ViagemDetail({
                 </span>
               </div>
               <DeleteBtn
-                action={async () => {
-                  "use server";
-                  await deleteRoteiroDay(d.id);
-                }}
+                action={deleteRoteiroDay.bind(null, d.id)}
                 confirmMsg="Excluir dia?"
               />
             </div>
@@ -215,14 +208,7 @@ export default async function ViagemDetail({
 
       <div style={{ padding: "14px 0 0" }}>
         <InlineForm buttonLabel="Adicionar dia ao roteiro">
-          {(close) => (
-            <form
-              action={async (fd) => {
-                "use server";
-                await addRoteiroDay(fd);
-              }}
-              onSubmit={() => setTimeout(close, 0)}
-            >
+          <form action={addRoteiroDay}>
               <input type="hidden" name="viagemId" value={viagem.id} />
               <div style={{ display: "grid", gap: 8, gridTemplateColumns: "70px 1fr 90px" }}>
                 <FormField label="Dia #">
@@ -263,9 +249,8 @@ export default async function ViagemDetail({
               <FormField label="Notas">
                 <textarea name="notes" rows={2} style={fieldStyle} />
               </FormField>
-              <SubmitButton>Adicionar dia</SubmitButton>
-            </form>
-          )}
+            <SubmitButton>Adicionar dia</SubmitButton>
+          </form>
         </InlineForm>
       </div>
     </ScreenShell>

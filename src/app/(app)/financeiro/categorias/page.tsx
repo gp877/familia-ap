@@ -68,14 +68,7 @@ export default async function CategoriasPage() {
 
       <div style={{ padding: "14px 0 0" }}>
         <InlineForm buttonLabel="Criar categoria">
-          {(close) => (
-            <form
-              action={async (fd) => {
-                "use server";
-                await createCategoria(fd);
-              }}
-              onSubmit={() => setTimeout(close, 0)}
-            >
+          <form action={createCategoria}>
               <FormField label="Nome *">
                 <input name="name" required placeholder="Ex: Combustível" style={fieldStyle} />
               </FormField>
@@ -98,9 +91,8 @@ export default async function CategoriasPage() {
               <FormField label="Cor (hex)">
                 <input name="color" placeholder="#B8FF5C" style={fieldStyle} />
               </FormField>
-              <SubmitButton>Criar categoria</SubmitButton>
-            </form>
-          )}
+            <SubmitButton>Criar categoria</SubmitButton>
+          </form>
         </InlineForm>
       </div>
 
@@ -130,10 +122,7 @@ export default async function CategoriasPage() {
                     </span>
                   )}
                   <DeleteBtn
-                    action={async () => {
-                      "use server";
-                      await deleteCategoria(parent.id);
-                    }}
+                    action={deleteCategoria.bind(null, parent.id)}
                     confirmMsg={`Excluir "${parent.name}"? Transações ficarão sem categoria.`}
                   />
                 </div>
@@ -197,10 +186,7 @@ export default async function CategoriasPage() {
                     </span>
                   )}
                   <DeleteBtn
-                    action={async () => {
-                      "use server";
-                      await deleteCategoria(parent.id);
-                    }}
+                    action={deleteCategoria.bind(null, parent.id)}
                     confirmMsg={`Excluir "${parent.name}"?`}
                   />
                 </div>

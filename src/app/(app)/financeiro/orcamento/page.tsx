@@ -157,14 +157,7 @@ export default async function OrcamentoPage({
 
       <div style={{ padding: "14px 0 0" }}>
         <InlineForm buttonLabel="Definir orçamento de categoria">
-          {(close) => (
-            <form
-              action={async (fd) => {
-                "use server";
-                await upsertBudget(fd);
-              }}
-              onSubmit={() => setTimeout(close, 0)}
-            >
+          <form action={upsertBudget}>
               <FormField label="Categoria *">
                 <select name="categoryId" required style={fieldStyle}>
                   <option value="">Selecione...</option>
@@ -208,9 +201,8 @@ export default async function OrcamentoPage({
                   />
                 </FormField>
               </div>
-              <SubmitButton>Salvar orçamento</SubmitButton>
-            </form>
-          )}
+            <SubmitButton>Salvar orçamento</SubmitButton>
+          </form>
         </InlineForm>
       </div>
 
@@ -288,10 +280,7 @@ export default async function OrcamentoPage({
                 </div>
                 {budgetEntry && (
                   <DeleteBtn
-                    action={async () => {
-                      "use server";
-                      await deleteBudget(budgetEntry.id);
-                    }}
+                    action={deleteBudget.bind(null, budgetEntry.id)}
                     confirmMsg={`Remover orçamento de "${cat.name}"?`}
                   />
                 )}

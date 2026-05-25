@@ -74,14 +74,7 @@ export default async function ContasPage() {
 
       <div style={{ padding: "14px 0 0" }}>
         <InlineForm buttonLabel="Cadastrar conta ou cartão">
-          {(close) => (
-            <form
-              action={async (fd) => {
-                "use server";
-                await createBankAccount(fd);
-              }}
-              onSubmit={() => setTimeout(close, 0)}
-            >
+          <form action={createBankAccount}>
               <FormField label="Nome *">
                 <input
                   name="name"
@@ -116,9 +109,8 @@ export default async function ContasPage() {
                   />
                 </FormField>
               </div>
-              <SubmitButton>Salvar conta</SubmitButton>
-            </form>
-          )}
+            <SubmitButton>Salvar conta</SubmitButton>
+          </form>
         </InlineForm>
       </div>
 
@@ -165,10 +157,7 @@ export default async function ContasPage() {
                     Ver →
                   </Link>
                   <DeleteBtn
-                    action={async () => {
-                      "use server";
-                      await deleteBankAccount(c.id);
-                    }}
+                    action={deleteBankAccount.bind(null, c.id)}
                     confirmMsg={`Excluir "${c.name}"? Transações ficarão sem conta vinculada.`}
                   />
                 </div>

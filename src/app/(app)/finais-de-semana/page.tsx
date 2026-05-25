@@ -252,10 +252,7 @@ export default async function FinaisDeSemanaPage({
                             )}
                           </div>
                           <DeleteBtn
-                            action={async () => {
-                              "use server";
-                              await deleteFimDeSemana(item.id);
-                            }}
+                            action={deleteFimDeSemana.bind(null, item.id)}
                             confirmMsg="Excluir?"
                           />
                         </div>
@@ -271,31 +268,23 @@ export default async function FinaisDeSemanaPage({
 
       <div style={{ padding: "14px 0 0" }}>
         <InlineForm buttonLabel="Adicionar programação">
-          {(close) => (
-            <form
-              action={async (fd) => {
-                "use server";
-                await createFimDeSemana(fd);
-              }}
-              onSubmit={() => setTimeout(close, 0)}
-            >
-              <FormField label="O que vai rolar? *">
-                <input
-                  name="title"
-                  required
-                  placeholder="Ex: jantar com os amigos"
-                  style={fieldStyle}
-                />
-              </FormField>
-              <FormField label="Data *" hint="Use sexta, sábado ou domingo">
-                <input type="date" name="weekendDate" required style={fieldStyle} />
-              </FormField>
-              <FormField label="Detalhes">
-                <textarea name="notes" rows={2} style={fieldStyle} />
-              </FormField>
-              <SubmitButton>Adicionar</SubmitButton>
-            </form>
-          )}
+          <form action={createFimDeSemana}>
+            <FormField label="O que vai rolar? *">
+              <input
+                name="title"
+                required
+                placeholder="Ex: jantar com os amigos"
+                style={fieldStyle}
+              />
+            </FormField>
+            <FormField label="Data *" hint="Use sexta, sábado ou domingo">
+              <input type="date" name="weekendDate" required style={fieldStyle} />
+            </FormField>
+            <FormField label="Detalhes">
+              <textarea name="notes" rows={2} style={fieldStyle} />
+            </FormField>
+            <SubmitButton>Adicionar</SubmitButton>
+          </form>
         </InlineForm>
       </div>
     </ScreenShell>

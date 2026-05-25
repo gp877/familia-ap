@@ -95,14 +95,7 @@ export default async function FaturasPage() {
 
       <div style={{ padding: "14px 0 0" }}>
         <InlineForm buttonLabel="Cadastrar fatura manualmente">
-          {(close) => (
-            <form
-              action={async (fd) => {
-                "use server";
-                await createInvoice(fd);
-              }}
-              onSubmit={() => setTimeout(close, 0)}
-            >
+          <form action={createInvoice}>
               <FormField label="Cartão *">
                 <select name="bankAccountId" required style={fieldStyle}>
                   <option value="">Selecione...</option>
@@ -127,9 +120,8 @@ export default async function FaturasPage() {
               <FormField label="Valor total (R$)">
                 <input type="number" step="0.01" name="totalAmount" style={fieldStyle} />
               </FormField>
-              <SubmitButton>Salvar fatura</SubmitButton>
-            </form>
-          )}
+            <SubmitButton>Salvar fatura</SubmitButton>
+          </form>
         </InlineForm>
       </div>
 

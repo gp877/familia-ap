@@ -58,41 +58,33 @@ export default async function SonhosPage() {
 
       <div style={{ padding: "14px 0 0" }}>
         <InlineForm buttonLabel="Adicionar sonho">
-          {(close) => (
-            <form
-              action={async (fd) => {
-                "use server";
-                await createSonho(fd);
-              }}
-              onSubmit={() => setTimeout(close, 0)}
-            >
-              <FormField label="Título *">
-                <input
-                  name="title"
-                  required
-                  placeholder="Ex: casa na praia"
-                  style={fieldStyle}
-                />
-              </FormField>
-              <FormField label="Descrição">
-                <textarea
-                  name="description"
-                  rows={2}
-                  placeholder="Como vocês visualizam esse sonho?"
-                  style={fieldStyle}
-                />
-              </FormField>
-              <FormField label="URL de imagem" hint="opcional · cole link de uma imagem inspiração">
-                <input
-                  type="url"
-                  name="imageUrl"
-                  placeholder="https://..."
-                  style={fieldStyle}
-                />
-              </FormField>
-              <SubmitButton>Salvar sonho</SubmitButton>
-            </form>
-          )}
+          <form action={createSonho}>
+            <FormField label="Título *">
+              <input
+                name="title"
+                required
+                placeholder="Ex: casa na praia"
+                style={fieldStyle}
+              />
+            </FormField>
+            <FormField label="Descrição">
+              <textarea
+                name="description"
+                rows={2}
+                placeholder="Como vocês visualizam esse sonho?"
+                style={fieldStyle}
+              />
+            </FormField>
+            <FormField label="URL de imagem" hint="opcional · cole link de uma imagem inspiração">
+              <input
+                type="url"
+                name="imageUrl"
+                placeholder="https://..."
+                style={fieldStyle}
+              />
+            </FormField>
+            <SubmitButton>Salvar sonho</SubmitButton>
+          </form>
         </InlineForm>
       </div>
 
@@ -103,14 +95,8 @@ export default async function SonhosPage() {
               key={s.id}
               s={s}
               actionLabel="Realizado"
-              onAction={async () => {
-                "use server";
-                await markSonhoRealized(s.id);
-              }}
-              onDelete={async () => {
-                "use server";
-                await deleteSonho(s.id);
-              }}
+              onAction={markSonhoRealized.bind(null, s.id)}
+              onDelete={deleteSonho.bind(null, s.id)}
             />
           ))}
         </div>
@@ -125,14 +111,8 @@ export default async function SonhosPage() {
                 key={s.id}
                 s={s}
                 actionLabel="Reabrir"
-                onAction={async () => {
-                  "use server";
-                  await reopenSonho(s.id);
-                }}
-                onDelete={async () => {
-                  "use server";
-                  await deleteSonho(s.id);
-                }}
+                onAction={reopenSonho.bind(null, s.id)}
+                onDelete={deleteSonho.bind(null, s.id)}
                 realized
               />
             ))}
@@ -200,13 +180,7 @@ function SonhoCard({
           </div>
           <DeleteBtn action={onDelete} confirmMsg={`Excluir "${s.title}"?`} />
         </div>
-        <form
-          action={async () => {
-            "use server";
-            await onAction();
-          }}
-          style={{ marginTop: 10 }}
-        >
+        <form action={onAction} style={{ marginTop: 10 }}>
           <button
             type="submit"
             style={{

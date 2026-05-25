@@ -78,59 +78,46 @@ export default async function CompromissosPage() {
 
       <div style={{ padding: "14px 0 0" }}>
         <InlineForm buttonLabel="Adicionar compromisso">
-          {(close) => (
-            <form
-              action={async (fd) => {
-                "use server";
-                await createCompromisso(fd);
-              }}
-              onSubmit={() => setTimeout(close, 0)}
-            >
-              <FormField label="Título *">
-                <input
-                  name="title"
-                  required
-                  placeholder="Ex: primeira aula de natação do Francisco"
-                  style={fieldStyle}
-                />
+          <form action={createCompromisso}>
+            <FormField label="Título *">
+              <input
+                name="title"
+                required
+                placeholder="Ex: primeira aula de natação do Francisco"
+                style={fieldStyle}
+              />
+            </FormField>
+            <div style={{ display: "grid", gap: 8, gridTemplateColumns: "1fr 1fr" }}>
+              <FormField label="Data *">
+                <input type="date" name="occurredOn" required style={fieldStyle} />
               </FormField>
-              <div style={{ display: "grid", gap: 8, gridTemplateColumns: "1fr 1fr" }}>
-                <FormField label="Data *">
-                  <input type="date" name="occurredOn" required style={fieldStyle} />
-                </FormField>
-                <FormField label="Hora">
-                  <input
-                    type="time"
-                    name="time"
-                    placeholder="HH:MM"
-                    style={fieldStyle}
-                  />
-                </FormField>
-              </div>
-              <FormField label="Quem">
-                <input
-                  name="who"
-                  placeholder="Casal · Augusto · Marília · Francisco"
-                  style={fieldStyle}
-                />
+              <FormField label="Hora">
+                <input type="time" name="time" placeholder="HH:MM" style={fieldStyle} />
               </FormField>
-              <FormField label="Local">
-                <input name="location" placeholder="Opcional" style={fieldStyle} />
-              </FormField>
-              <FormField label="Observações">
-                <textarea name="notes" rows={2} style={fieldStyle} />
-              </FormField>
-              <FormField label="Repetir" hint="opcional · gera múltiplas datas">
-                <select name="recurring" defaultValue="once" style={fieldStyle}>
-                  <option value="once">Só uma vez</option>
-                  <option value="weekly">Semanal (12 ocorrências)</option>
-                  <option value="biweekly">Quinzenal (6 ocorrências)</option>
-                  <option value="monthly">Mensal (12 ocorrências)</option>
-                </select>
-              </FormField>
-              <SubmitButton>Salvar compromisso</SubmitButton>
-            </form>
-          )}
+            </div>
+            <FormField label="Quem">
+              <input
+                name="who"
+                placeholder="Casal · Augusto · Marília · Francisco"
+                style={fieldStyle}
+              />
+            </FormField>
+            <FormField label="Local">
+              <input name="location" placeholder="Opcional" style={fieldStyle} />
+            </FormField>
+            <FormField label="Observações">
+              <textarea name="notes" rows={2} style={fieldStyle} />
+            </FormField>
+            <FormField label="Repetir" hint="opcional · gera múltiplas datas">
+              <select name="recurring" defaultValue="once" style={fieldStyle}>
+                <option value="once">Só uma vez</option>
+                <option value="weekly">Semanal (12 ocorrências)</option>
+                <option value="biweekly">Quinzenal (6 ocorrências)</option>
+                <option value="monthly">Mensal (12 ocorrências)</option>
+              </select>
+            </FormField>
+            <SubmitButton>Salvar compromisso</SubmitButton>
+          </form>
         </InlineForm>
       </div>
 
@@ -210,10 +197,7 @@ export default async function CompromissosPage() {
                   )}
                 </div>
                 <DeleteBtn
-                  action={async () => {
-                    "use server";
-                    await deleteCompromisso(c.id);
-                  }}
+                  action={deleteCompromisso.bind(null, c.id)}
                   confirmMsg="Excluir compromisso?"
                 />
               </div>

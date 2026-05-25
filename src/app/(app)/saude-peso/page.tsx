@@ -85,14 +85,7 @@ export default async function PesoPage() {
 
       <div style={{ padding: "14px 0 0" }}>
         <InlineForm buttonLabel="Nova pesagem">
-          {(close) => (
-            <form
-              action={async (fd) => {
-                "use server";
-                await createPesagem(fd);
-              }}
-              onSubmit={() => setTimeout(close, 0)}
-            >
+          <form action={createPesagem}>
               <div style={{ display: "grid", gap: 8, gridTemplateColumns: "1fr 1fr" }}>
                 <FormField label="Quem *">
                   <input name="who" required placeholder="Augusto" style={fieldStyle} />
@@ -131,9 +124,8 @@ export default async function PesoPage() {
               <FormField label="Observações">
                 <input name="notes" placeholder="opcional" style={fieldStyle} />
               </FormField>
-              <SubmitButton>Salvar pesagem</SubmitButton>
-            </form>
-          )}
+            <SubmitButton>Salvar pesagem</SubmitButton>
+          </form>
         </InlineForm>
       </div>
 
@@ -230,10 +222,7 @@ export default async function PesoPage() {
                   {parseFloat(p.weightKg).toFixed(1)} kg
                 </div>
                 <DeleteBtn
-                  action={async () => {
-                    "use server";
-                    await deletePesagem(p.id);
-                  }}
+                  action={deletePesagem.bind(null, p.id)}
                   confirmMsg="Excluir esta pesagem?"
                 />
               </div>

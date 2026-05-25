@@ -265,10 +265,7 @@ export default async function PedidoDetailPage({
                 </div>
               </div>
               <DeleteBtn
-                action={async () => {
-                  "use server";
-                  await removePedidoItem(item.id);
-                }}
+                action={removePedidoItem.bind(null, item.id)}
                 confirmMsg="Remover item?"
               />
             </div>
@@ -279,14 +276,7 @@ export default async function PedidoDetailPage({
       {pedido.status === "draft" && (
         <div style={{ padding: "14px 0 0" }}>
           <InlineForm buttonLabel="Adicionar item ao pedido">
-            {(close) => (
-              <form
-                action={async (fd) => {
-                  "use server";
-                  await addPedidoItem(fd);
-                }}
-                onSubmit={() => setTimeout(close, 0)}
-              >
+            <form action={addPedidoItem}>
                 <input type="hidden" name="pedidoId" value={pedido.id} />
                 <FormField label="Item *">
                   <input
@@ -318,9 +308,8 @@ export default async function PedidoDetailPage({
                     />
                   </FormField>
                 </div>
-                <SubmitButton>Adicionar</SubmitButton>
-              </form>
-            )}
+              <SubmitButton>Adicionar</SubmitButton>
+            </form>
           </InlineForm>
         </div>
       )}
