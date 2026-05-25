@@ -54,6 +54,29 @@ export async function updateItemStockForm(formData: FormData) {
   await updateItemStock(itemId, stock);
 }
 
+/** Patch genérico de um item (name, category, unit, defaultQty, estimatedPrice). */
+export async function patchItem(formData: FormData) {
+  const { householdId } = await requireUserAndHousehold();
+  const id = formData.get("id") as string;
+  if (!id) return;
+  const item = await db.query.supermercadoItens.findFirst({
+    where: eq(supermercadoItens.id, id),
+  });
+  if (!item || item.householdId !== householdId) return;
+
+  const patch: Record<string, string | null> = {};
+  for (const key of ["name", "category", "unit", "defaultQty", "estimatedPrice"]) {
+    if (formData.has(key)) {
+      const v = ((formData.get(key) as string) || "").trim();
+      if (key === "name" && !v) continue;
+      patch[key] = v || null;
+    }
+  }
+  if (Object.keys(patch).length === 0) return;
+  await db.update(supermercadoItens).set(patch).where(eq(supermercadoItens.id, id));
+  revalidatePath("/supermercado");
+}
+
 export async function deleteItem(itemId: string) {
   const { householdId } = await requireUserAndHousehold();
   const item = await db.query.supermercadoItens.findFirst({

@@ -1,30 +1,21 @@
 import { desc, eq } from "drizzle-orm";
 
-import { BigNumber, Card, SectionRow } from "@/components/ap/atoms";
-import { DeleteBtn, FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
-import { QuickAddInput } from "@/components/ap/quick-add-input";
+import { BigNumber, SectionRow } from "@/components/ap/atoms";
+import { CheckboxToggle } from "@/components/ap/checkbox-toggle";
+import { DeleteBtn } from "@/components/ap/inline-form";
+import { InlineEditInput } from "@/components/ap/inline-edit-input";
 import { ScreenShell } from "@/components/ap/screen-shell";
-import { ViewToggle } from "@/components/ap/view-toggle";
 import {
   createSonho,
   deleteSonho,
-  markSonhoRealized,
-  reopenSonho,
+  patchSonho,
+  toggleSonhoStatus,
 } from "@/app/actions/sonhos";
 import { auth } from "@/auth";
 import { db } from "@/db";
 import { sonhos, users } from "@/db/schema";
 
-type SearchParams = Promise<{ view?: string }>;
-
-export default async function SonhosPage({
-  searchParams,
-}: {
-  searchParams: SearchParams;
-}) {
-  const sp = await searchParams;
-  const isList = sp.view === "list";
-
+export default async function SonhosPage() {
   const session = await auth();
   if (!session?.user?.id) return null;
 
@@ -47,198 +38,82 @@ export default async function SonhosPage({
       insight={
         active.length > 0 ? (
           <>
-            <b>{active.length}</b> {active.length === 1 ? "sonho" : "sonhos"} ativos
-            {realized.length > 0 ? <> · {realized.length} já realizados</> : null}. Continua lembrando deles todo dia.
+            <b>{active.length}</b> {active.length === 1 ? "sonho ativo" : "sonhos ativos"}
+            {realized.length > 0 ? ` · ${realized.length} já realizados` : ""}.
           </>
         ) : (
-          <>Sonhos não foram feitos pra ficar guardados. Adiciona um abaixo — vou te lembrar deles sempre que voltar aqui.</>
+          <>Comece um sonho — digite abaixo · Enter salva.</>
         )
       }
     >
-      <SectionRow
-        icon="star"
-        label={isList ? "Histórico de sonhos" : active.length > 0 ? "Sonhos ativos" : "Comece um sonho"}
-        action={
-          <ViewToggle basePath="/sonhos" current={sp.view} />
-        }
+      <SectionRow icon="star" label="Sonhos" action={`${all.length}`} />
+
+      <BigNumber
+        value={String(active.length)}
+        sub={`ativos · ${realized.length} realizados`}
+        accent={active.length > 0}
       />
 
-      {isList ? (
-        <BigNumber
-          value={String(all.length)}
-          sub={`${active.length} ativos · ${realized.length} realizados`}
-        />
-      ) : active[0] ? (
-        <BigNumber value={active[0].title} sub={active[0].description ?? "ainda sem descrição"} accent />
-      ) : (
-        <BigNumber value="—" sub="nenhum sonho cadastrado" />
-      )}
-
-      {/* Quick-add: só título, Enter cria */}
+      {/* Quick-add card */}
       <div style={{ padding: "12px 20px 0" }}>
-        <Card pad={10}>
-          <QuickAddInput
+        <div
+          style={{
+            background: "var(--card)",
+            borderRadius: 14,
+            padding: "12px 14px",
+            border: "1px dashed var(--line-d)",
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+          }}
+        >
+          <span style={{ fontSize: 16, color: "var(--accent)", fontWeight: 800 }}>+</span>
+          <InlineEditInput
+            initialValue=""
             action={createSonho}
-            placeholder="+ qual o sonho? (Enter pra salvar)"
-            fontSize={13.5}
+            placeholder="qual é o próximo sonho? · Enter salva"
+            fontSize={14}
+            fontWeight={600}
           />
-        </Card>
-      </div>
-
-      {/* Form completo: só pra quem quer adicionar descrição + imagem */}
-      <div style={{ padding: "10px 0 0" }}>
-        <InlineForm buttonLabel="+ descrição e imagem">
-          <form action={createSonho}>
-            <FormField label="Título *">
-              <input
-                name="title"
-                required
-                placeholder="Ex: casa na praia"
-                style={fieldStyle}
-              />
-            </FormField>
-            <FormField label="Descrição">
-              <textarea
-                name="description"
-                rows={2}
-                placeholder="Como vocês visualizam?"
-                style={fieldStyle}
-              />
-            </FormField>
-            <FormField label="URL de imagem" hint="opcional · cole link de imagem inspiração">
-              <input
-                type="url"
-                name="imageUrl"
-                placeholder="https://..."
-                style={fieldStyle}
-              />
-            </FormField>
-            <SubmitButton>Salvar sonho</SubmitButton>
-          </form>
-        </InlineForm>
-      </div>
-
-      {isList ? (
-        <div style={{ padding: "16px 20px 0" }}>
-          {all.length === 0 ? (
-            <div style={{ fontSize: 13, color: "var(--muted)", textAlign: "center", padding: "20px 0" }}>
-              Nenhum sonho ainda.
-            </div>
-          ) : (
-            all.map((s, i) => (
-              <div
-                key={s.id}
-                style={{
-                  display: "flex",
-                  gap: 12,
-                  alignItems: "center",
-                  padding: "12px 0",
-                  borderBottom: i < all.length - 1 ? "0.5px solid var(--line-d)" : "none",
-                  opacity: s.status === "realized" ? 0.6 : 1,
-                }}
-              >
-                <div
-                  style={{
-                    width: 6,
-                    height: 6,
-                    borderRadius: 3,
-                    background:
-                      s.status === "realized" ? "var(--ok)" : "var(--accent)",
-                    flexShrink: 0,
-                  }}
-                />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div
-                    style={{
-                      fontSize: 14,
-                      fontWeight: 700,
-                      textDecoration: s.status === "realized" ? "line-through" : "none",
-                    }}
-                  >
-                    {s.title}
-                  </div>
-                  {s.description && (
-                    <div style={{ fontSize: 11.5, color: "var(--muted-d)", marginTop: 2 }}>
-                      {s.description}
-                    </div>
-                  )}
-                  <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 3 }}>
-                    {s.status === "realized"
-                      ? `realizado ${s.realizedDate ?? ""}`
-                      : `cadastrado ${new Date(s.createdAt).toLocaleDateString("pt-BR")}`}
-                  </div>
-                </div>
-                <DeleteBtn
-                  action={deleteSonho.bind(null, s.id)}
-                  confirmMsg={`Excluir "${s.title}"?`}
-                />
-              </div>
-            ))
-          )}
         </div>
-      ) : (
-        <>
-          {active.length > 0 && (
-            <div style={{ padding: "16px 20px 0", display: "grid", gap: 12 }}>
-              {active.map((s) => (
-                <SonhoCard
-                  key={s.id}
-                  s={s}
-                  actionLabel="Realizado"
-                  onAction={markSonhoRealized.bind(null, s.id)}
-                  onDelete={deleteSonho.bind(null, s.id)}
-                />
-              ))}
-            </div>
-          )}
+      </div>
 
-          {realized.length > 0 && (
-            <>
-              <SectionRow icon="heart" label="Já realizados" action={`${realized.length}`} />
-              <div style={{ padding: "0 20px", display: "grid", gap: 12 }}>
-                {realized.map((s) => (
-                  <SonhoCard
-                    key={s.id}
-                    s={s}
-                    actionLabel="Reabrir"
-                    onAction={reopenSonho.bind(null, s.id)}
-                    onDelete={deleteSonho.bind(null, s.id)}
-                    realized
-                  />
-                ))}
-              </div>
-            </>
-          )}
+      {/* Lista de sonhos ativos */}
+      <div style={{ padding: "16px 20px 0", display: "grid", gap: 12 }}>
+        {active.map((s) => (
+          <SonhoCard key={s.id} s={s} />
+        ))}
+      </div>
+
+      {/* Realizados */}
+      {realized.length > 0 && (
+        <>
+          <SectionRow icon="heart" label="Já realizados" action={`${realized.length}`} />
+          <div style={{ padding: "0 20px 20px", display: "grid", gap: 12 }}>
+            {realized.map((s) => (
+              <SonhoCard key={s.id} s={s} />
+            ))}
+          </div>
         </>
       )}
     </ScreenShell>
   );
 }
 
-function SonhoCard({
-  s,
-  actionLabel,
-  onAction,
-  onDelete,
-  realized,
-}: {
-  s: typeof sonhos.$inferSelect;
-  actionLabel: string;
-  onAction: () => Promise<void>;
-  onDelete: () => Promise<void>;
-  realized?: boolean;
-}) {
+function SonhoCard({ s }: { s: typeof sonhos.$inferSelect }) {
+  const realized = s.status === "realized";
   return (
     <div
       style={{
-        borderRadius: 16,
+        borderRadius: 18,
         background: "var(--card)",
         overflow: "hidden",
-        opacity: realized ? 0.75 : 1,
+        border: "0.5px solid var(--line-d)",
+        opacity: realized ? 0.7 : 1,
       }}
     >
       {s.imageUrl && (
-        // eslint-disable-next-line @next/next/no-img-element
+        /* eslint-disable-next-line @next/next/no-img-element */
         <img
           src={s.imageUrl}
           alt={s.title}
@@ -247,48 +122,62 @@ function SonhoCard({
             aspectRatio: "16 / 9",
             objectFit: "cover",
             display: "block",
+            filter: realized ? "grayscale(0.5)" : "none",
           }}
         />
       )}
-      <div style={{ padding: 14 }}>
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div
-              style={{
-                fontSize: 16,
-                fontWeight: 700,
-                letterSpacing: "-0.01em",
-                color: realized ? "var(--muted-d)" : "var(--ink)",
-                textDecoration: realized ? "line-through" : "none",
-              }}
-            >
-              {s.title}
-            </div>
-            {s.description && (
-              <div style={{ fontSize: 12.5, color: "var(--muted-d)", marginTop: 4 }}>
-                {s.description}
-              </div>
-            )}
+      <div
+        style={{
+          padding: 14,
+          display: "grid",
+          gridTemplateColumns: "auto 1fr auto",
+          gap: 12,
+          alignItems: "start",
+        }}
+      >
+        <CheckboxToggle
+          checked={realized}
+          action={toggleSonhoStatus}
+          hiddenFields={{ id: s.id }}
+          size={22}
+          ariaLabel="Marcar como realizado"
+        />
+        <div style={{ minWidth: 0 }}>
+          <InlineEditInput
+            initialValue={s.title}
+            action={patchSonho}
+            hiddenFields={{ id: s.id }}
+            fieldName="title"
+            fontSize={16}
+            fontWeight={700}
+            color={realized ? "var(--muted-d)" : "var(--ink)"}
+          />
+          <div style={{ marginTop: 4 }}>
+            <InlineEditInput
+              initialValue={s.description ?? ""}
+              action={patchSonho}
+              hiddenFields={{ id: s.id }}
+              fieldName="description"
+              placeholder="+ descrição"
+              fontSize={12.5}
+              fontWeight={400}
+              color="var(--muted-d)"
+            />
           </div>
-          <DeleteBtn action={onDelete} confirmMsg={`Excluir "${s.title}"?`} />
+          <div style={{ marginTop: 4 }}>
+            <InlineEditInput
+              initialValue={s.imageUrl ?? ""}
+              action={patchSonho}
+              hiddenFields={{ id: s.id }}
+              fieldName="imageUrl"
+              placeholder="+ url de imagem"
+              fontSize={11}
+              fontWeight={400}
+              color="var(--muted)"
+            />
+          </div>
         </div>
-        <form action={onAction} style={{ marginTop: 10 }}>
-          <button
-            type="submit"
-            style={{
-              padding: "6px 14px",
-              borderRadius: 999,
-              background: "var(--card2)",
-              color: "var(--ink-d)",
-              border: "none",
-              fontSize: 11.5,
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
-            {actionLabel}
-          </button>
-        </form>
+        <DeleteBtn action={deleteSonho.bind(null, s.id)} confirmMsg={null} />
       </div>
     </div>
   );

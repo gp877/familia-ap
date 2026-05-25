@@ -5,11 +5,13 @@ import { BigNumber, Card, Pill, SectionRow } from "@/components/ap/atoms";
 import { DeleteBtn, FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import { StockInput } from "@/components/ap/stock-input";
+import { InlineEditInput } from "@/components/ap/inline-edit-input";
 import {
   createEmptyPedidoAndGo,
   createItem,
   createPedidoFromShortfallAndGo,
   deleteItem,
+  patchItem,
 } from "@/app/actions/supermercado";
 import { auth } from "@/auth";
 import { db } from "@/db";
@@ -218,29 +220,78 @@ export default async function SupermercadoPage() {
               <div
                 key={item.id}
                 style={{
-                  display: "flex",
+                  display: "grid",
+                  gridTemplateColumns: "1fr auto auto auto",
                   alignItems: "center",
-                  gap: 12,
+                  gap: 8,
                   padding: "10px 0",
                   borderBottom: i < items.length - 1 ? "0.5px solid var(--line-d)" : "none",
                 }}
               >
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 600 }}>{item.name}</div>
-                  <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
-                    {[item.category, item.unit, need ? `padrão ${need}` : null]
-                      .filter(Boolean)
-                      .join(" · ") || "—"}
+                <div style={{ minWidth: 0 }}>
+                  <InlineEditInput
+                    initialValue={item.name}
+                    action={patchItem}
+                    hiddenFields={{ id: item.id }}
+                    fieldName="name"
+                    fontSize={13.5}
+                    fontWeight={600}
+                  />
+                  <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 2 }}>
+                    <InlineEditInput
+                      initialValue={item.category ?? ""}
+                      action={patchItem}
+                      hiddenFields={{ id: item.id }}
+                      fieldName="category"
+                      placeholder="+ categoria"
+                      fontSize={11}
+                      color="var(--muted-d)"
+                    />
+                    <span style={{ fontSize: 10, color: "var(--muted)" }}>·</span>
+                    <InlineEditInput
+                      initialValue={item.unit ?? "un"}
+                      action={patchItem}
+                      hiddenFields={{ id: item.id }}
+                      fieldName="unit"
+                      placeholder="un"
+                      fontSize={11}
+                      color="var(--muted-d)"
+                    />
                   </div>
                 </div>
+                {/* Estoque atual */}
                 <StockInput
                   itemId={item.id}
                   defaultStock={item.currentStock}
                   low={low}
                 />
+                {/* Padrão (qtd habitual) */}
+                <div style={{ width: 60 }}>
+                  <div
+                    style={{
+                      fontSize: 9,
+                      color: "var(--muted)",
+                      textAlign: "right",
+                      letterSpacing: "0.06em",
+                      textTransform: "uppercase",
+                      fontWeight: 700,
+                    }}
+                  >
+                    padrão
+                  </div>
+                  <InlineEditInput
+                    initialValue={item.defaultQty ?? ""}
+                    action={patchItem}
+                    hiddenFields={{ id: item.id }}
+                    fieldName="defaultQty"
+                    placeholder="—"
+                    fontSize={12}
+                    fontWeight={600}
+                  />
+                </div>
                 <DeleteBtn
                   action={deleteItem.bind(null, item.id)}
-                  confirmMsg={`Excluir "${item.name}"?`}
+                  confirmMsg={null}
                 />
               </div>
             );

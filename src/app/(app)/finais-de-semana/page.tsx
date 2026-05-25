@@ -236,10 +236,10 @@ function ClustersView({
   return (
     <div
       style={{
-        padding: "14px 20px 0",
+        padding: "16px 16px 0",
         display: "flex",
         flexDirection: "column",
-        gap: 18,
+        gap: 14,
       }}
     >
       {clusters.map((cluster, idx) => {
@@ -247,55 +247,102 @@ function ClustersView({
         const sun = cluster.days[2];
         const crossesMonth = cluster.startMonth !== cluster.endMonth;
         const ordinal = ORDINAL[idx] ?? `${idx + 1}º`;
+        const filledDays = cluster.days.filter((d) => entryByDate.has(d.date)).length;
         const rangeLabel = crossesMonth
-          ? `${formatDay(fri.date)} ${formatMonthAbbrev(fri.date)} – ${formatDay(sun.date)} ${formatMonthAbbrev(sun.date)}`
-          : `${formatDay(fri.date)} – ${formatDay(sun.date)} ${formatMonthAbbrev(fri.date)}`;
+          ? `${formatDay(fri.date)} ${formatMonthAbbrev(fri.date)} → ${formatDay(sun.date)} ${formatMonthAbbrev(sun.date)}`
+          : `${formatDay(fri.date)}–${formatDay(sun.date)} ${formatMonthAbbrev(fri.date)}`;
         return (
-          <div key={idx} style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-            {/* Header do FDS */}
+          <div
+            key={idx}
+            style={{
+              background: "var(--card)",
+              borderRadius: 18,
+              overflow: "hidden",
+              border: "0.5px solid var(--line-d)",
+            }}
+          >
+            {/* Header do FDS — número grande estilo revista */}
             <div
               style={{
                 display: "flex",
-                alignItems: "baseline",
-                gap: 8,
-                marginBottom: 6,
-                paddingBottom: 4,
-                borderBottom: "0.5px solid var(--line-d)",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "14px 16px 10px",
+                background: "var(--surf)",
+                borderBottom: "1px solid var(--line-d)",
               }}
             >
-              <span
-                style={{
-                  fontSize: 12,
-                  fontWeight: 800,
-                  color: "var(--accent)",
-                  letterSpacing: "-0.01em",
-                }}
-              >
-                {ordinal} FDS
-              </span>
-              <span
-                style={{
-                  fontSize: 10.5,
-                  color: "var(--muted)",
-                  fontWeight: 600,
-                  letterSpacing: "0.04em",
-                }}
-              >
-                {rangeLabel}
-              </span>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+                <span
+                  className="ap-num"
+                  style={{
+                    fontSize: 26,
+                    fontWeight: 800,
+                    letterSpacing: "-0.04em",
+                    color: "var(--accent)",
+                    lineHeight: 1,
+                  }}
+                >
+                  {ordinal}
+                </span>
+                <span
+                  style={{
+                    fontSize: 11,
+                    color: "var(--muted-d)",
+                    fontWeight: 600,
+                    letterSpacing: "0.04em",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  fim de semana
+                </span>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <div
+                  className="ap-num"
+                  style={{
+                    fontSize: 11,
+                    color: "var(--ink-d)",
+                    fontWeight: 700,
+                    letterSpacing: "0.02em",
+                  }}
+                >
+                  {rangeLabel}
+                </div>
+                <div
+                  style={{
+                    fontSize: 9.5,
+                    color: filledDays === 3 ? "var(--accent)" : "var(--muted)",
+                    fontWeight: 700,
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase",
+                    marginTop: 2,
+                  }}
+                >
+                  {filledDays}/3 cheios
+                </div>
+              </div>
             </div>
 
-            {/* Dias do cluster */}
-            <div style={{ display: "flex", flexDirection: "column" }}>
-              {cluster.days.map((d) => {
+            {/* Dias — grid de 3 colunas no desktop, vertical no mobile */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr",
+                gap: 0,
+              }}
+            >
+              {cluster.days.map((d, i) => {
                 const inTargetMonth =
                   new Date(d.date + "T00:00:00").getMonth() + 1 === targetMonth;
+                const isLast = i === cluster.days.length - 1;
                 return (
                   <DayCellRow
                     key={d.date}
                     day={d}
                     entry={entryByDate.get(d.date) ?? null}
                     dimmed={!inTargetMonth}
+                    isLast={isLast}
                   />
                 );
               })}
@@ -311,33 +358,39 @@ function DayCellRow({
   day,
   entry,
   dimmed,
+  isLast,
 }: {
   day: DayCell;
   entry: typeof finsDeSemana.$inferSelect | null;
   dimmed: boolean;
+  isLast: boolean;
 }) {
   const hasEntry = !!entry;
+  // Cor sutil de fundo pra diferenciar dias dentro do card
+  const bgByDow = day.dow === 5 ? "transparent" : day.dow === 6 ? "var(--card2)" : "transparent";
   return (
     <div
       style={{
         display: "grid",
-        gridTemplateColumns: "52px 1fr 28px",
-        alignItems: "start",
-        gap: 10,
-        padding: "8px 0",
-        borderBottom: "0.5px solid var(--line-d)",
-        opacity: dimmed ? 0.55 : 1,
+        gridTemplateColumns: "64px 1fr 28px",
+        alignItems: "center",
+        gap: 12,
+        padding: "12px 16px",
+        background: bgByDow,
+        borderBottom: isLast ? "none" : "0.5px solid var(--line-d)",
+        opacity: dimmed ? 0.5 : 1,
       }}
     >
-      {/* Coluna data + dia */}
-      <div style={{ paddingTop: 2 }}>
+      {/* Coluna data — formato "revista", dia grande */}
+      <div style={{ textAlign: "center" }}>
         <div
           className="ap-num"
           style={{
-            fontSize: 16,
-            fontWeight: 700,
-            color: dayLabelColor(day.dow),
+            fontSize: 24,
+            fontWeight: 800,
+            color: hasEntry ? "var(--ink)" : "var(--muted-d)",
             lineHeight: 1,
+            letterSpacing: "-0.04em",
           }}
         >
           {formatDay(day.date)}
@@ -345,26 +398,26 @@ function DayCellRow({
         <div
           style={{
             fontSize: 9,
-            fontWeight: 700,
-            letterSpacing: "0.12em",
+            fontWeight: 800,
+            letterSpacing: "0.16em",
             textTransform: "uppercase",
-            color: "var(--muted)",
-            marginTop: 3,
+            color: day.dow === 6 ? "var(--accent)" : "var(--muted)",
+            marginTop: 4,
           }}
         >
           {DOW_LABEL[day.dow]}
         </div>
       </div>
 
-      {/* Coluna título + notes (sempre editável) */}
-      <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+      {/* Coluna título + notes */}
+      <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 1 }}>
         <InlineEditInput
           initialValue={entry?.title ?? ""}
           action={createFimDeSemana}
           hiddenFields={{ weekendDate: day.date }}
           placeholder="livre · digite pra programar"
-          fontSize={13.5}
-          fontWeight={600}
+          fontSize={14}
+          fontWeight={hasEntry ? 700 : 500}
         />
         {hasEntry && (
           <InlineEditInput
@@ -381,14 +434,12 @@ function DayCellRow({
         )}
       </div>
 
-      {/* Coluna delete (sem confirm) */}
+      {/* Coluna delete */}
       {hasEntry ? (
-        <div style={{ paddingTop: 2 }}>
-          <DeleteBtn
-            action={deleteFimDeSemana.bind(null, entry!.id)}
-            confirmMsg={null}
-          />
-        </div>
+        <DeleteBtn
+          action={deleteFimDeSemana.bind(null, entry!.id)}
+          confirmMsg={null}
+        />
       ) : (
         <div />
       )}

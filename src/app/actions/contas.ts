@@ -59,6 +59,36 @@ export async function updateBankAccount(formData: FormData) {
   revalidatePath("/financeiro");
 }
 
+/** Patch parcial de bankAccount (name, institution, lastFour, color, type). */
+export async function patchBankAccount(formData: FormData) {
+  const { householdId } = await requireUserAndHousehold();
+  const id = formData.get("id") as string;
+  if (!id) return;
+  const existing = await db.query.bankAccounts.findFirst({
+    where: eq(bankAccounts.id, id),
+  });
+  if (!existing || existing.householdId !== householdId) return;
+
+  const patch: Record<string, string | null> = {};
+  for (const key of ["name", "institution", "lastFour", "color"]) {
+    if (formData.has(key)) {
+      const v = ((formData.get(key) as string) || "").trim();
+      if (key === "name" && !v) continue;
+      patch[key] = v || null;
+    }
+  }
+  if (formData.has("type")) {
+    const v = (formData.get("type") as string) || "";
+    if (["checking", "savings", "credit_card", "investment", "other"].includes(v)) {
+      patch.type = v;
+    }
+  }
+  if (Object.keys(patch).length === 0) return;
+  await db.update(bankAccounts).set(patch).where(eq(bankAccounts.id, id));
+  revalidatePath("/financeiro/contas");
+  revalidatePath("/financeiro");
+}
+
 export async function deleteBankAccount(id: string) {
   const { householdId } = await requireUserAndHousehold();
   const existing = await db.query.bankAccounts.findFirst({

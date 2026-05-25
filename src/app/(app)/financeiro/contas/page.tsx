@@ -3,10 +3,12 @@ import Link from "next/link";
 
 import { BigNumber, Card, Pill, SectionRow } from "@/components/ap/atoms";
 import { BackButton, DeleteBtn, FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
+import { InlineEditInput } from "@/components/ap/inline-edit-input";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import {
   createBankAccount,
   deleteBankAccount,
+  patchBankAccount,
 } from "@/app/actions/contas";
 import { auth } from "@/auth";
 import { db } from "@/db";
@@ -140,16 +142,40 @@ export default async function ContasPage() {
               <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 14, fontWeight: 700 }}>{c.name}</span>
-                    {c.lastFour && (
-                      <span style={{ fontSize: 11, color: "var(--muted)" }}>
-                        ····{c.lastFour}
-                      </span>
-                    )}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <InlineEditInput
+                        initialValue={c.name}
+                        action={patchBankAccount}
+                        hiddenFields={{ id: c.id }}
+                        fieldName="name"
+                        fontSize={14}
+                        fontWeight={700}
+                      />
+                    </div>
+                    <span style={{ fontSize: 11, color: "var(--muted)" }}>····</span>
+                    <div style={{ width: 50 }}>
+                      <InlineEditInput
+                        initialValue={c.lastFour ?? ""}
+                        action={patchBankAccount}
+                        hiddenFields={{ id: c.id }}
+                        fieldName="lastFour"
+                        placeholder="1234"
+                        fontSize={11}
+                        color="var(--muted)"
+                      />
+                    </div>
                   </div>
-                  <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 2 }}>
-                    {TYPE_LABEL[c.type]}
-                    {c.institution ? ` · ${c.institution}` : ""}
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 2 }}>
+                    <Pill tone="muted">{TYPE_LABEL[c.type]}</Pill>
+                    <InlineEditInput
+                      initialValue={c.institution ?? ""}
+                      action={patchBankAccount}
+                      hiddenFields={{ id: c.id }}
+                      fieldName="institution"
+                      placeholder="+ instituição"
+                      fontSize={11.5}
+                      color="var(--muted-d)"
+                    />
                   </div>
                   {s && (
                     <div style={{ fontSize: 11, color: "var(--muted-d)", marginTop: 6 }}>
@@ -176,7 +202,7 @@ export default async function ContasPage() {
                   </Link>
                   <DeleteBtn
                     action={deleteBankAccount.bind(null, c.id)}
-                    confirmMsg={`Excluir "${c.name}"? Transações ficarão sem conta vinculada.`}
+                    confirmMsg={null}
                   />
                 </div>
               </div>

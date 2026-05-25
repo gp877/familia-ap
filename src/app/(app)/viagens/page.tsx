@@ -2,10 +2,12 @@ import { desc, eq } from "drizzle-orm";
 import Link from "next/link";
 
 import { BigNumber, Card, Pill, SectionRow } from "@/components/ap/atoms";
-import { FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
+import { ChipToggle } from "@/components/ap/chip-toggle";
+import { DeleteBtn, FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
+import { InlineEditInput } from "@/components/ap/inline-edit-input";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import { ViewToggle } from "@/components/ap/view-toggle";
-import { createViagem } from "@/app/actions/viagens";
+import { createViagem, deleteViagem, patchViagem } from "@/app/actions/viagens";
 import { auth } from "@/auth";
 import { db } from "@/db";
 import { users, viagens } from "@/db/schema";
@@ -306,47 +308,66 @@ function TripCard({
 }) {
   const dates = [formatDateBr(v.startDate), formatDateBr(v.endDate)].filter(Boolean).join(" – ");
   return (
-    <Link href={`/viagens/${v.id}`} style={{ textDecoration: "none", color: "inherit" }}>
-      <Card raised={accent} pad={14} style={{ display: "flex", gap: 14, alignItems: "center" }}>
+    <Card raised={accent} pad={14} style={{ display: "flex", gap: 14, alignItems: "center" }}>
+      <Link
+        href={`/viagens/${v.id}`}
+        style={{
+          width: 52,
+          height: 52,
+          borderRadius: 14,
+          background: accent ? "var(--accent)" : "var(--card2)",
+          color: accent ? "var(--accent-on)" : "var(--ink)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontWeight: 800,
+          fontSize: 17,
+          letterSpacing: "-0.02em",
+          flexShrink: 0,
+          textDecoration: "none",
+        }}
+      >
+        {v.destinationCountry?.toUpperCase() ?? "··"}
+      </Link>
+      <div style={{ flex: 1, minWidth: 0 }}>
         <div
           style={{
-            width: 52,
-            height: 52,
-            borderRadius: 14,
-            background: accent ? "var(--accent)" : "var(--card2)",
-            color: accent ? "var(--accent-on)" : "var(--ink)",
             display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontWeight: 800,
-            fontSize: 17,
-            letterSpacing: "-0.02em",
-            flexShrink: 0,
+            alignItems: "baseline",
+            justifyContent: "space-between",
+            gap: 8,
           }}
         >
-          {v.destinationCountry?.toUpperCase() ?? "··"}
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "baseline",
-              justifyContent: "space-between",
-              gap: 8,
-            }}
-          >
-            <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: "-0.01em" }}>
-              {v.title}
-            </span>
-            {accent && v.ticketsBought && <Pill tone="ok">passagens</Pill>}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <InlineEditInput
+              initialValue={v.title}
+              action={patchViagem}
+              hiddenFields={{ id: v.id }}
+              fieldName="title"
+              fontSize={15}
+              fontWeight={700}
+            />
           </div>
-          <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 3 }}>
-            {[dates, v.nights ? `${v.nights} noites` : null, v.destinationCity]
-              .filter(Boolean)
-              .join(" · ") || "—"}
-          </div>
+          <ChipToggle
+            current={v.status}
+            states={[
+              { value: "planned", label: "planejada", background: "var(--card2)", color: "var(--ink-d)" },
+              { value: "in_progress", label: "em curso", background: "var(--accent)", color: "var(--accent-on)" },
+              { value: "past", label: "feita", background: "var(--card2)", color: "var(--muted-d)" },
+            ]}
+            action={patchViagem}
+            hiddenFields={{ id: v.id }}
+            fieldName="status"
+          />
+          {v.ticketsBought && <Pill tone="ok">passagens</Pill>}
         </div>
-      </Card>
-    </Link>
+        <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 3 }}>
+          {[dates, v.nights ? `${v.nights} noites` : null, v.destinationCity]
+            .filter(Boolean)
+            .join(" · ") || "—"}
+        </div>
+      </div>
+      <DeleteBtn action={deleteViagem.bind(null, v.id)} confirmMsg={null} />
+    </Card>
   );
 }

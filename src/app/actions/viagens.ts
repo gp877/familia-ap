@@ -87,6 +87,53 @@ export async function updateViagem(formData: FormData) {
   revalidatePath(`/viagens/${id}`);
 }
 
+/** Patch genérico. Aceita title/destinationCity/destinationCountry/startDate/endDate/status/estimatedCost/flightInfo */
+export async function patchViagem(formData: FormData) {
+  const { householdId } = await requireUserAndHousehold();
+  const id = formData.get("id") as string;
+  if (!id) return;
+  const existing = await db.query.viagens.findFirst({ where: eq(viagens.id, id) });
+  if (!existing || existing.householdId !== householdId) return;
+
+  const patch: Record<string, string | number | boolean | null> = {};
+  const stringKeys = [
+    "title",
+    "destinationCity",
+    "destinationCountry",
+    "startDate",
+    "endDate",
+    "estimatedCost",
+    "flightInfo",
+    "coverImageUrl",
+    "notes",
+  ];
+  for (const key of stringKeys) {
+    if (formData.has(key)) {
+      const v = ((formData.get(key) as string) || "").trim();
+      if (key === "title" && !v) continue;
+      patch[key] = v || null;
+    }
+  }
+  if (formData.has("status")) {
+    const v = (formData.get("status") as string) || "planned";
+    if (["planned", "in_progress", "past"].includes(v)) patch.status = v;
+  }
+
+  // Recalcular nights se start/end mudou
+  const newStart = (patch.startDate as string | null | undefined) ?? existing.startDate;
+  const newEnd = (patch.endDate as string | null | undefined) ?? existing.endDate;
+  if (newStart && newEnd) {
+    const s = new Date(newStart);
+    const e = new Date(newEnd);
+    patch.nights = Math.max(0, Math.round((e.getTime() - s.getTime()) / 86_400_000));
+  }
+
+  if (Object.keys(patch).length === 0) return;
+  await db.update(viagens).set(patch).where(eq(viagens.id, id));
+  revalidatePath("/viagens");
+  revalidatePath(`/viagens/${id}`);
+}
+
 export async function deleteViagem(id: string) {
   const { householdId } = await requireUserAndHousehold();
   const existing = await db.query.viagens.findFirst({ where: eq(viagens.id, id) });

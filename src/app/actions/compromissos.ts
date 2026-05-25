@@ -1,6 +1,6 @@
 "use server";
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
 import { db } from "@/db";
@@ -34,7 +34,6 @@ export async function createCompromisso(formData: FormData) {
 
   const seriesId = recurring !== "once" ? crypto.randomUUID() : null;
 
-  // Gera as datas conforme recorrência
   const dates: string[] = [occurredOn];
   if (recurring === "weekly") {
     for (let i = 1; i < 12; i++) dates.push(addDays(occurredOn, 7 * i));
@@ -64,14 +63,10 @@ export async function createCompromisso(formData: FormData) {
 
 export async function deleteSeries(seriesId: string) {
   const { householdId } = await requireUserAndHousehold();
-  const { and } = await import("drizzle-orm");
   await db
     .delete(compromissos)
     .where(
-      and(
-        eq(compromissos.householdId, householdId),
-        eq(compromissos.seriesId, seriesId)
-      )
+      and(eq(compromissos.householdId, householdId), eq(compromissos.seriesId, seriesId))
     );
   revalidatePath("/compromissos");
 }
@@ -104,6 +99,36 @@ export async function updateCompromisso(formData: FormData) {
     })
     .where(eq(compromissos.id, id));
 
+  revalidatePath("/compromissos");
+}
+
+/**
+ * Patch genérico de um único campo. Aceita `title`, `time`, `who`, `location`,
+ * `notes`. Outros campos são ignorados.
+ */
+export async function patchCompromisso(formData: FormData) {
+  const { householdId } = await requireUserAndHousehold();
+  const id = formData.get("id") as string;
+  if (!id) return;
+
+  const existing = await db.query.compromissos.findFirst({
+    where: eq(compromissos.id, id),
+  });
+  if (!existing || existing.householdId !== householdId) return;
+
+  const patch: Record<string, string | null> = {};
+  const allowed = ["title", "time", "who", "location", "notes", "occurredOn"];
+  for (const key of allowed) {
+    if (formData.has(key)) {
+      const v = ((formData.get(key) as string) || "").trim();
+      // título não pode ser vazio
+      if (key === "title" && !v) continue;
+      patch[key] = v || null;
+    }
+  }
+
+  if (Object.keys(patch).length === 0) return;
+  await db.update(compromissos).set(patch).where(eq(compromissos.id, id));
   revalidatePath("/compromissos");
 }
 

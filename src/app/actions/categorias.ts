@@ -54,6 +54,29 @@ export async function updateCategoria(formData: FormData) {
   revalidatePath("/financeiro/categorias");
 }
 
+/** Patch parcial (name, color, icon). */
+export async function patchCategoria(formData: FormData) {
+  const { householdId } = await requireUserAndHousehold();
+  const id = formData.get("id") as string;
+  if (!id) return;
+  const existing = await db.query.categories.findFirst({
+    where: eq(categories.id, id),
+  });
+  if (!existing || existing.householdId !== householdId) return;
+
+  const patch: Record<string, string | null> = {};
+  for (const key of ["name", "color", "icon"]) {
+    if (formData.has(key)) {
+      const v = ((formData.get(key) as string) || "").trim();
+      if (key === "name" && !v) continue;
+      patch[key] = v || null;
+    }
+  }
+  if (Object.keys(patch).length === 0) return;
+  await db.update(categories).set(patch).where(eq(categories.id, id));
+  revalidatePath("/financeiro/categorias");
+}
+
 export async function deleteCategoria(id: string) {
   const { householdId } = await requireUserAndHousehold();
   const existing = await db.query.categories.findFirst({

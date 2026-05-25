@@ -69,6 +69,42 @@ export async function updateAniversario(formData: FormData) {
   revalidatePath("/aniversarios");
 }
 
+/** Patch genérico (name/monthDay/birthYear/relation/notes) */
+export async function patchAniversario(formData: FormData) {
+  const { householdId } = await requireUserAndHousehold();
+  const id = formData.get("id") as string;
+  if (!id) return;
+  const existing = await db.query.aniversarios.findFirst({
+    where: eq(aniversarios.id, id),
+  });
+  if (!existing || existing.householdId !== householdId) return;
+
+  const patch: Record<string, string | number | null> = {};
+  if (formData.has("name")) {
+    const v = ((formData.get("name") as string) || "").trim();
+    if (v) patch.name = v;
+  }
+  if (formData.has("monthDay")) {
+    const v = ((formData.get("monthDay") as string) || "").trim();
+    if (v) patch.monthDay = parseMonthDay(v);
+  }
+  if (formData.has("birthYear")) {
+    const v = ((formData.get("birthYear") as string) || "").trim();
+    patch.birthYear = v ? parseInt(v, 10) : null;
+  }
+  if (formData.has("relation")) {
+    const v = ((formData.get("relation") as string) || "").trim();
+    patch.relation = v || null;
+  }
+  if (formData.has("notes")) {
+    const v = ((formData.get("notes") as string) || "").trim();
+    patch.notes = v || null;
+  }
+  if (Object.keys(patch).length === 0) return;
+  await db.update(aniversarios).set(patch).where(eq(aniversarios.id, id));
+  revalidatePath("/aniversarios");
+}
+
 export async function deleteAniversario(id: string) {
   const { householdId } = await requireUserAndHousehold();
   const existing = await db.query.aniversarios.findFirst({

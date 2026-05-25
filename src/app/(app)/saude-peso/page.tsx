@@ -1,9 +1,10 @@
 import { asc, eq } from "drizzle-orm";
 
 import { BigNumber, Card, SectionRow, Sparkline } from "@/components/ap/atoms";
-import { DeleteBtn, FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
+import { DeleteBtn } from "@/components/ap/inline-form";
+import { InlineEditInput } from "@/components/ap/inline-edit-input";
 import { ScreenShell } from "@/components/ap/screen-shell";
-import { createPesagem, deletePesagem } from "@/app/actions/saude";
+import { createPesagem, deletePesagem, patchPesagem } from "@/app/actions/saude";
 import { SubNav } from "@/app/(app)/saude-exames/page";
 import { auth } from "@/auth";
 import { db } from "@/db";
@@ -30,7 +31,6 @@ export default async function PesoPage() {
     orderBy: [asc(pesagens.weighedOn)],
   });
 
-  // Agrupar por pessoa (who)
   const byWho = new Map<string, typeof all>();
   for (const p of all) {
     const arr = byWho.get(p.who) ?? [];
@@ -38,17 +38,14 @@ export default async function PesoPage() {
     byWho.set(p.who, arr);
   }
 
-  // Cores fixas pra pessoas conhecidas
   function colorFor(who: string) {
     const k = who.toUpperCase();
     if (k.startsWith("A")) return "var(--accent)";
     if (k.startsWith("M")) return "#5DA9FF";
     if (k.startsWith("F")) return "#B57FFF";
-    if (k.startsWith("C")) return "#FFB85C";
     return "var(--ink)";
   }
 
-  // Total geral (delta combinado)
   const totalDelta = [...byWho.values()].reduce((sum, arr) => {
     if (arr.length < 2) return sum;
     const first = parseFloat(arr[0].weightKg);
@@ -56,186 +53,244 @@ export default async function PesoPage() {
     return sum + (last - first);
   }, 0);
 
-  const allRecent = [...all].sort((a, b) => b.weighedOn.localeCompare(a.weighedOn)).slice(0, 20);
+  const today = new Date().toISOString().slice(0, 10);
+
+  // Known people (chips/sugestões)
+  const knownPeople = byWho.size > 0 ? [...byWho.keys()] : ["Augusto", "Marília", "Francisco"];
+
+  const allRecent = [...all].sort((a, b) => b.weighedOn.localeCompare(a.weighedOn)).slice(0, 30);
 
   return (
     <ScreenShell
       userQ="Como tá o peso nosso essas semanas?"
       insight={
         all.length === 0 ? (
-          <>Sem pesagens registradas. Cadastra a primeira embaixo — basta data, quem e o peso.</>
+          <>Cadastre a primeira pesagem · data, quem e peso. Enter salva.</>
         ) : totalDelta < 0 ? (
           <>
-            Vocês perderam <b>{Math.abs(totalDelta).toFixed(1)} kg</b> no total combinado desde a primeira pesagem. Continuem.
+            Perderam <b>{Math.abs(totalDelta).toFixed(1)} kg</b> combinado. Continuem.
           </>
         ) : (
           <>
-            Variação combinada: <b>{totalDelta >= 0 ? "+" : ""}{totalDelta.toFixed(1)} kg</b>. Hora de retomar?
+            Variação combinada: <b>{totalDelta >= 0 ? "+" : ""}{totalDelta.toFixed(1)} kg</b>.
           </>
         )
       }
     >
       <SubNav active="peso" />
-      <SectionRow icon="weight" label="Histórico de peso" action={`${all.length} pesagens`} />
+      <SectionRow icon="weight" label="Peso" action={`${all.length}`} />
 
       <BigNumber
-        value={totalDelta < 0 ? `−${Math.abs(totalDelta).toFixed(1)} kg` : `${totalDelta >= 0 ? "+" : ""}${totalDelta.toFixed(1)} kg`}
+        value={
+          totalDelta < 0
+            ? `−${Math.abs(totalDelta).toFixed(1)} kg`
+            : `${totalDelta >= 0 ? "+" : ""}${totalDelta.toFixed(1)} kg`
+        }
         sub={`combinado · ${byWho.size} ${byWho.size === 1 ? "pessoa" : "pessoas"}`}
       />
 
-      <div style={{ padding: "14px 0 0" }}>
-        <InlineForm buttonLabel="Nova pesagem">
-          <form action={createPesagem}>
-              <div style={{ display: "grid", gap: 8, gridTemplateColumns: "1fr 1fr" }}>
-                <FormField label="Quem *">
-                  <input
-                    name="who"
-                    required
-                    autoFocus
-                    list="pesagem-who"
-                    placeholder="ex: Augusto"
-                    style={fieldStyle}
-                  />
-                  <datalist id="pesagem-who">
-                    <option value="Augusto" />
-                    <option value="Marília" />
-                    <option value="Francisco" />
-                  </datalist>
-                </FormField>
-                <FormField label="Data *">
-                  <input
-                    type="date"
-                    name="weighedOn"
-                    required
-                    defaultValue={new Date().toISOString().slice(0, 10)}
-                    style={fieldStyle}
-                  />
-                </FormField>
-              </div>
-              <div style={{ display: "grid", gap: 8, gridTemplateColumns: "1fr 1fr" }}>
-                <FormField label="Peso (kg) *">
-                  <input
-                    type="number"
-                    step="0.1"
-                    name="weightKg"
-                    required
-                    placeholder="83.4"
-                    style={fieldStyle}
-                  />
-                </FormField>
-                <FormField label="% gordura" hint="opcional">
-                  <input
-                    type="number"
-                    step="0.1"
-                    name="bodyFatPct"
-                    placeholder="18.5"
-                    style={fieldStyle}
-                  />
-                </FormField>
-              </div>
-              <FormField label="Observações">
-                <input name="notes" placeholder="opcional" style={fieldStyle} />
-              </FormField>
-            <SubmitButton>Salvar pesagem</SubmitButton>
-          </form>
-        </InlineForm>
-      </div>
-
-      <div style={{ padding: "14px 20px 0", display: "flex", flexDirection: "column", gap: 10 }}>
-        {byWho.size === 0 ? null : (
-          [...byWho.entries()].map(([who, arr]) => {
-            const data = arr.map((p) => parseFloat(p.weightKg));
-            const first = data[0];
-            const last = data[data.length - 1];
-            const delta = data.length > 1 ? last - first : 0;
-            const color = colorFor(who);
-            return (
-              <Card key={who} pad={14} raised>
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "baseline",
-                    marginBottom: 10,
-                  }}
-                >
-                  <span style={{ fontSize: 13, color: "var(--ink-d)", fontWeight: 600 }}>
-                    {who} · {last.toFixed(1)} kg
+      {/* Cards de pessoas com quick-add inline */}
+      <div
+        style={{
+          padding: "14px 16px 0",
+          display: "grid",
+          gridTemplateColumns: "1fr",
+          gap: 12,
+        }}
+      >
+        {knownPeople.map((who) => {
+          const arr = byWho.get(who) ?? [];
+          const data = arr.map((p) => parseFloat(p.weightKg));
+          const last = data[data.length - 1];
+          const first = data[0];
+          const delta = data.length > 1 ? last - first : 0;
+          const color = colorFor(who);
+          return (
+            <div
+              key={who}
+              style={{
+                background: "var(--card)",
+                borderRadius: 18,
+                border: "0.5px solid var(--line-d)",
+                overflow: "hidden",
+              }}
+            >
+              {/* Header pessoa */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "12px 16px",
+                  background: "var(--surf)",
+                  borderBottom: "1px solid var(--line-d)",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span
+                    style={{
+                      width: 28,
+                      height: 28,
+                      borderRadius: 14,
+                      background: color,
+                      color: "var(--accent-on)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: 12,
+                      fontWeight: 800,
+                    }}
+                  >
+                    {who.slice(0, 1).toUpperCase()}
                   </span>
-                  {data.length > 1 && (
-                    <span
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ink)" }}>
+                      {who}
+                    </div>
+                    {last !== undefined ? (
+                      <div className="ap-num" style={{ fontSize: 18, fontWeight: 800, color: "var(--ink)", letterSpacing: "-0.02em" }}>
+                        {last.toFixed(1)}
+                        <span style={{ fontSize: 11, color: "var(--muted)", fontWeight: 500, marginLeft: 3 }}>kg</span>
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 11, color: "var(--muted)" }}>sem pesagens</div>
+                    )}
+                  </div>
+                </div>
+                {data.length > 1 && (
+                  <div style={{ textAlign: "right" }}>
+                    <div
                       style={{
-                        fontSize: 11,
+                        fontSize: 12,
                         color: delta < 0 ? "var(--ok)" : delta > 0 ? "var(--alert)" : "var(--muted)",
-                        fontWeight: 700,
-                        letterSpacing: "0.08em",
+                        fontWeight: 800,
                       }}
                     >
                       {delta < 0 ? "▼" : delta > 0 ? "▲" : "→"} {Math.abs(delta).toFixed(1)} kg
-                    </span>
-                  )}
-                </div>
-                {data.length >= 2 ? (
-                  <Sparkline data={data} w={320} h={48} color={color} fill />
-                ) : (
-                  <div style={{ fontSize: 11, color: "var(--muted)" }}>
-                    Apenas uma pesagem — adicione mais pra ver evolução.
+                    </div>
+                    <div style={{ fontSize: 9.5, color: "var(--muted)", marginTop: 2, letterSpacing: "0.06em", textTransform: "uppercase", fontWeight: 700 }}>
+                      desde {formatDate(arr[0].weighedOn)}
+                    </div>
                   </div>
                 )}
-                <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 6 }}>
-                  {data.length} pesagens · {formatDate(arr[0].weighedOn)} →{" "}
-                  {formatDate(arr[arr.length - 1].weighedOn)}
+              </div>
+
+              {/* Sparkline */}
+              {data.length >= 2 && (
+                <div style={{ padding: "10px 16px 4px" }}>
+                  <Sparkline data={data} w={300} h={40} color={color} fill />
                 </div>
-              </Card>
-            );
-          })
-        )}
+              )}
+
+              {/* Quick-add inline */}
+              <form
+                action={createPesagem}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 110px 80px",
+                  gap: 8,
+                  padding: "10px 16px",
+                  alignItems: "center",
+                  borderTop: "1px solid var(--line-d)",
+                  background: "var(--surf)",
+                }}
+              >
+                <input type="hidden" name="who" value={who} />
+                <span style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700 }}>
+                  + pesagem
+                </span>
+                <input
+                  type="number"
+                  step="0.1"
+                  name="weightKg"
+                  required
+                  placeholder="83.4 kg"
+                  style={{
+                    padding: "6px 10px",
+                    borderRadius: 8,
+                    background: "var(--card)",
+                    color: "var(--ink)",
+                    border: "1px solid var(--line-d)",
+                    fontSize: 13,
+                    fontFamily: "inherit",
+                    outline: "none",
+                  }}
+                />
+                <input type="hidden" name="weighedOn" value={today} />
+                <button
+                  type="submit"
+                  style={{
+                    padding: "6px 10px",
+                    borderRadius: 8,
+                    background: "var(--accent)",
+                    color: "var(--accent-on)",
+                    border: "none",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  registrar
+                </button>
+              </form>
+            </div>
+          );
+        })}
       </div>
 
+      {/* Histórico de pesagens editável */}
       {allRecent.length > 0 && (
         <>
-          <SectionRow icon="weight" label="Últimas pesagens" action={`${allRecent.length}`} />
-          <div style={{ padding: "0 20px" }}>
+          <SectionRow icon="weight" label="Histórico" action={`${all.length}`} />
+          <div style={{ padding: "0 20px 20px" }}>
             {allRecent.map((p, i) => (
               <div
                 key={p.id}
                 style={{
-                  display: "flex",
+                  display: "grid",
+                  gridTemplateColumns: "28px 80px 1fr 80px 28px",
                   alignItems: "center",
-                  gap: 10,
-                  padding: "10px 0",
-                  borderBottom:
-                    i < allRecent.length - 1 ? "0.5px solid var(--line-d)" : "none",
+                  gap: 8,
+                  padding: "8px 0",
+                  borderBottom: i < allRecent.length - 1 ? "0.5px solid var(--line-d)" : "none",
                 }}
               >
-                <div
+                <span
                   style={{
-                    width: 28,
-                    height: 28,
-                    borderRadius: 14,
+                    width: 24,
+                    height: 24,
+                    borderRadius: 12,
                     background: colorFor(p.who),
                     color: "var(--accent-on)",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    fontSize: 11,
-                    fontWeight: 700,
+                    fontSize: 10,
+                    fontWeight: 800,
                   }}
                 >
                   {p.who.slice(0, 1).toUpperCase()}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600 }}>{p.who}</div>
-                  <div style={{ fontSize: 11, color: "var(--muted)" }}>
-                    {formatDate(p.weighedOn)}
-                  </div>
-                </div>
-                <div className="ap-num" style={{ fontSize: 14, color: "var(--ink)" }}>
-                  {parseFloat(p.weightKg).toFixed(1)} kg
-                </div>
+                </span>
+                <InlineEditInput
+                  initialValue={p.weighedOn}
+                  action={patchPesagem}
+                  hiddenFields={{ id: p.id }}
+                  fieldName="weighedOn"
+                  fontSize={11}
+                  color="var(--muted-d)"
+                />
+                <div style={{ fontSize: 12.5, fontWeight: 600 }}>{p.who}</div>
+                <InlineEditInput
+                  initialValue={p.weightKg}
+                  action={patchPesagem}
+                  hiddenFields={{ id: p.id }}
+                  fieldName="weightKg"
+                  fontSize={13}
+                  fontWeight={700}
+                />
                 <DeleteBtn
                   action={deletePesagem.bind(null, p.id)}
-                  confirmMsg="Excluir esta pesagem?"
+                  confirmMsg={null}
                 />
               </div>
             ))}

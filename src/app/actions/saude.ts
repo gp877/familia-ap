@@ -65,6 +65,30 @@ export async function createPesagem(formData: FormData) {
   revalidatePath("/saude-peso");
 }
 
+/** Patch parcial de pesagem (weightKg, bodyFatPct, weighedOn, notes). */
+export async function patchPesagem(formData: FormData) {
+  const { householdId } = await requireUserAndHousehold();
+  const id = formData.get("id") as string;
+  if (!id) return;
+  const existing = await db.query.pesagens.findFirst({
+    where: eq(pesagens.id, id),
+  });
+  if (!existing || existing.householdId !== householdId) return;
+
+  const patch: Record<string, string | null> = {};
+  for (const key of ["weightKg", "bodyFatPct", "weighedOn", "notes"]) {
+    if (formData.has(key)) {
+      const v = ((formData.get(key) as string) || "").trim();
+      if (key === "weightKg" && !v) continue;
+      if (key === "weighedOn" && !v) continue;
+      patch[key] = v || null;
+    }
+  }
+  if (Object.keys(patch).length === 0) return;
+  await db.update(pesagens).set(patch).where(eq(pesagens.id, id));
+  revalidatePath("/saude-peso");
+}
+
 export async function deletePesagem(id: string) {
   const { householdId } = await requireUserAndHousehold();
   const existing = await db.query.pesagens.findFirst({ where: eq(pesagens.id, id) });

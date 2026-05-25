@@ -86,6 +86,47 @@ export async function reopenSonho(id: string) {
   revalidatePath("/sonhos");
 }
 
+/** Patch genérico (title/description/imageUrl) */
+export async function patchSonho(formData: FormData) {
+  const { householdId } = await requireUserAndHousehold();
+  const id = formData.get("id") as string;
+  if (!id) return;
+  const existing = await db.query.sonhos.findFirst({ where: eq(sonhos.id, id) });
+  if (!existing || existing.householdId !== householdId) return;
+  const patch: Record<string, string | null> = {};
+  for (const key of ["title", "description", "imageUrl"]) {
+    if (formData.has(key)) {
+      const v = ((formData.get(key) as string) || "").trim();
+      if (key === "title" && !v) continue;
+      patch[key] = v || null;
+    }
+  }
+  if (Object.keys(patch).length === 0) return;
+  await db.update(sonhos).set(patch).where(eq(sonhos.id, id));
+  revalidatePath("/sonhos");
+}
+
+/** Toggle entre active/realized */
+export async function toggleSonhoStatus(formData: FormData) {
+  const { householdId } = await requireUserAndHousehold();
+  const id = formData.get("id") as string;
+  if (!id) return;
+  const existing = await db.query.sonhos.findFirst({ where: eq(sonhos.id, id) });
+  if (!existing || existing.householdId !== householdId) return;
+  if (existing.status === "active") {
+    await db
+      .update(sonhos)
+      .set({ status: "realized", realizedDate: new Date().toISOString().slice(0, 10) })
+      .where(eq(sonhos.id, id));
+  } else {
+    await db
+      .update(sonhos)
+      .set({ status: "active", realizedDate: null })
+      .where(eq(sonhos.id, id));
+  }
+  revalidatePath("/sonhos");
+}
+
 export async function deleteSonho(id: string) {
   const { householdId } = await requireUserAndHousehold();
   const existing = await db.query.sonhos.findFirst({

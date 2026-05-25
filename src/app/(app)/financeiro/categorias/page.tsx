@@ -2,10 +2,12 @@ import { eq, sql } from "drizzle-orm";
 
 import { BigNumber, Card, SectionRow } from "@/components/ap/atoms";
 import { BackButton, DeleteBtn, FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
+import { InlineEditInput } from "@/components/ap/inline-edit-input";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import {
   createCategoria,
   deleteCategoria,
+  patchCategoria,
 } from "@/app/actions/categorias";
 import { auth } from "@/auth";
 import { db } from "@/db";
@@ -115,7 +117,16 @@ export default async function CategoriasPage() {
                   gap: 8,
                 }}
               >
-                <span style={{ fontSize: 13.5, fontWeight: 600 }}>{parent.name}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <InlineEditInput
+                    initialValue={parent.name}
+                    action={patchCategoria}
+                    hiddenFields={{ id: parent.id }}
+                    fieldName="name"
+                    fontSize={13.5}
+                    fontWeight={600}
+                  />
+                </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   {t > 0 && (
                     <span
@@ -127,7 +138,7 @@ export default async function CategoriasPage() {
                   )}
                   <DeleteBtn
                     action={deleteCategoria.bind(null, parent.id)}
-                    confirmMsg={`Excluir "${parent.name}"? Transações ficarão sem categoria.`}
+                    confirmMsg={null}
                   />
                 </div>
               </div>
@@ -182,7 +193,16 @@ export default async function CategoriasPage() {
                   gap: 8,
                 }}
               >
-                <span style={{ fontSize: 13.5, fontWeight: 600 }}>{parent.name}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <InlineEditInput
+                    initialValue={parent.name}
+                    action={patchCategoria}
+                    hiddenFields={{ id: parent.id }}
+                    fieldName="name"
+                    fontSize={13.5}
+                    fontWeight={600}
+                  />
+                </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   {t > 0 && (
                     <span className="ap-num" style={{ fontSize: 13, color: "var(--ok)" }}>
@@ -191,7 +211,7 @@ export default async function CategoriasPage() {
                   )}
                   <DeleteBtn
                     action={deleteCategoria.bind(null, parent.id)}
-                    confirmMsg={`Excluir "${parent.name}"?`}
+                    confirmMsg={null}
                   />
                 </div>
               </div>
