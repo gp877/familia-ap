@@ -401,6 +401,129 @@ function addMonths(dateStr: string, months: number): string {
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
 }
 
+/**
+ * Núcleo compartilhado: processa uma mensagem do usuário, executa tools se
+ * necessário, persiste user+assistant no DB e retorna ambos os registros.
+ * Usado tanto pelo ChatBar (rodapé global, retorna state) quanto pelo /chat
+ * (form action direta, retorna void).
+ */
+export async function processChatTurnWithTools(
+  content: string,
+  householdId: string,
+  userId: string
+): Promise<{
+  userMsg: typeof messages.$inferSelect;
+  assistantMsg: typeof messages.$inferSelect;
+}> {
+  const thread = await getOrCreateMainThread(householdId, userId);
+
+  const [userMsg] = await db
+    .insert(messages)
+    .values({
+      threadId: thread.id,
+      householdId,
+      userId,
+      role: "user",
+      content,
+    })
+    .returning();
+
+  const allMessages = await db.query.messages.findMany({
+    where: eq(messages.threadId, thread.id),
+    orderBy: [desc(messages.createdAt)],
+    limit: 20,
+  });
+
+  const summary = await buildContext(householdId);
+
+  const history = allMessages.reverse().map((m) => ({
+    role: m.role === "assistant" ? ("model" as const) : ("user" as const),
+    parts: [{ text: m.content }],
+  }));
+
+  let response = await ai.models.generateContent({
+    model: "gemini-flash-latest",
+    contents: history,
+    config: {
+      systemInstruction:
+        SYSTEM_PROMPT +
+        "\n\n## Contexto atual da família (auto-gerado):\n\n" +
+        summary,
+      temperature: 0.4,
+      maxOutputTokens: 600,
+      tools,
+      toolConfig: {
+        functionCallingConfig: { mode: FunctionCallingConfigMode.AUTO },
+      },
+    },
+  });
+
+  const fnCalls: FunctionCall[] = response.functionCalls ?? [];
+  let assistantText = response.text?.trim() ?? "";
+
+  if (fnCalls.length > 0) {
+    const toolResults = await Promise.all(
+      fnCalls.map((call) => executeToolCall(call, householdId, userId))
+    );
+
+    const fnResponses = toolResults.map((r) => ({
+      functionResponse: {
+        name: r.name,
+        response: { result: r.result },
+      },
+    }));
+
+    response = await ai.models.generateContent({
+      model: "gemini-flash-latest",
+      contents: [
+        ...history,
+        {
+          role: "model",
+          parts: fnCalls.map((c) => ({ functionCall: c })),
+        },
+        {
+          role: "user",
+          parts: fnResponses,
+        },
+      ],
+      config: {
+        systemInstruction:
+          SYSTEM_PROMPT +
+          "\n\n## Contexto atual da família (auto-gerado):\n\n" +
+          summary,
+        temperature: 0.3,
+        maxOutputTokens: 400,
+      },
+    });
+
+    assistantText =
+      response.text?.trim() ?? toolResults.map((r) => r.result).join(" ");
+  }
+
+  if (!assistantText) {
+    assistantText = "(sem resposta — tente reformular)";
+  }
+
+  const [assistantMsg] = await db
+    .insert(messages)
+    .values({
+      threadId: thread.id,
+      householdId,
+      role: "assistant",
+      content: assistantText,
+    })
+    .returning();
+
+  await db
+    .update(threads)
+    .set({ updatedAt: new Date() })
+    .where(eq(threads.id, thread.id));
+
+  revalidatePath("/chat");
+
+  return { userMsg, assistantMsg };
+}
+
 export async function sendMessageReturn(
   prevState: ChatBarState,
   formData: FormData
@@ -410,113 +533,11 @@ export async function sendMessageReturn(
 
   try {
     const { householdId, userId } = await requireUserAndHousehold();
-    const thread = await getOrCreateMainThread(householdId, userId);
-
-    const [userMsg] = await db
-      .insert(messages)
-      .values({
-        threadId: thread.id,
-        householdId,
-        userId,
-        role: "user",
-        content,
-      })
-      .returning();
-
-    const allMessages = await db.query.messages.findMany({
-      where: eq(messages.threadId, thread.id),
-      orderBy: [desc(messages.createdAt)],
-      limit: 20,
-    });
-
-    const summary = await buildContext(householdId);
-
-    const history = allMessages.reverse().map((m) => ({
-      role: m.role === "assistant" ? ("model" as const) : ("user" as const),
-      parts: [{ text: m.content }],
-    }));
-
-    // First call: with tools available
-    let response = await ai.models.generateContent({
-      model: "gemini-flash-latest",
-      contents: history,
-      config: {
-        systemInstruction:
-          SYSTEM_PROMPT +
-          "\n\n## Contexto atual da família (auto-gerado):\n\n" +
-          summary,
-        temperature: 0.4,
-        maxOutputTokens: 600,
-        tools,
-        toolConfig: {
-          functionCallingConfig: { mode: FunctionCallingConfigMode.AUTO },
-        },
-      },
-    });
-
-    // Se o modelo chamou funções, executa todas e faz follow-up
-    const fnCalls: FunctionCall[] = response.functionCalls ?? [];
-    let assistantText = response.text?.trim() ?? "";
-
-    if (fnCalls.length > 0) {
-      const toolResults = await Promise.all(
-        fnCalls.map((call) => executeToolCall(call, householdId, userId))
-      );
-
-      // Follow-up: passa os resultados pro modelo gerar texto final
-      const fnResponses = toolResults.map((r) => ({
-        functionResponse: {
-          name: r.name,
-          response: { result: r.result },
-        },
-      }));
-
-      response = await ai.models.generateContent({
-        model: "gemini-flash-latest",
-        contents: [
-          ...history,
-          {
-            role: "model",
-            parts: fnCalls.map((c) => ({ functionCall: c })),
-          },
-          {
-            role: "user",
-            parts: fnResponses,
-          },
-        ],
-        config: {
-          systemInstruction:
-            SYSTEM_PROMPT +
-            "\n\n## Contexto atual da família (auto-gerado):\n\n" +
-            summary,
-          temperature: 0.3,
-          maxOutputTokens: 400,
-        },
-      });
-
-      assistantText = response.text?.trim() ?? toolResults.map((r) => r.result).join(" ");
-    }
-
-    if (!assistantText) {
-      assistantText = "(sem resposta — tente reformular)";
-    }
-
-    const [assistantMsg] = await db
-      .insert(messages)
-      .values({
-        threadId: thread.id,
-        householdId,
-        role: "assistant",
-        content: assistantText,
-      })
-      .returning();
-
-    await db
-      .update(threads)
-      .set({ updatedAt: new Date() })
-      .where(eq(threads.id, thread.id));
-
-    revalidatePath("/chat");
+    const { userMsg, assistantMsg } = await processChatTurnWithTools(
+      content,
+      householdId,
+      userId
+    );
 
     return {
       messages: [

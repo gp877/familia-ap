@@ -1,8 +1,9 @@
 import { asc, eq, gte, lte } from "drizzle-orm";
 
 import { BigNumber, SectionRow } from "@/components/ap/atoms";
-import { DeleteBtn, FormField, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
-import { Icon } from "@/components/ap/icon";
+import { DeleteBtn } from "@/components/ap/inline-form";
+import { MonthChips } from "@/components/ap/month-chips";
+import { QuickAddInput } from "@/components/ap/quick-add-input";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import {
   createFimDeSemana,
@@ -105,59 +106,22 @@ export default async function FinaisDeSemanaPage({
     year: "numeric",
   });
 
-  const prevMonth = new Date(yearN, monthN - 2, 1);
-  const nextMonth = new Date(yearN, monthN, 1);
-  const prevMonthStr = `${prevMonth.getFullYear()}-${String(prevMonth.getMonth() + 1).padStart(2, "0")}`;
-  const nextMonthStr = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, "0")}`;
-
   return (
     <ScreenShell
       userQ="Como tão nossos finais de semana esse mês?"
       insight={
         entries.length > 0 ? (
           <>
-            <b>{entries.length}</b> {entries.length === 1 ? "programação" : "programações"} em {monthLabel}.
+            <b>{entries.length}</b> {entries.length === 1 ? "programação" : "programações"} em {monthLabel}. Digite direto no dia pra adicionar.
           </>
         ) : (
-          <>Nenhum plano ainda. Clique no <b>+</b> de qualquer dia abaixo pra adicionar.</>
+          <>Nenhum plano ainda. Clique no dia abaixo e <b>digite</b> direto pra adicionar — Enter salva.</>
         )
       }
     >
-      <SectionRow
-        icon="heart"
-        label="Finais de semana"
-        action={
-          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            <a
-              href={`/finais-de-semana?month=${prevMonthStr}`}
-              style={{
-                padding: "2px 8px",
-                borderRadius: 6,
-                background: "var(--card2)",
-                color: "var(--muted-d)",
-                fontSize: 11,
-                textDecoration: "none",
-              }}
-            >
-              ‹
-            </a>
-            <span style={{ fontSize: 12, color: "var(--muted)" }}>{monthLabel}</span>
-            <a
-              href={`/finais-de-semana?month=${nextMonthStr}`}
-              style={{
-                padding: "2px 8px",
-                borderRadius: 6,
-                background: "var(--card2)",
-                color: "var(--muted-d)",
-                fontSize: 11,
-                textDecoration: "none",
-              }}
-            >
-              ›
-            </a>
-          </div>
-        }
-      />
+      <SectionRow icon="heart" label="Finais de semana" />
+
+      <MonthChips basePath="/finais-de-semana" currentMonth={monthStr} />
 
       <BigNumber
         value={`${entries.length}`}
@@ -213,7 +177,7 @@ function DayRow({
           display: "flex",
           alignItems: "center",
           gap: 8,
-          marginBottom: 6,
+          marginBottom: 4,
         }}
       >
         <span
@@ -231,100 +195,41 @@ function DayRow({
         <span className="ap-num" style={{ fontSize: 16, color: "var(--ink)" }}>
           {formatDateBr(day.date)}
         </span>
-
-        {/* Botão + inline */}
-        <details style={{ marginLeft: "auto" }}>
-          <summary
-            style={{
-              padding: "4px 10px",
-              borderRadius: 999,
-              background: "var(--card)",
-              color: "var(--accent)",
-              border: "1px solid var(--line-d)",
-              cursor: "pointer",
-              fontSize: 11,
-              fontWeight: 600,
-              listStyle: "none",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 4,
-            }}
-          >
-            <Icon name="plus" size={11} stroke={2.5} color="var(--accent)" />
-            programar
-          </summary>
-          <div
-            style={{
-              marginTop: 8,
-              padding: 12,
-              borderRadius: 12,
-              background: "var(--card)",
-              width: 260,
-              position: "relative",
-              right: 0,
-            }}
-          >
-            <form action={createFimDeSemana}>
-              <input type="hidden" name="weekendDate" value={day.date} />
-              <FormField label="O que vai rolar? *">
-                <input
-                  name="title"
-                  required
-                  autoFocus
-                  placeholder="Ex: jantar"
-                  style={{ ...fieldStyle, padding: "8px 12px", fontSize: 13 }}
-                />
-              </FormField>
-              <FormField label="Detalhes (opcional)">
-                <textarea
-                  name="notes"
-                  rows={2}
-                  style={{ ...fieldStyle, padding: "8px 12px", fontSize: 13 }}
-                />
-              </FormField>
-              <SubmitButton>Adicionar</SubmitButton>
-            </form>
-          </div>
-        </details>
       </div>
 
-      {items.length === 0 ? (
+      {items.map((item) => (
         <div
+          key={item.id}
           style={{
-            fontSize: 11.5,
-            color: "var(--muted)",
-            padding: "2px 0 2px 38px",
-            fontStyle: "italic",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "3px 0 3px 38px",
           }}
         >
-          — livre
-        </div>
-      ) : (
-        items.map((item) => (
-          <div
-            key={item.id}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              padding: "4px 0 4px 38px",
-            }}
-          >
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 600 }}>{item.title}</div>
-              {item.notes && (
-                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 1 }}>
-                  {item.notes}
-                </div>
-              )}
-            </div>
-            <DeleteBtn
-              action={deleteFimDeSemana.bind(null, item.id)}
-              confirmMsg="Excluir?"
-            />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>{item.title}</div>
+            {item.notes && (
+              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 1 }}>
+                {item.notes}
+              </div>
+            )}
           </div>
-        ))
-      )}
+          <DeleteBtn
+            action={deleteFimDeSemana.bind(null, item.id)}
+            confirmMsg="Excluir?"
+          />
+        </div>
+      ))}
+
+      {/* Linha inline pra adicionar — sem botão, só Enter */}
+      <div style={{ paddingLeft: 38, paddingTop: 2 }}>
+        <QuickAddInput
+          action={createFimDeSemana}
+          hiddenFields={{ weekendDate: day.date }}
+          placeholder={items.length === 0 ? "+ que tal? (Enter pra salvar)" : "+ adicionar mais..."}
+        />
+      </div>
     </div>
   );
 }

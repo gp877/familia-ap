@@ -1,7 +1,8 @@
 import { desc, eq } from "drizzle-orm";
 
-import { BigNumber, SectionRow } from "@/components/ap/atoms";
+import { BigNumber, Card, SectionRow } from "@/components/ap/atoms";
 import { DeleteBtn, FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
+import { QuickAddInput } from "@/components/ap/quick-add-input";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import {
   createSonho,
@@ -56,8 +57,20 @@ export default async function SonhosPage() {
         <BigNumber value="—" sub="nenhum sonho cadastrado" />
       )}
 
-      <div style={{ padding: "14px 0 0" }}>
-        <InlineForm buttonLabel="Adicionar sonho">
+      {/* Quick-add: só título, Enter cria */}
+      <div style={{ padding: "12px 20px 0" }}>
+        <Card pad={10}>
+          <QuickAddInput
+            action={createSonho}
+            placeholder="+ qual o sonho? (Enter pra salvar)"
+            fontSize={13.5}
+          />
+        </Card>
+      </div>
+
+      {/* Form completo: só pra quem quer adicionar descrição + imagem */}
+      <div style={{ padding: "10px 0 0" }}>
+        <InlineForm buttonLabel="+ descrição e imagem">
           <form action={createSonho}>
             <FormField label="Título *">
               <input
@@ -71,11 +84,11 @@ export default async function SonhosPage() {
               <textarea
                 name="description"
                 rows={2}
-                placeholder="Como vocês visualizam esse sonho?"
+                placeholder="Como vocês visualizam?"
                 style={fieldStyle}
               />
             </FormField>
-            <FormField label="URL de imagem" hint="opcional · cole link de uma imagem inspiração">
+            <FormField label="URL de imagem" hint="opcional · cole link de imagem inspiração">
               <input
                 type="url"
                 name="imageUrl"

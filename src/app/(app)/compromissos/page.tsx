@@ -1,7 +1,9 @@
-import { asc, eq, gte } from "drizzle-orm";
+import { asc, eq, gte, lte } from "drizzle-orm";
+import Link from "next/link";
 
-import { BigNumber, SectionRow } from "@/components/ap/atoms";
+import { BigNumber, Card, SectionRow } from "@/components/ap/atoms";
 import { DeleteBtn, FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
+import { QuickAddInput } from "@/components/ap/quick-add-input";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import {
   createCompromisso,
@@ -25,32 +27,89 @@ function formatDate(d: string) {
 function daysFromToday(d: string) {
   const [y, m, day] = d.split("-").map(Number);
   const target = new Date(y, m - 1, day);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return Math.round((target.getTime() - today.getTime()) / 86_400_000);
+  const t = new Date();
+  t.setHours(0, 0, 0, 0);
+  return Math.round((target.getTime() - t.getTime()) / 86_400_000);
 }
 
-export default async function CompromissosPage() {
+function todayStr() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function dateStrFromOffset(days: number) {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+type SearchParams = Promise<{ range?: string }>;
+
+export default async function CompromissosPage({
+  searchParams,
+}: {
+  searchParams: SearchParams;
+}) {
+  const sp = await searchParams;
+  const range = sp.range ?? "month"; // today | week | month | all
+
   const session = await auth();
   if (!session?.user?.id) return null;
-
   const dbUser = await db.query.users.findFirst({
     where: eq(users.id, session.user.id),
   });
   if (!dbUser?.householdId) return null;
 
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const upcoming = await db.query.compromissos.findMany({
-    where: (c, { and: a }) =>
-      a(eq(c.householdId, dbUser.householdId!), gte(c.occurredOn, todayStr)),
-    orderBy: [asc(compromissos.occurredOn), asc(compromissos.time)],
-    limit: 100,
-  });
+  const t = todayStr();
+  let upcoming: typeof compromissos.$inferSelect[];
+  if (range === "today") {
+    upcoming = await db.query.compromissos.findMany({
+      where: (c, { and: a }) =>
+        a(eq(c.householdId, dbUser.householdId!), eq(c.occurredOn, t)),
+      orderBy: [asc(compromissos.time)],
+    });
+  } else if (range === "week") {
+    const end = dateStrFromOffset(7);
+    upcoming = await db.query.compromissos.findMany({
+      where: (c, { and: a }) =>
+        a(
+          eq(c.householdId, dbUser.householdId!),
+          gte(c.occurredOn, t),
+          lte(c.occurredOn, end)
+        ),
+      orderBy: [asc(compromissos.occurredOn), asc(compromissos.time)],
+    });
+  } else if (range === "all") {
+    upcoming = await db.query.compromissos.findMany({
+      where: eq(compromissos.householdId, dbUser.householdId),
+      orderBy: [asc(compromissos.occurredOn), asc(compromissos.time)],
+      limit: 200,
+    });
+  } else {
+    // month (default)
+    const end = dateStrFromOffset(30);
+    upcoming = await db.query.compromissos.findMany({
+      where: (c, { and: a }) =>
+        a(
+          eq(c.householdId, dbUser.householdId!),
+          gte(c.occurredOn, t),
+          lte(c.occurredOn, end)
+        ),
+      orderBy: [asc(compromissos.occurredOn), asc(compromissos.time)],
+    });
+  }
 
   const next = upcoming[0];
   const nextDays = next ? daysFromToday(next.occurredOn) : null;
   const nextLabel =
     nextDays === 0 ? "hoje" : nextDays === 1 ? "em 1 dia" : nextDays !== null ? `em ${nextDays} dias` : null;
+
+  const rangeLabel: Record<string, string> = {
+    today: "hoje",
+    week: "próximos 7 dias",
+    month: "próximos 30 dias",
+    all: "todos",
+  };
 
   return (
     <ScreenShell
@@ -62,11 +121,41 @@ export default async function CompromissosPage() {
             {next.time ? <> às {next.time}</> : null}.
           </>
         ) : (
-          <>Nenhum compromisso registrado. Adiciona um abaixo.</>
+          <>Nenhum compromisso registrado. Digite no campo abaixo pra criar pra hoje, ou expanda o form pra escolher outra data.</>
         )
       }
     >
-      <SectionRow icon="cal" label="Próximos compromissos" action={`${upcoming.length} agendados`} />
+      <SectionRow icon="cal" label="Próximos compromissos" action={`${upcoming.length} · ${rangeLabel[range]}`} />
+
+      {/* Chips de filtro */}
+      <div style={{ padding: "0 20px 8px", display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {[
+          { key: "today", label: "Hoje" },
+          { key: "week", label: "7 dias" },
+          { key: "month", label: "30 dias" },
+          { key: "all", label: "Tudo" },
+        ].map((r) => {
+          const isActive = range === r.key;
+          return (
+            <Link
+              key={r.key}
+              href={`/compromissos?range=${r.key}`}
+              style={{
+                padding: "4px 12px",
+                borderRadius: 999,
+                fontSize: 11,
+                fontWeight: 700,
+                background: isActive ? "var(--accent)" : "var(--card)",
+                color: isActive ? "var(--accent-on)" : "var(--muted-d)",
+                textDecoration: "none",
+                border: isActive ? "none" : "1px solid var(--line-d)",
+              }}
+            >
+              {r.label}
+            </Link>
+          );
+        })}
+      </div>
 
       {next ? (
         <BigNumber
@@ -75,11 +164,24 @@ export default async function CompromissosPage() {
           accent
         />
       ) : (
-        <BigNumber value="—" sub="sem compromissos próximos" />
+        <BigNumber value="—" sub="sem compromissos nesse período" />
       )}
 
-      <div style={{ padding: "14px 0 0" }}>
-        <InlineForm buttonLabel="Adicionar compromisso">
+      {/* Quick-add (cria pra hoje, sem hora) */}
+      <div style={{ padding: "12px 20px 0" }}>
+        <Card pad={10}>
+          <QuickAddInput
+            action={createCompromisso}
+            hiddenFields={{ occurredOn: today }}
+            placeholder="+ algo pra hoje? (Enter)"
+            fontSize={13.5}
+          />
+        </Card>
+      </div>
+
+      {/* Form completo (escondido) */}
+      <div style={{ padding: "10px 0 0" }}>
+        <InlineForm buttonLabel="Outra data / detalhes">
           <form action={createCompromisso}>
             <FormField label="O que é? *">
               <input
@@ -100,11 +202,11 @@ export default async function CompromissosPage() {
                   style={fieldStyle}
                 />
               </FormField>
-              <FormField label="Hora (opcional)">
+              <FormField label="Hora">
                 <input type="time" name="time" style={fieldStyle} />
               </FormField>
             </div>
-            <FormField label="Quem (opcional)">
+            <FormField label="Quem">
               <input
                 name="who"
                 list="compromisso-who"
@@ -131,7 +233,7 @@ export default async function CompromissosPage() {
                   fontWeight: 600,
                 }}
               >
-                + mais opções (local, notas, repetir)
+                + local, notas, repetir
               </summary>
               <div style={{ marginTop: 8 }}>
                 <FormField label="Local">
@@ -140,7 +242,7 @@ export default async function CompromissosPage() {
                 <FormField label="Observações">
                   <textarea name="notes" rows={2} style={fieldStyle} />
                 </FormField>
-                <FormField label="Repetir" hint="gera múltiplas datas">
+                <FormField label="Repetir">
                   <select name="recurring" defaultValue="once" style={fieldStyle}>
                     <option value="once">Só uma vez</option>
                     <option value="weekly">Semanal (12 ocorrências)</option>
@@ -159,7 +261,7 @@ export default async function CompromissosPage() {
       <div style={{ padding: "14px 20px 0" }}>
         {upcoming.length === 0 ? (
           <div style={{ fontSize: 13, color: "var(--muted)", textAlign: "center", padding: "20px 0" }}>
-            Nenhum compromisso ainda.
+            Nenhum compromisso nesse período.
           </div>
         ) : (
           upcoming.map((c, i) => {

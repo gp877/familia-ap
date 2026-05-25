@@ -24,6 +24,13 @@ function formatMonth(yyyymm: string) {
   });
 }
 
+function formatDueDate(d: string | Date) {
+  return new Date(d).toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "short",
+  });
+}
+
 export default async function FaturasPage() {
   const session = await auth();
   if (!session?.user?.id) return null;
@@ -198,7 +205,7 @@ function FaturaCard({
             </div>
             <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
               {stats?.count ?? 0} lançamentos
-              {inv.dueDate ? ` · vence ${formatBRL(0)}` : ""}
+              {inv.dueDate ? ` · vence ${formatDueDate(inv.dueDate)}` : ""}
             </div>
           </div>
           <div style={{ textAlign: "right" }}>

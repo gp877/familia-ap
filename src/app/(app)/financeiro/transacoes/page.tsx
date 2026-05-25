@@ -3,8 +3,8 @@ import Link from "next/link";
 
 import { BigNumber, SectionRow } from "@/components/ap/atoms";
 import { BackButton } from "@/components/ap/inline-form";
+import { MonthChips } from "@/components/ap/month-chips";
 import { ScreenShell } from "@/components/ap/screen-shell";
-import { TransactionFilters } from "@/components/transaction-filters";
 import { TransactionsMultiSelect } from "@/components/ap/transactions-multi-select";
 import { auth } from "@/auth";
 import type { CategoryOption } from "@/components/category-select";
@@ -55,11 +55,19 @@ export default async function TransacoesPage({
   });
   if (!dbUser?.householdId) return null;
 
+  // Mês: default = mês atual; "all" pra mostrar todos
+  const now = new Date();
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const selectedMonth = sp.month ?? currentMonth;
+  const showAll = selectedMonth === "all";
+
   const conds = [eq(transactions.householdId, dbUser.householdId)];
-  const bounds = sp.month ? monthBounds(sp.month) : null;
-  if (bounds) {
-    conds.push(gte(transactions.occurredOn, bounds.start));
-    conds.push(lte(transactions.occurredOn, bounds.end));
+  if (!showAll) {
+    const bounds = monthBounds(selectedMonth);
+    if (bounds) {
+      conds.push(gte(transactions.occurredOn, bounds.start));
+      conds.push(lte(transactions.occurredOn, bounds.end));
+    }
   }
   if (sp.status === "pending" || sp.status === "confirmed" || sp.status === "ignored") {
     conds.push(eq(transactions.status, sp.status));
@@ -70,16 +78,6 @@ export default async function TransacoesPage({
   if (sp.account) {
     conds.push(eq(transactions.bankAccountId, sp.account));
   }
-
-  const monthsRow = await db
-    .select({
-      m: sql<string>`to_char(${transactions.occurredOn}, 'YYYY-MM')`,
-    })
-    .from(transactions)
-    .where(eq(transactions.householdId, dbUser.householdId))
-    .groupBy(sql`to_char(${transactions.occurredOn}, 'YYYY-MM')`)
-    .orderBy(sql`to_char(${transactions.occurredOn}, 'YYYY-MM') desc`);
-  const availableMonths = monthsRow.map((r) => r.m).filter(Boolean);
 
   const [allCategories, allAccounts, txs] = await Promise.all([
     db.query.categories.findMany({
@@ -110,12 +108,18 @@ export default async function TransacoesPage({
     .filter((t) => t.kind === "credit" && t.status !== "ignored")
     .reduce((s, t) => s + parseFloat(t.amount), 0);
 
-  const filterApplied = !!(sp.month || sp.status || sp.uncategorized || sp.account);
   const activeAccount = sp.account
     ? allAccounts.find((a) => a.id === sp.account)
     : null;
 
-  if (txs.length === 0 && availableMonths.length === 0) {
+  // Total transações no DB pra mostrar "X/Y" no header
+  const totalAll = await db
+    .select({ c: sql<number>`count(*)::int` })
+    .from(transactions)
+    .where(eq(transactions.householdId, dbUser.householdId))
+    .then((r) => r[0]?.c ?? 0);
+
+  if (totalAll === 0) {
     return (
       <ScreenShell
         userQ="Vamos ver as transações?"
@@ -158,6 +162,22 @@ export default async function TransacoesPage({
     bankAccountId: tx.bankAccountId,
   }));
 
+  // Preserva params na navegação
+  const preservedParams: Record<string, string | undefined> = {
+    status: sp.status,
+    uncategorized: sp.uncategorized,
+    account: sp.account,
+  };
+
+  function statusLink(status: string | null) {
+    const next = new URLSearchParams();
+    for (const [k, v] of Object.entries({ ...sp, status })) {
+      if (v) next.set(k, v as string);
+    }
+    if (!status) next.delete("status");
+    return `/financeiro/transacoes?${next.toString()}`;
+  }
+
   return (
     <ScreenShell
       userQ={
@@ -176,8 +196,33 @@ export default async function TransacoesPage({
       <SectionRow
         icon="bag"
         label={activeAccount ? activeAccount.name : "Transações"}
-        action={`${txs.length} ${filterApplied ? "filtradas" : "totais"}`}
+        action={`${txs.length} de ${totalAll}`}
       />
+
+      <MonthChips
+        basePath="/financeiro/transacoes"
+        currentMonth={showAll ? currentMonth : selectedMonth}
+        extraParams={preservedParams}
+      />
+
+      {/* Botão "todos" */}
+      <div style={{ padding: "0 20px 8px", display: "flex", gap: 6 }}>
+        <Link
+          href={`/financeiro/transacoes?${new URLSearchParams({ ...preservedParams, month: "all" } as Record<string, string>).toString()}`}
+          style={{
+            padding: "4px 12px",
+            borderRadius: 999,
+            fontSize: 11,
+            fontWeight: 700,
+            background: showAll ? "var(--accent)" : "var(--card)",
+            color: showAll ? "var(--accent-on)" : "var(--muted-d)",
+            textDecoration: "none",
+            border: showAll ? "none" : "1px solid var(--line-d)",
+          }}
+        >
+          Ano todo
+        </Link>
+      </div>
 
       <div style={{ padding: "0 20px" }}>
         <div className="ap-num" style={{ fontSize: 28, color: "var(--ink)" }}>
@@ -189,8 +234,34 @@ export default async function TransacoesPage({
         </div>
       </div>
 
-      <div style={{ padding: "12px 20px 0" }}>
-        <TransactionFilters availableMonths={availableMonths} />
+      {/* Pills de status */}
+      <div style={{ padding: "12px 20px 0", display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {[
+          { key: null, label: "Todas" },
+          { key: "pending", label: "Pendentes" },
+          { key: "confirmed", label: "Confirmadas" },
+          { key: "ignored", label: "Ignoradas" },
+        ].map((s) => {
+          const isActive = (sp.status ?? null) === s.key;
+          return (
+            <Link
+              key={s.label}
+              href={statusLink(s.key)}
+              style={{
+                padding: "4px 12px",
+                borderRadius: 999,
+                fontSize: 11,
+                fontWeight: 600,
+                background: isActive ? "var(--card)" : "transparent",
+                color: isActive ? "var(--ink)" : "var(--muted-d)",
+                textDecoration: "none",
+                border: "1px solid var(--line-d)",
+              }}
+            >
+              {s.label}
+            </Link>
+          );
+        })}
       </div>
 
       {/* Filtro de conta */}
@@ -199,9 +270,9 @@ export default async function TransacoesPage({
           <Link
             href="/financeiro/transacoes"
             style={{
-              padding: "5px 12px",
+              padding: "4px 12px",
               borderRadius: 999,
-              fontSize: 11.5,
+              fontSize: 11,
               fontWeight: 600,
               background: !sp.account ? "var(--card)" : "transparent",
               color: !sp.account ? "var(--ink)" : "var(--muted-d)",
@@ -213,15 +284,18 @@ export default async function TransacoesPage({
           </Link>
           {allAccounts.map((a) => {
             const isActive = sp.account === a.id;
-            const params = new URLSearchParams({ ...sp, account: a.id });
+            const next = new URLSearchParams();
+            for (const [k, v] of Object.entries({ ...sp, account: a.id })) {
+              if (v) next.set(k, v as string);
+            }
             return (
               <Link
                 key={a.id}
-                href={`/financeiro/transacoes?${params.toString()}`}
+                href={`/financeiro/transacoes?${next.toString()}`}
                 style={{
-                  padding: "5px 12px",
+                  padding: "4px 12px",
                   borderRadius: 999,
-                  fontSize: 11.5,
+                  fontSize: 11,
                   fontWeight: 600,
                   background: isActive ? "var(--card)" : "transparent",
                   color: isActive ? "var(--ink)" : "var(--muted-d)",
