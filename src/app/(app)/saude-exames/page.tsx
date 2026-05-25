@@ -89,7 +89,13 @@ export default async function ExamesPage() {
               </FormField>
               <div style={{ display: "grid", gap: 8, gridTemplateColumns: "1fr 1fr" }}>
                 <FormField label="Data *">
-                  <input type="date" name="examDate" required style={fieldStyle} />
+                  <input
+                    type="date"
+                    name="examDate"
+                    required
+                    defaultValue={new Date().toISOString().slice(0, 10)}
+                    style={fieldStyle}
+                  />
                 </FormField>
                 <FormField label="Médico / Lab">
                   <input

@@ -99,25 +99,24 @@ export default async function AniversariosPage() {
             <FormField label="Nome *">
               <input name="name" required placeholder="Ex: Vó Inês" style={fieldStyle} />
             </FormField>
-            <div style={{ display: "grid", gap: 8, gridTemplateColumns: "1fr 1fr" }}>
-              <FormField label="Dia/mês *" hint="MM-DD (ex: 11-08 = 11 de agosto)">
-                <input
-                  name="monthDay"
-                  required
-                  pattern="\d{2}-\d{2}"
-                  placeholder="MM-DD"
-                  style={fieldStyle}
-                />
-              </FormField>
-              <FormField label="Ano de nasc." hint="opcional · pra calcular idade">
-                <input
-                  type="number"
-                  name="birthYear"
-                  placeholder="1948"
-                  style={fieldStyle}
-                />
-              </FormField>
-            </div>
+            <FormField label="Data de nascimento *" hint="se não souber o ano exato, escolha qualquer ano — só extraímos o mês e dia">
+              <input
+                type="date"
+                name="monthDay"
+                required
+                style={fieldStyle}
+              />
+            </FormField>
+            <FormField label="Ano de nascimento (opcional)" hint="preencha aqui se quiser que a gente calcule a idade">
+              <input
+                type="number"
+                name="birthYear"
+                placeholder="1948"
+                min="1900"
+                max={new Date().getFullYear()}
+                style={fieldStyle}
+              />
+            </FormField>
             <FormField label="Relação">
               <input
                 name="relation"

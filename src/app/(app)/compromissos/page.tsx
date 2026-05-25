@@ -11,6 +11,8 @@ import { auth } from "@/auth";
 import { db } from "@/db";
 import { compromissos, users } from "@/db/schema";
 
+const today = new Date().toISOString().slice(0, 10);
+
 function formatDate(d: string) {
   const [y, m, day] = d.split("-").map(Number);
   return new Date(y, m - 1, day).toLocaleDateString("pt-BR", {
@@ -89,7 +91,7 @@ export default async function CompromissosPage() {
             </FormField>
             <div style={{ display: "grid", gap: 8, gridTemplateColumns: "1fr 1fr" }}>
               <FormField label="Data *">
-                <input type="date" name="occurredOn" required style={fieldStyle} />
+                <input type="date" name="occurredOn" required defaultValue={today} style={fieldStyle} />
               </FormField>
               <FormField label="Hora">
                 <input type="time" name="time" placeholder="HH:MM" style={fieldStyle} />

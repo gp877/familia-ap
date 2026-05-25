@@ -110,8 +110,14 @@ export default async function FaturasPage() {
                   ))}
                 </select>
               </FormField>
-              <FormField label="Mês de referência *" hint="YYYY-MM (ex: 2026-05)">
-                <input name="referenceMonth" required pattern="\d{4}-\d{2}" placeholder="2026-05" style={fieldStyle} />
+              <FormField label="Mês de referência *">
+                <input
+                  type="month"
+                  name="referenceMonth"
+                  required
+                  defaultValue={`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`}
+                  style={fieldStyle}
+                />
               </FormField>
               <div style={{ display: "grid", gap: 8, gridTemplateColumns: "1fr 1fr" }}>
                 <FormField label="Vencimento">
