@@ -227,11 +227,12 @@ export function DeleteBtn({
   confirmMsg = "Excluir?",
 }: {
   action: () => Promise<void> | void;
-  confirmMsg?: string;
+  /** Passe `null` pra deletar sem prompt de confirmação. */
+  confirmMsg?: string | null;
 }) {
   const [isPending, startTransition] = useTransition();
   function handleClick() {
-    if (!confirm(confirmMsg)) return;
+    if (confirmMsg !== null && !confirm(confirmMsg)) return;
     startTransition(async () => {
       await action();
     });

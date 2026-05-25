@@ -83,3 +83,29 @@ export async function deleteFimDeSemana(id: string) {
   await db.delete(finsDeSemana).where(eq(finsDeSemana.id, id));
   revalidatePath("/finais-de-semana");
 }
+
+/**
+ * Atualiza só as notes (observação) de um dia. Não cria registro novo;
+ * se o dia não tem título ainda, a chamada vira no-op.
+ */
+export async function updateFimDeSemanaNotes(formData: FormData) {
+  const { householdId } = await requireUserAndHousehold();
+  const weekendDate = formData.get("weekendDate") as string;
+  if (!weekendDate) return;
+
+  const notes = ((formData.get("notes") as string) || "").trim() || null;
+
+  const existing = await db.query.finsDeSemana.findFirst({
+    where: and(
+      eq(finsDeSemana.householdId, householdId),
+      eq(finsDeSemana.weekendDate, weekendDate)
+    ),
+  });
+  if (!existing) return; // sem título, não cria só notes
+
+  await db
+    .update(finsDeSemana)
+    .set({ notes })
+    .where(eq(finsDeSemana.id, existing.id));
+  revalidatePath("/finais-de-semana");
+}

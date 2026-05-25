@@ -1,25 +1,34 @@
 import Link from "next/link";
 
+type Option = {
+  /** Valor do query param. Use `null` pro modo default (sem param). */
+  key: string | null;
+  label: string;
+};
+
 /**
- * Pill toggle entre modo Resumo (visão padrão) e Lista (cronológica).
- * - basePath: rota do módulo (ex: "/finais-de-semana")
- * - current: valor atual de `view` query param ("list" | undefined)
- * - extraParams: outros params a preservar (ex: month)
+ * Pill toggle entre 2+ visualizações. Default: Resumo / Lista.
+ * Para mais opções, passe `options` customizado.
  */
 export function ViewToggle({
   basePath,
   current,
   extraParams = {},
+  options,
   resumoLabel = "Resumo",
   listaLabel = "Lista",
 }: {
   basePath: string;
   current: string | undefined;
   extraParams?: Record<string, string | undefined>;
+  options?: Option[];
   resumoLabel?: string;
   listaLabel?: string;
 }) {
-  const isList = current === "list";
+  const opts: Option[] = options ?? [
+    { key: null, label: resumoLabel },
+    { key: "list", label: listaLabel },
+  ];
 
   function urlFor(view: string | null) {
     const sp = new URLSearchParams();
@@ -41,34 +50,26 @@ export function ViewToggle({
         background: "var(--card2)",
       }}
     >
-      <Link
-        href={urlFor(null)}
-        style={{
-          padding: "4px 14px",
-          borderRadius: 999,
-          fontSize: 11,
-          fontWeight: 700,
-          background: !isList ? "var(--card)" : "transparent",
-          color: !isList ? "var(--ink)" : "var(--muted-d)",
-          textDecoration: "none",
-        }}
-      >
-        {resumoLabel}
-      </Link>
-      <Link
-        href={urlFor("list")}
-        style={{
-          padding: "4px 14px",
-          borderRadius: 999,
-          fontSize: 11,
-          fontWeight: 700,
-          background: isList ? "var(--card)" : "transparent",
-          color: isList ? "var(--ink)" : "var(--muted-d)",
-          textDecoration: "none",
-        }}
-      >
-        {listaLabel}
-      </Link>
+      {opts.map((o) => {
+        const isActive = (current ?? null) === o.key || (o.key === null && !current);
+        return (
+          <Link
+            key={String(o.key)}
+            href={urlFor(o.key)}
+            style={{
+              padding: "4px 12px",
+              borderRadius: 999,
+              fontSize: 11,
+              fontWeight: 700,
+              background: isActive ? "var(--card)" : "transparent",
+              color: isActive ? "var(--ink)" : "var(--muted-d)",
+              textDecoration: "none",
+            }}
+          >
+            {o.label}
+          </Link>
+        );
+      })}
     </div>
   );
 }
