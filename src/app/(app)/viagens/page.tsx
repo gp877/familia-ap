@@ -4,6 +4,7 @@ import Link from "next/link";
 import { BigNumber, Card, Pill, SectionRow } from "@/components/ap/atoms";
 import { FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
 import { ScreenShell } from "@/components/ap/screen-shell";
+import { ViewToggle } from "@/components/ap/view-toggle";
 import { createViagem } from "@/app/actions/viagens";
 import { auth } from "@/auth";
 import { db } from "@/db";
@@ -27,7 +28,16 @@ function daysFromToday(d: string | null): number | null {
   return Math.round((target.getTime() - today.getTime()) / 86_400_000);
 }
 
-export default async function ViagensPage() {
+type SearchParams = Promise<{ view?: string }>;
+
+export default async function ViagensPage({
+  searchParams,
+}: {
+  searchParams: SearchParams;
+}) {
+  const sp = await searchParams;
+  const isList = sp.view === "list";
+
   const session = await auth();
   if (!session?.user?.id) return null;
 
@@ -77,8 +87,10 @@ export default async function ViagensPage() {
     >
       <SectionRow
         icon="plane"
-        label={`Viagens de ${currentYear}`}
-        action={`${yearPast.length + planned.length} no total`}
+        label={isList ? "Todas as viagens" : `Viagens de ${currentYear}`}
+        action={
+          <ViewToggle basePath="/viagens" current={sp.view} />
+        }
       />
 
       <BigNumber
@@ -183,25 +195,102 @@ export default async function ViagensPage() {
         </InlineForm>
       </div>
 
-      {planned.length > 0 && (
+      {isList ? (
+        <div style={{ padding: "0 20px" }}>
+          {all.length === 0 ? (
+            <div style={{ fontSize: 13, color: "var(--muted)", textAlign: "center", padding: "20px 0" }}>
+              Nenhuma viagem cadastrada.
+            </div>
+          ) : (
+            all.map((v, i) => (
+              <Link
+                key={v.id}
+                href={`/viagens/${v.id}`}
+                style={{ textDecoration: "none", color: "inherit" }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 12,
+                    alignItems: "center",
+                    padding: "12px 0",
+                    borderBottom: i < all.length - 1 ? "0.5px solid var(--line-d)" : "none",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: 38,
+                      height: 38,
+                      borderRadius: 10,
+                      background:
+                        v.status === "past" ? "var(--card2)" : "var(--accent)",
+                      color:
+                        v.status === "past" ? "var(--ink)" : "var(--accent-on)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: 11,
+                      fontWeight: 800,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {v.destinationCountry?.toUpperCase() ?? "··"}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 700 }}>{v.title}</div>
+                    <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                      {[
+                        formatDateBr(v.startDate),
+                        v.nights ? `${v.nights}n` : null,
+                        v.destinationCity,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ") || "—"}
+                    </div>
+                  </div>
+                  <Pill
+                    tone={
+                      v.status === "past"
+                        ? "muted"
+                        : v.status === "in_progress"
+                          ? "accent"
+                          : "ok"
+                    }
+                  >
+                    {v.status === "past"
+                      ? "feita"
+                      : v.status === "in_progress"
+                        ? "em curso"
+                        : "planejada"}
+                  </Pill>
+                </div>
+              </Link>
+            ))
+          )}
+        </div>
+      ) : (
         <>
-          <SectionRow icon="plane" label="Planejadas" action={`${planned.length}`} />
-          <div style={{ padding: "0 20px", display: "flex", flexDirection: "column", gap: 10 }}>
-            {planned.map((v) => (
-              <TripCard key={v.id} v={v} accent />
-            ))}
-          </div>
-        </>
-      )}
+          {planned.length > 0 && (
+            <>
+              <SectionRow icon="plane" label="Planejadas" action={`${planned.length}`} />
+              <div style={{ padding: "0 20px", display: "flex", flexDirection: "column", gap: 10 }}>
+                {planned.map((v) => (
+                  <TripCard key={v.id} v={v} accent />
+                ))}
+              </div>
+            </>
+          )}
 
-      {past.length > 0 && (
-        <>
-          <SectionRow icon="cal" label="Já realizadas" action={`${past.length}`} />
-          <div style={{ padding: "0 20px", display: "flex", flexDirection: "column", gap: 10 }}>
-            {past.map((v) => (
-              <TripCard key={v.id} v={v} />
-            ))}
-          </div>
+          {past.length > 0 && (
+            <>
+              <SectionRow icon="cal" label="Já realizadas" action={`${past.length}`} />
+              <div style={{ padding: "0 20px", display: "flex", flexDirection: "column", gap: 10 }}>
+                {past.map((v) => (
+                  <TripCard key={v.id} v={v} />
+                ))}
+              </div>
+            </>
+          )}
         </>
       )}
     </ScreenShell>

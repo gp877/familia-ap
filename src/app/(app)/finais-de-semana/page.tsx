@@ -1,10 +1,11 @@
-import { asc, eq, gte, lte } from "drizzle-orm";
+import { asc, desc, eq, gte, lte } from "drizzle-orm";
 
 import { BigNumber, SectionRow } from "@/components/ap/atoms";
 import { DeleteBtn } from "@/components/ap/inline-form";
 import { MonthChips } from "@/components/ap/month-chips";
 import { QuickAddInput } from "@/components/ap/quick-add-input";
 import { ScreenShell } from "@/components/ap/screen-shell";
+import { ViewToggle } from "@/components/ap/view-toggle";
 import {
   createFimDeSemana,
   deleteFimDeSemana,
@@ -23,7 +24,7 @@ function formatDateBr(dStr: string) {
   });
 }
 
-type SearchParams = Promise<{ month?: string }>;
+type SearchParams = Promise<{ month?: string; view?: string }>;
 
 export default async function FinaisDeSemanaPage({
   searchParams,
@@ -38,6 +39,8 @@ export default async function FinaisDeSemanaPage({
     where: eq(users.id, session.user.id),
   });
   if (!dbUser?.householdId) return null;
+
+  const isList = sp.view === "list";
 
   const now = new Date();
   const monthStr = sp.month ?? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -59,15 +62,24 @@ export default async function FinaisDeSemanaPage({
 
   const monthStartStr = monthStart.toISOString().slice(0, 10);
   const monthEndStr = monthEnd.toISOString().slice(0, 10);
-  const entries = await db.query.finsDeSemana.findMany({
-    where: (f, { and: a }) =>
-      a(
-        eq(f.householdId, dbUser.householdId!),
-        gte(f.weekendDate, monthStartStr),
-        lte(f.weekendDate, monthEndStr)
-      ),
-    orderBy: [asc(finsDeSemana.weekendDate), asc(finsDeSemana.createdAt)],
-  });
+
+  // Em modo lista: pega TODAS as entradas, ordenadas por data desc (mais recentes primeiro).
+  // Em modo resumo: só as do mês selecionado.
+  const entries = isList
+    ? await db.query.finsDeSemana.findMany({
+        where: eq(finsDeSemana.householdId, dbUser.householdId),
+        orderBy: [desc(finsDeSemana.weekendDate), desc(finsDeSemana.createdAt)],
+        limit: 200,
+      })
+    : await db.query.finsDeSemana.findMany({
+        where: (f, { and: a }) =>
+          a(
+            eq(f.householdId, dbUser.householdId!),
+            gte(f.weekendDate, monthStartStr),
+            lte(f.weekendDate, monthEndStr)
+          ),
+        orderBy: [asc(finsDeSemana.weekendDate), asc(finsDeSemana.createdAt)],
+      });
 
   const entriesByDate = new Map<string, typeof entries>();
   for (const e of entries) {
@@ -119,46 +131,112 @@ export default async function FinaisDeSemanaPage({
         )
       }
     >
-      <SectionRow icon="heart" label="Finais de semana" />
+      <SectionRow
+        icon="heart"
+        label="Finais de semana"
+        action={
+          <ViewToggle
+            basePath="/finais-de-semana"
+            current={sp.view}
+            extraParams={{ month: sp.month }}
+          />
+        }
+      />
 
-      <MonthChips basePath="/finais-de-semana" currentMonth={monthStr} />
+      {!isList && (
+        <MonthChips basePath="/finais-de-semana" currentMonth={monthStr} />
+      )}
 
       <BigNumber
         value={`${entries.length}`}
-        sub={`${entries.length === 1 ? "programação" : "programações"} em ${monthLabel}`}
+        sub={
+          isList
+            ? `${entries.length === 1 ? "programação" : "programações"} no histórico`
+            : `${entries.length === 1 ? "programação" : "programações"} em ${monthLabel}`
+        }
       />
 
-      <div
-        style={{
-          padding: "14px 20px 0",
-          display: "flex",
-          flexDirection: "column",
-          gap: 12,
-        }}
-      >
-        {weekends.map((w, idx) => {
-          const days = [w.friday, w.saturday, w.sunday].filter(Boolean) as {
-            date: string;
-            dow: number;
-          }[];
-          if (days.length === 0) return null;
-          return (
-            <div
-              key={idx}
-              style={{
-                borderRadius: 16,
-                background: "var(--surf)",
-                padding: 12,
-              }}
-            >
-              {days.map((d) => {
-                const items = entriesByDate.get(d.date) ?? [];
-                return <DayRow key={d.date} day={d} items={items} />;
-              })}
+      {isList ? (
+        <div style={{ padding: "14px 20px 0" }}>
+          {entries.length === 0 ? (
+            <div style={{ fontSize: 13, color: "var(--muted)", textAlign: "center", padding: "20px 0" }}>
+              Nenhuma programação ainda.
             </div>
-          );
-        })}
-      </div>
+          ) : (
+            entries.map((e, i) => (
+              <div
+                key={e.id}
+                style={{
+                  display: "flex",
+                  gap: 12,
+                  alignItems: "center",
+                  padding: "10px 0",
+                  borderBottom:
+                    i < entries.length - 1 ? "0.5px solid var(--line-d)" : "none",
+                }}
+              >
+                <div
+                  style={{
+                    width: 50,
+                    textAlign: "right",
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase",
+                    color: "var(--muted)",
+                  }}
+                >
+                  {formatDateBr(e.weekendDate)}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 600 }}>{e.title}</div>
+                  {e.notes && (
+                    <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 1 }}>
+                      {e.notes}
+                    </div>
+                  )}
+                </div>
+                <DeleteBtn
+                  action={deleteFimDeSemana.bind(null, e.id)}
+                  confirmMsg="Excluir?"
+                />
+              </div>
+            ))
+          )}
+        </div>
+      ) : (
+        <div
+          style={{
+            padding: "14px 20px 0",
+            display: "flex",
+            flexDirection: "column",
+            gap: 12,
+          }}
+        >
+          {weekends.map((w, idx) => {
+            const days = [w.friday, w.saturday, w.sunday].filter(Boolean) as {
+              date: string;
+              dow: number;
+            }[];
+            if (days.length === 0) return null;
+            return (
+              <div
+                key={idx}
+                style={{
+                  borderRadius: 16,
+                  background: "var(--surf)",
+                  padding: 12,
+                }}
+              >
+                {days.map((d) => {
+                  const items = entriesByDate.get(d.date) ?? [];
+                  return <DayRow key={d.date} day={d} items={items} />;
+                })}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </ScreenShell>
   );
 }

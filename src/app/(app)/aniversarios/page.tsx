@@ -1,8 +1,9 @@
-import { asc, eq } from "drizzle-orm";
+import { asc, desc, eq } from "drizzle-orm";
 
 import { BigNumber, SectionRow } from "@/components/ap/atoms";
 import { DeleteBtn, FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
 import { ScreenShell } from "@/components/ap/screen-shell";
+import { ViewToggle } from "@/components/ap/view-toggle";
 import {
   addPresente,
   createAniversario,
@@ -41,7 +42,16 @@ function computeAge(birthYear: number | null, monthDay: string): number | null {
   return age + 1;
 }
 
-export default async function AniversariosPage() {
+type SearchParams = Promise<{ view?: string }>;
+
+export default async function AniversariosPage({
+  searchParams,
+}: {
+  searchParams: SearchParams;
+}) {
+  const sp = await searchParams;
+  const isList = sp.view === "list";
+
   const session = await auth();
   if (!session?.user?.id) return null;
 
@@ -57,12 +67,16 @@ export default async function AniversariosPage() {
         orderBy: (p, { desc: d }) => [d(p.year)],
       },
     },
-    orderBy: [asc(aniversarios.monthDay)],
+    orderBy: isList
+      ? [desc(aniversarios.createdAt)]
+      : [asc(aniversarios.monthDay)],
   });
 
-  // Ordena por proximidade (dias até)
-  const sorted = [...all]
-    .map((a) => ({ ...a, days: daysUntil(a.monthDay), nextAge: computeAge(a.birthYear, a.monthDay) }))
+  // Em modo resumo: ordena por proximidade (dias até).
+  // Em modo lista: mantém ordem decrescente de createdAt (vinda do query).
+  const sortedBase = [...all]
+    .map((a) => ({ ...a, days: daysUntil(a.monthDay), nextAge: computeAge(a.birthYear, a.monthDay) }));
+  const sorted = isList ? sortedBase : sortedBase
     .sort((a, b) => a.days - b.days);
 
   const next = sorted[0];
@@ -81,7 +95,13 @@ export default async function AniversariosPage() {
         )
       }
     >
-      <SectionRow icon="cake" label="Aniversários da família" action={`${sorted.length} cadastrados`} />
+      <SectionRow
+        icon="cake"
+        label="Aniversários da família"
+        action={
+          <ViewToggle basePath="/aniversarios" current={sp.view} />
+        }
+      />
 
       {next ? (
         <BigNumber

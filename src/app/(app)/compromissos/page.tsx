@@ -1,10 +1,11 @@
-import { asc, eq, gte, lte } from "drizzle-orm";
+import { asc, desc, eq, gte, lte } from "drizzle-orm";
 import Link from "next/link";
 
 import { BigNumber, Card, SectionRow } from "@/components/ap/atoms";
 import { DeleteBtn, FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
 import { QuickAddInput } from "@/components/ap/quick-add-input";
 import { ScreenShell } from "@/components/ap/screen-shell";
+import { ViewToggle } from "@/components/ap/view-toggle";
 import {
   createCompromisso,
   deleteCompromisso,
@@ -43,7 +44,7 @@ function dateStrFromOffset(days: number) {
   return d.toISOString().slice(0, 10);
 }
 
-type SearchParams = Promise<{ range?: string }>;
+type SearchParams = Promise<{ range?: string; view?: string }>;
 
 export default async function CompromissosPage({
   searchParams,
@@ -52,6 +53,7 @@ export default async function CompromissosPage({
 }) {
   const sp = await searchParams;
   const range = sp.range ?? "month"; // today | week | month | all
+  const isList = sp.view === "list";
 
   const session = await auth();
   if (!session?.user?.id) return null;
@@ -62,7 +64,15 @@ export default async function CompromissosPage({
 
   const t = todayStr();
   let upcoming: typeof compromissos.$inferSelect[];
-  if (range === "today") {
+
+  if (isList) {
+    // Modo lista: todos os compromissos, mais recentes primeiro (passado + futuro)
+    upcoming = await db.query.compromissos.findMany({
+      where: eq(compromissos.householdId, dbUser.householdId),
+      orderBy: [desc(compromissos.occurredOn), desc(compromissos.time)],
+      limit: 200,
+    });
+  } else if (range === "today") {
     upcoming = await db.query.compromissos.findMany({
       where: (c, { and: a }) =>
         a(eq(c.householdId, dbUser.householdId!), eq(c.occurredOn, t)),
@@ -125,39 +135,55 @@ export default async function CompromissosPage({
         )
       }
     >
-      <SectionRow icon="cal" label="Próximos compromissos" action={`${upcoming.length} · ${rangeLabel[range]}`} />
+      <SectionRow
+        icon="cal"
+        label="Compromissos"
+        action={
+          <ViewToggle
+            basePath="/compromissos"
+            current={sp.view}
+            extraParams={{ range: sp.range }}
+          />
+        }
+      />
 
-      {/* Chips de filtro */}
-      <div style={{ padding: "0 20px 8px", display: "flex", gap: 6, flexWrap: "wrap" }}>
-        {[
-          { key: "today", label: "Hoje" },
-          { key: "week", label: "7 dias" },
-          { key: "month", label: "30 dias" },
-          { key: "all", label: "Tudo" },
-        ].map((r) => {
-          const isActive = range === r.key;
-          return (
-            <Link
-              key={r.key}
-              href={`/compromissos?range=${r.key}`}
-              style={{
-                padding: "4px 12px",
-                borderRadius: 999,
-                fontSize: 11,
-                fontWeight: 700,
-                background: isActive ? "var(--accent)" : "var(--card)",
-                color: isActive ? "var(--accent-on)" : "var(--muted-d)",
-                textDecoration: "none",
-                border: isActive ? "none" : "1px solid var(--line-d)",
-              }}
-            >
-              {r.label}
-            </Link>
-          );
-        })}
-      </div>
+      {!isList && (
+        <div style={{ padding: "0 20px 8px", display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {[
+            { key: "today", label: "Hoje" },
+            { key: "week", label: "7 dias" },
+            { key: "month", label: "30 dias" },
+            { key: "all", label: "Tudo" },
+          ].map((r) => {
+            const isActive = range === r.key;
+            return (
+              <Link
+                key={r.key}
+                href={`/compromissos?range=${r.key}`}
+                style={{
+                  padding: "4px 12px",
+                  borderRadius: 999,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  background: isActive ? "var(--accent)" : "var(--card)",
+                  color: isActive ? "var(--accent-on)" : "var(--muted-d)",
+                  textDecoration: "none",
+                  border: isActive ? "none" : "1px solid var(--line-d)",
+                }}
+              >
+                {r.label}
+              </Link>
+            );
+          })}
+        </div>
+      )}
 
-      {next ? (
+      {isList ? (
+        <BigNumber
+          value={String(upcoming.length)}
+          sub={`compromissos no histórico`}
+        />
+      ) : next ? (
         <BigNumber
           value={next.title}
           sub={`${formatDate(next.occurredOn)}${next.time ? ` · ${next.time}` : ""}${next.who ? ` · ${next.who}` : ""}`}
