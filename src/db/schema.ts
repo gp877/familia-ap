@@ -926,9 +926,55 @@ export const exames = pgTable(
   (e) => [index("exame_household_date_idx").on(e.householdId, e.examDate)]
 );
 
-export const exameRelations = relations(exames, ({ one }) => ({
+export const exameRelations = relations(exames, ({ one, many }) => ({
   household: one(households, {
     fields: [exames.householdId],
+    references: [households.id],
+  }),
+  resultados: many(exameResultados),
+}));
+
+// ============================================================
+// Saúde · Exame Resultados (markers individuais: glicose, ldl, etc)
+// ============================================================
+export const flagEnum = pgEnum("exame_flag", ["low", "normal", "high", "unknown"]);
+
+export const exameResultados = pgTable(
+  "exame_resultado",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    exameId: uuid("exame_id")
+      .notNull()
+      .references(() => exames.id, { onDelete: "cascade" }),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    who: text("who").notNull(), // copiado de exames.who pra facilitar query
+    examDate: date("exam_date").notNull(), // copiado pra facilitar query/sort
+    marker: text("marker").notNull(), // "glicose", "ldl", "hemoglobina", etc (normalizado)
+    markerLabel: text("marker_label").notNull(), // texto bonito original ("Glicose", "LDL Colesterol")
+    value: numeric("value", { precision: 12, scale: 3 }), // valor numérico (null se qualitativo)
+    valueText: text("value_text"), // resultado textual ("Negativo", "Positivo", quando não numérico)
+    unit: text("unit"), // "mg/dL", "g/dL", "%"
+    refMin: numeric("ref_min", { precision: 12, scale: 3 }),
+    refMax: numeric("ref_max", { precision: 12, scale: 3 }),
+    refText: text("ref_text"), // referência textual ("até 200", "menor que 100")
+    flag: flagEnum("flag").notNull().default("normal"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (r) => [
+    index("exame_resultado_household_idx").on(r.householdId, r.who, r.marker, r.examDate),
+    index("exame_resultado_exame_idx").on(r.exameId),
+  ]
+);
+
+export const exameResultadoRelations = relations(exameResultados, ({ one }) => ({
+  exame: one(exames, {
+    fields: [exameResultados.exameId],
+    references: [exames.id],
+  }),
+  household: one(households, {
+    fields: [exameResultados.householdId],
     references: [households.id],
   }),
 }));

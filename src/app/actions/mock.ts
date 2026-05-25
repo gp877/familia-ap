@@ -10,6 +10,7 @@ import {
   categories,
   categoryRules,
   compromissos,
+  exameResultados,
   exames,
   finsDeSemana,
   invoices,
@@ -705,44 +706,126 @@ export async function seedDemoData() {
     ]);
   }
 
-  // ── SAÚDE · EXAMES ─────────────────────────────────────────
+  // ── SAÚDE · EXAMES + RESULTADOS estruturados ───────────────
   const existingExames = await db.query.exames.findMany({
     where: (e, { eq, like, and }) =>
       and(eq(e.householdId, householdId), like(e.name, "%(demo)%")),
     limit: 1,
   });
   if (existingExames.length === 0) {
-    await db.insert(exames).values([
-      {
-        householdId,
-        createdById: userId,
-        who: "Augusto",
-        name: "Check-up cardio (demo)",
-        examDate: dateAgo(30),
-        doctor: "Dr. Salles",
-        status: "ok",
-        result: "CK e CKMB normais",
-      },
-      {
-        householdId,
-        createdById: userId,
-        who: "Augusto",
-        name: "Colesterol total (demo)",
-        examDate: dateAgo(60),
-        doctor: "Lab Sabin",
-        status: "atencao",
-        result: "LDL no limite alto · 145mg/dL",
-      },
-      {
-        householdId,
-        createdById: userId,
-        who: "Marília",
-        name: "Tireoide TSH (demo)",
-        examDate: dateAgo(45),
-        doctor: "Lab Sabin",
-        status: "ok",
-        result: "2,1 mUI/L",
-      },
+    // Cria 3 painéis lipídicos do Augusto em datas diferentes pra mostrar evolução
+    type MarkerInput = {
+      marker: string;
+      markerLabel: string;
+      value: number;
+      unit: string;
+      refMin?: number | null;
+      refMax?: number | null;
+    };
+
+    function flagOf(v: number, min: number | null | undefined, max: number | null | undefined): "low" | "normal" | "high" {
+      if (max !== null && max !== undefined && v > max) return "high";
+      if (min !== null && min !== undefined && v < min) return "low";
+      return "normal";
+    }
+
+    async function insertExameComMarkers(
+      who: string,
+      name: string,
+      examDate: string,
+      doctor: string | null,
+      markers: MarkerInput[]
+    ) {
+      const hasAnormal = markers.some((m) => {
+        const f = flagOf(m.value, m.refMin, m.refMax);
+        return f === "high" || f === "low";
+      });
+      const [e] = await db
+        .insert(exames)
+        .values({
+          householdId,
+          createdById: userId,
+          who,
+          name,
+          examDate,
+          doctor,
+          status: hasAnormal ? "atencao" : "ok",
+        })
+        .returning();
+      if (markers.length > 0) {
+        await db.insert(exameResultados).values(
+          markers.map((m) => ({
+            exameId: e.id,
+            householdId,
+            who,
+            examDate,
+            marker: m.marker,
+            markerLabel: m.markerLabel,
+            value: String(m.value),
+            valueText: null,
+            unit: m.unit,
+            refMin: m.refMin != null ? String(m.refMin) : null,
+            refMax: m.refMax != null ? String(m.refMax) : null,
+            refText: null,
+            flag: flagOf(m.value, m.refMin, m.refMax),
+          }))
+        );
+      }
+    }
+
+    // Augusto — perfil lipídico evoluindo (3 medições)
+    await insertExameComMarkers("Augusto", "Perfil lipídico (demo)", dateAgo(180), "Lab Sabin", [
+      { marker: "colesterol_total", markerLabel: "Colesterol total", value: 215, unit: "mg/dL", refMin: 0, refMax: 200 },
+      { marker: "ldl_colesterol", markerLabel: "LDL", value: 145, unit: "mg/dL", refMin: 0, refMax: 130 },
+      { marker: "hdl_colesterol", markerLabel: "HDL", value: 42, unit: "mg/dL", refMin: 40, refMax: null },
+      { marker: "triglicerides", markerLabel: "Triglicérides", value: 180, unit: "mg/dL", refMin: 0, refMax: 150 },
+      { marker: "glicose", markerLabel: "Glicose", value: 96, unit: "mg/dL", refMin: 70, refMax: 99 },
+      { marker: "hemoglobina_glicada", markerLabel: "Hb Glicada (A1c)", value: 5.6, unit: "%", refMin: 0, refMax: 5.6 },
+    ]);
+    await insertExameComMarkers("Augusto", "Perfil lipídico (demo)", dateAgo(90), "Lab Sabin", [
+      { marker: "colesterol_total", markerLabel: "Colesterol total", value: 198, unit: "mg/dL", refMin: 0, refMax: 200 },
+      { marker: "ldl_colesterol", markerLabel: "LDL", value: 128, unit: "mg/dL", refMin: 0, refMax: 130 },
+      { marker: "hdl_colesterol", markerLabel: "HDL", value: 48, unit: "mg/dL", refMin: 40, refMax: null },
+      { marker: "triglicerides", markerLabel: "Triglicérides", value: 138, unit: "mg/dL", refMin: 0, refMax: 150 },
+      { marker: "glicose", markerLabel: "Glicose", value: 92, unit: "mg/dL", refMin: 70, refMax: 99 },
+      { marker: "hemoglobina_glicada", markerLabel: "Hb Glicada (A1c)", value: 5.4, unit: "%", refMin: 0, refMax: 5.6 },
+    ]);
+    await insertExameComMarkers("Augusto", "Sangue completo (demo)", dateAgo(15), "Lab Sabin", [
+      { marker: "colesterol_total", markerLabel: "Colesterol total", value: 185, unit: "mg/dL", refMin: 0, refMax: 200 },
+      { marker: "ldl_colesterol", markerLabel: "LDL", value: 118, unit: "mg/dL", refMin: 0, refMax: 130 },
+      { marker: "hdl_colesterol", markerLabel: "HDL", value: 52, unit: "mg/dL", refMin: 40, refMax: null },
+      { marker: "triglicerides", markerLabel: "Triglicérides", value: 120, unit: "mg/dL", refMin: 0, refMax: 150 },
+      { marker: "glicose", markerLabel: "Glicose", value: 89, unit: "mg/dL", refMin: 70, refMax: 99 },
+      { marker: "hemoglobina_glicada", markerLabel: "Hb Glicada (A1c)", value: 5.2, unit: "%", refMin: 0, refMax: 5.6 },
+      { marker: "hemoglobina", markerLabel: "Hemoglobina", value: 15.2, unit: "g/dL", refMin: 13, refMax: 17 },
+      { marker: "leucocitos", markerLabel: "Leucócitos", value: 6800, unit: "/mm³", refMin: 4000, refMax: 11000 },
+      { marker: "plaquetas", markerLabel: "Plaquetas", value: 245000, unit: "/mm³", refMin: 150000, refMax: 450000 },
+      { marker: "creatinina", markerLabel: "Creatinina", value: 1.0, unit: "mg/dL", refMin: 0.7, refMax: 1.3 },
+      { marker: "tsh", markerLabel: "TSH", value: 1.8, unit: "mUI/L", refMin: 0.4, refMax: 4.5 },
+    ]);
+
+    // Marília — tireoide e ginecológico
+    await insertExameComMarkers("Marília", "Tireoide (demo)", dateAgo(120), "Lab Sabin", [
+      { marker: "tsh", markerLabel: "TSH", value: 2.1, unit: "mUI/L", refMin: 0.4, refMax: 4.5 },
+      { marker: "t4_livre", markerLabel: "T4 Livre", value: 1.2, unit: "ng/dL", refMin: 0.8, refMax: 1.8 },
+      { marker: "t3_livre", markerLabel: "T3 Livre", value: 3.1, unit: "pg/mL", refMin: 2.3, refMax: 4.2 },
+    ]);
+    await insertExameComMarkers("Marília", "Tireoide (demo)", dateAgo(30), "Lab Sabin", [
+      { marker: "tsh", markerLabel: "TSH", value: 4.8, unit: "mUI/L", refMin: 0.4, refMax: 4.5 },
+      { marker: "t4_livre", markerLabel: "T4 Livre", value: 0.9, unit: "ng/dL", refMin: 0.8, refMax: 1.8 },
+      { marker: "t3_livre", markerLabel: "T3 Livre", value: 2.6, unit: "pg/mL", refMin: 2.3, refMax: 4.2 },
+      { marker: "hemoglobina", markerLabel: "Hemoglobina", value: 12.4, unit: "g/dL", refMin: 12, refMax: 16 },
+      { marker: "vitamina_d", markerLabel: "Vitamina D", value: 22, unit: "ng/mL", refMin: 30, refMax: 100 },
+      { marker: "vitamina_b12", markerLabel: "Vitamina B12", value: 380, unit: "pg/mL", refMin: 200, refMax: 900 },
+      { marker: "ferritina", markerLabel: "Ferritina", value: 28, unit: "ng/mL", refMin: 15, refMax: 150 },
+    ]);
+
+    // Francisco — pediatra
+    await insertExameComMarkers("Francisco", "Check pediátrico (demo)", dateAgo(60), "Dra. Beatriz", [
+      { marker: "hemoglobina", markerLabel: "Hemoglobina", value: 12.8, unit: "g/dL", refMin: 11, refMax: 14 },
+      { marker: "leucocitos", markerLabel: "Leucócitos", value: 7200, unit: "/mm³", refMin: 4000, refMax: 11000 },
+      { marker: "glicose", markerLabel: "Glicose", value: 87, unit: "mg/dL", refMin: 70, refMax: 99 },
+      { marker: "vitamina_d", markerLabel: "Vitamina D", value: 38, unit: "ng/mL", refMin: 30, refMax: 100 },
     ]);
   }
 

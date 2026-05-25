@@ -36,6 +36,13 @@
       "when": 1779721151242,
       "tag": "0004_ancient_shotgun",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1779726724267,
+      "tag": "0005_flimsy_network",
+      "breakpoints": true
     }
   ]
 }
