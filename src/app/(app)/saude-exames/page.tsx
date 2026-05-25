@@ -67,8 +67,20 @@ export default async function ExamesPage() {
         <InlineForm buttonLabel="Cadastrar exame">
           <form action={createExame}>
               <div style={{ display: "grid", gap: 8, gridTemplateColumns: "1fr 1fr" }}>
-                <FormField label="Quem *" hint="Augusto, Marília…">
-                  <input name="who" required placeholder="Augusto" style={fieldStyle} />
+                <FormField label="Quem *">
+                  <input
+                    name="who"
+                    required
+                    autoFocus
+                    list="exame-who"
+                    placeholder="ex: Augusto"
+                    style={fieldStyle}
+                  />
+                  <datalist id="exame-who">
+                    <option value="Augusto" />
+                    <option value="Marília" />
+                    <option value="Francisco" />
+                  </datalist>
                 </FormField>
                 <FormField label="Status">
                   <select name="status" defaultValue="ok" style={fieldStyle}>

@@ -100,9 +100,23 @@ export default async function ContasPage() {
                 <FormField label="Instituição">
                   <input
                     name="institution"
-                    placeholder="UNICRED, Santander…"
+                    list="banco-options"
+                    placeholder="comece a digitar..."
                     style={fieldStyle}
                   />
+                  <datalist id="banco-options">
+                    <option value="UNICRED" />
+                    <option value="Sicredi" />
+                    <option value="Santander" />
+                    <option value="Nubank" />
+                    <option value="Itaú" />
+                    <option value="Bradesco" />
+                    <option value="Banco do Brasil" />
+                    <option value="Caixa" />
+                    <option value="Inter" />
+                    <option value="C6" />
+                    <option value="BTG Pactual" />
+                  </datalist>
                 </FormField>
                 <FormField label="Final" hint="4 dígitos">
                   <input

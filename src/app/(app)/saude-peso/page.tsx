@@ -88,7 +88,19 @@ export default async function PesoPage() {
           <form action={createPesagem}>
               <div style={{ display: "grid", gap: 8, gridTemplateColumns: "1fr 1fr" }}>
                 <FormField label="Quem *">
-                  <input name="who" required placeholder="Augusto" style={fieldStyle} />
+                  <input
+                    name="who"
+                    required
+                    autoFocus
+                    list="pesagem-who"
+                    placeholder="ex: Augusto"
+                    style={fieldStyle}
+                  />
+                  <datalist id="pesagem-who">
+                    <option value="Augusto" />
+                    <option value="Marília" />
+                    <option value="Francisco" />
+                  </datalist>
                 </FormField>
                 <FormField label="Data *">
                   <input
