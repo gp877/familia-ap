@@ -59,6 +59,7 @@ export async function createPesagem(formData: FormData) {
     weighedOn,
     weightKg: weight,
     bodyFatPct: ((formData.get("bodyFatPct") as string) || "").trim() || null,
+    heightCm: ((formData.get("heightCm") as string) || "").trim() || null,
     notes: ((formData.get("notes") as string) || "").trim() || null,
   });
 
@@ -76,7 +77,7 @@ export async function patchPesagem(formData: FormData) {
   if (!existing || existing.householdId !== householdId) return;
 
   const patch: Record<string, string | null> = {};
-  for (const key of ["weightKg", "bodyFatPct", "weighedOn", "notes"]) {
+  for (const key of ["weightKg", "bodyFatPct", "heightCm", "weighedOn", "notes"]) {
     if (formData.has(key)) {
       const v = ((formData.get(key) as string) || "").trim();
       if (key === "weightKg" && !v) continue;

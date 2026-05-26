@@ -4,11 +4,13 @@ import Link from "next/link";
 import { BigNumber, Card, Pill, SectionRow, Sparkline } from "@/components/ap/atoms";
 import { DeleteBtn, FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
 import { ExameUpload } from "@/components/ap/exame-upload";
+import { PersonPicker } from "@/components/ap/person-picker";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import { createExame, deleteExame } from "@/app/actions/saude";
 import { auth } from "@/auth";
 import { db } from "@/db";
 import { exameResultados, exames, users } from "@/db/schema";
+import { HOUSEHOLD_PEOPLE } from "@/lib/people";
 
 function formatDate(d: string) {
   const [y, m, day] = d.split("-").map(Number);
@@ -53,15 +55,23 @@ export default async function ExamesPage({
     orderBy: [asc(exameResultados.marker), asc(exameResultados.examDate)],
   });
 
-  const peopleSet = new Set<string>();
-  for (const e of all) peopleSet.add(e.who);
-  for (const r of allResultados) peopleSet.add(r.who);
-  const peopleList = [...peopleSet].sort();
+  // Pessoas: sempre os 3 do household + qualquer outra pessoa que apareça em dados antigos
+  const dataPeople = new Set<string>();
+  for (const e of all) dataPeople.add(e.who);
+  for (const r of allResultados) dataPeople.add(r.who);
+  const peopleList = [
+    ...HOUSEHOLD_PEOPLE,
+    ...[...dataPeople].filter(
+      (p) => !(HOUSEHOLD_PEOPLE as readonly string[]).includes(p)
+    ),
+  ];
 
-  const activeWho = whoFilter && peopleSet.has(whoFilter) ? whoFilter : peopleList[0];
-  const filteredResultados = activeWho
-    ? allResultados.filter((r) => r.who === activeWho)
-    : [];
+  const activeWho =
+    whoFilter && peopleList.includes(whoFilter)
+      ? whoFilter
+      : HOUSEHOLD_PEOPLE[0];
+  const filteredResultados = allResultados.filter((r) => r.who === activeWho);
+  const filteredExames = all.filter((e) => e.who === activeWho);
 
   // Tabela pivot: markers (linhas) × datas (colunas)
   const byMarker = new Map<
@@ -82,7 +92,7 @@ export default async function ExamesPage({
   for (const r of filteredResultados) allDatesSet.add(r.examDate);
   const allDates = [...allDatesSet].sort().reverse(); // mais recente primeiro
 
-  const last = all[0];
+  const last = filteredExames[0];
   const totalMarkers = filteredResultados.length;
   const totalAnormais = filteredResultados.filter(
     (r) => r.flag === "high" || r.flag === "low"
@@ -106,37 +116,17 @@ export default async function ExamesPage({
     >
       <SubNav active="exames" />
 
-      <SectionRow icon="file" label="Exames" action={`${all.length} cadastrados`} />
+      <PersonPicker
+        basePath="/saude-exames"
+        activeWho={activeWho}
+        extraParams={{ view: view !== "resumo" ? view : undefined }}
+      />
 
-      {/* Filtro por pessoa */}
-      {peopleList.length > 0 && (
-        <div style={{ padding: "0 20px 8px", display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {peopleList.map((p) => {
-            const isActive = p === activeWho;
-            const params = new URLSearchParams();
-            if (view !== "resumo") params.set("view", view);
-            params.set("who", p);
-            return (
-              <Link
-                key={p}
-                href={`/saude-exames?${params.toString()}`}
-                style={{
-                  padding: "4px 12px",
-                  borderRadius: 999,
-                  fontSize: 11,
-                  fontWeight: 700,
-                  background: isActive ? "var(--accent)" : "var(--card)",
-                  color: isActive ? "var(--accent-on)" : "var(--muted-d)",
-                  textDecoration: "none",
-                  border: isActive ? "none" : "1px solid var(--line-d)",
-                }}
-              >
-                {p}
-              </Link>
-            );
-          })}
-        </div>
-      )}
+      <SectionRow
+        icon="file"
+        label={`Exames · ${activeWho}`}
+        action={`${filteredExames.length}/${all.length}`}
+      />
 
       {/* Tabs de view */}
       <div style={{ padding: "0 20px 8px", display: "flex", gap: 6 }}>
@@ -225,7 +215,7 @@ export default async function ExamesPage({
                   name="who"
                   required
                   list="exame-who"
-                  placeholder="ex: Augusto"
+                  placeholder="ex: Gabriel"
                   style={fieldStyle}
                 />
                 <datalist id="exame-who">
@@ -280,15 +270,15 @@ export default async function ExamesPage({
         </InlineForm>
       </div>
 
-      {/* Lista de documentos */}
-      <SectionRow icon="file" label="Documentos" action={`${all.length}`} />
+      {/* Lista de documentos — só da pessoa ativa */}
+      <SectionRow icon="file" label={`Documentos · ${activeWho}`} action={`${filteredExames.length}`} />
       <div style={{ padding: "0 20px 20px" }}>
-        {all.length === 0 ? (
+        {filteredExames.length === 0 ? (
           <div style={{ fontSize: 13, color: "var(--muted)", textAlign: "center", padding: "20px 0" }}>
-            Nenhum exame cadastrado.
+            Nenhum exame de {activeWho} ainda.
           </div>
         ) : (
-          all.map((e, i) => (
+          filteredExames.map((e, i) => (
             <div
               key={e.id}
               style={{
@@ -296,7 +286,7 @@ export default async function ExamesPage({
                 gap: 12,
                 alignItems: "flex-start",
                 padding: "12px 0",
-                borderBottom: i < all.length - 1 ? "0.5px solid var(--line-d)" : "none",
+                borderBottom: i < filteredExames.length - 1 ? "0.5px solid var(--line-d)" : "none",
               }}
             >
               <div

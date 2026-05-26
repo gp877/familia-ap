@@ -432,7 +432,7 @@ export const compromissos = pgTable(
     occurredOn: date("occurred_on").notNull(),
     time: text("time"), // "HH:MM" opcional
     title: text("title").notNull(),
-    who: text("who"), // "Casal", "Augusto", "Marília", "Francisco", livre
+    who: text("who"), // "Casal", "Gabriel", "Marília", "Francisco", livre
     location: text("location"),
     notes: text("notes"),
     recurringRule: text("recurring_rule"), // ex: "weekly", "monthly", "weekly:tue"
@@ -1013,7 +1013,7 @@ export const exames = pgTable(
     createdById: text("created_by_id").references(() => users.id, {
       onDelete: "set null",
     }),
-    who: text("who").notNull(), // "Augusto", "Marília", "Francisco", livre
+    who: text("who").notNull(), // "Gabriel", "Marília", "Francisco", livre
     name: text("name").notNull(), // "Check-up cardio", "Sangue completo"
     examDate: date("exam_date").notNull(),
     doctor: text("doctor"), // "Dr. Salles", "Lab Sabin"
@@ -1096,6 +1096,7 @@ export const pesagens = pgTable(
     weighedOn: date("weighed_on").notNull(),
     weightKg: numeric("weight_kg", { precision: 5, scale: 2 }).notNull(),
     bodyFatPct: numeric("body_fat_pct", { precision: 4, scale: 1 }),
+    heightCm: numeric("height_cm", { precision: 5, scale: 1 }), // altura/comprimento (útil pra crianças)
     notes: text("notes"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },

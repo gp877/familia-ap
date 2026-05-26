@@ -176,7 +176,7 @@ export async function seedDemoData() {
         occurredOn: daysAgo(2),
         amount: "8500.00",
         kind: "credit",
-        description: "Salário Augusto (demo)",
+        description: "Salário Gabriel (demo)",
         rawDescription: "CREDITO TED RECEBIDO - EMPREGADOR LTDA",
         categoryId: salario?.id ?? null,
         status: "confirmed",
@@ -432,7 +432,7 @@ export async function seedDemoData() {
         occurredOn: dateStr(12),
         time: "08:00",
         title: "Reunião condomínio (demo)",
-        who: "Augusto",
+        who: "Gabriel",
       },
       {
         householdId,
@@ -573,7 +573,7 @@ export async function seedDemoData() {
         householdId,
         createdById: userId,
         title: "Maratona do Rio (demo)",
-        description: "Augusto",
+        description: "Gabriel",
         imageUrl: "https://images.unsplash.com/photo-1530143584546-02191bc84eb5?w=800",
         status: "realized",
         realizedDate: dateAgo(180),
@@ -780,7 +780,7 @@ export async function seedDemoData() {
     limit: 1,
   });
   if (existingExames.length === 0) {
-    // Cria 3 painéis lipídicos do Augusto em datas diferentes pra mostrar evolução
+    // Cria 3 painéis lipídicos do Gabriel em datas diferentes pra mostrar evolução
     type MarkerInput = {
       marker: string;
       markerLabel: string;
@@ -840,8 +840,8 @@ export async function seedDemoData() {
       }
     }
 
-    // Augusto — perfil lipídico evoluindo (3 medições)
-    await insertExameComMarkers("Augusto", "Perfil lipídico (demo)", dateAgo(180), "Lab Sabin", [
+    // Gabriel — perfil lipídico evoluindo (3 medições)
+    await insertExameComMarkers("Gabriel", "Perfil lipídico (demo)", dateAgo(180), "Lab Sabin", [
       { marker: "colesterol_total", markerLabel: "Colesterol total", value: 215, unit: "mg/dL", refMin: 0, refMax: 200 },
       { marker: "ldl_colesterol", markerLabel: "LDL", value: 145, unit: "mg/dL", refMin: 0, refMax: 130 },
       { marker: "hdl_colesterol", markerLabel: "HDL", value: 42, unit: "mg/dL", refMin: 40, refMax: null },
@@ -849,7 +849,7 @@ export async function seedDemoData() {
       { marker: "glicose", markerLabel: "Glicose", value: 96, unit: "mg/dL", refMin: 70, refMax: 99 },
       { marker: "hemoglobina_glicada", markerLabel: "Hb Glicada (A1c)", value: 5.6, unit: "%", refMin: 0, refMax: 5.6 },
     ]);
-    await insertExameComMarkers("Augusto", "Perfil lipídico (demo)", dateAgo(90), "Lab Sabin", [
+    await insertExameComMarkers("Gabriel", "Perfil lipídico (demo)", dateAgo(90), "Lab Sabin", [
       { marker: "colesterol_total", markerLabel: "Colesterol total", value: 198, unit: "mg/dL", refMin: 0, refMax: 200 },
       { marker: "ldl_colesterol", markerLabel: "LDL", value: 128, unit: "mg/dL", refMin: 0, refMax: 130 },
       { marker: "hdl_colesterol", markerLabel: "HDL", value: 48, unit: "mg/dL", refMin: 40, refMax: null },
@@ -857,7 +857,7 @@ export async function seedDemoData() {
       { marker: "glicose", markerLabel: "Glicose", value: 92, unit: "mg/dL", refMin: 70, refMax: 99 },
       { marker: "hemoglobina_glicada", markerLabel: "Hb Glicada (A1c)", value: 5.4, unit: "%", refMin: 0, refMax: 5.6 },
     ]);
-    await insertExameComMarkers("Augusto", "Sangue completo (demo)", dateAgo(15), "Lab Sabin", [
+    await insertExameComMarkers("Gabriel", "Sangue completo (demo)", dateAgo(15), "Lab Sabin", [
       { marker: "colesterol_total", markerLabel: "Colesterol total", value: 185, unit: "mg/dL", refMin: 0, refMax: 200 },
       { marker: "ldl_colesterol", markerLabel: "LDL", value: 118, unit: "mg/dL", refMin: 0, refMax: 130 },
       { marker: "hdl_colesterol", markerLabel: "HDL", value: 52, unit: "mg/dL", refMin: 40, refMax: null },
@@ -902,17 +902,17 @@ export async function seedDemoData() {
     limit: 1,
   });
   if (existingPesagens.length === 0) {
-    const augustoWeights = [86.4, 86.0, 85.3, 84.7, 84.1, 83.6, 83.4];
+    const gabrielWeights = [86.4, 86.0, 85.3, 84.7, 84.1, 83.6, 83.4];
     const mariliaWeights = [62.2, 62.0, 61.6, 61.3, 61.0, 60.9, 60.7];
 
     const rows: Array<typeof pesagens.$inferInsert> = [];
-    for (let i = 0; i < augustoWeights.length; i++) {
+    for (let i = 0; i < gabrielWeights.length; i++) {
       rows.push({
         householdId,
         createdById: userId,
-        who: "Augusto",
-        weighedOn: dateAgo(7 * (augustoWeights.length - 1 - i)),
-        weightKg: augustoWeights[i].toFixed(1),
+        who: "Gabriel",
+        weighedOn: dateAgo(7 * (gabrielWeights.length - 1 - i)),
+        weightKg: gabrielWeights[i].toFixed(1),
       });
       rows.push({
         householdId,

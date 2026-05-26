@@ -4,7 +4,7 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 export function ExameUpload({
-  knownPeople = ["Augusto", "Marília", "Francisco"],
+  knownPeople = ["Gabriel", "Marília", "Francisco"],
 }: {
   knownPeople?: string[];
 }) {

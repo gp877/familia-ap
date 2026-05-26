@@ -35,7 +35,7 @@ export default async function AppLayout({
 
   const myFirstName = session.user.name?.split(" ")[0] ?? null;
 
-  // Acento por usuário — Marília vê rosa, demais (Augusto) lima.
+  // Acento por usuário — Marília vê rosa, demais (Gabriel) lima.
   const accent =
     session.user.email?.toLowerCase() === "mmarilia.augustoo@gmail.com"
       ? "rosa"

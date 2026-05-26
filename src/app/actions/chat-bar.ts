@@ -130,7 +130,7 @@ async function buildContext(householdId: string): Promise<string> {
   return parts.join("\n");
 }
 
-const SYSTEM_PROMPT = `Você é AP, assistente da família Família AP (Augusto + Marília + Francisco).
+const SYSTEM_PROMPT = `Você é AP, assistente da família Família AP (Gabriel + Marília + Francisco).
 
 Tom: conversacional, íntimo, português brasileiro, primeira pessoa do plural quando relevante ("vocês", "a gente"). Curto e útil. Cite números específicos. NUNCA emoji. Nunca formal. Nunca empolgado.
 
@@ -154,7 +154,7 @@ const functionDeclarations: FunctionDeclaration[] = [
             title: { type: Type.STRING, description: "Título curto, ex: 'Aula de natação do Francisco'" },
             date: { type: Type.STRING, description: "Data no formato YYYY-MM-DD" },
             time: { type: Type.STRING, description: "Hora opcional HH:MM" },
-            who: { type: Type.STRING, description: "Quem está envolvido: Augusto, Marília, Francisco, Casal, Família" },
+            who: { type: Type.STRING, description: "Quem está envolvido: Gabriel, Marília, Francisco, Casal, Família" },
             location: { type: Type.STRING, description: "Local opcional" },
             notes: { type: Type.STRING, description: "Observações opcionais" },
             recurring: {
@@ -185,7 +185,7 @@ const functionDeclarations: FunctionDeclaration[] = [
         parameters: {
           type: Type.OBJECT,
           properties: {
-            who: { type: Type.STRING, description: "Augusto, Marília, Francisco" },
+            who: { type: Type.STRING, description: "Gabriel, Marília, Francisco" },
             weightKg: { type: Type.STRING, description: "Peso em kg, ex: '83.4'" },
             date: { type: Type.STRING, description: "Data YYYY-MM-DD (padrão hoje)" },
             notes: { type: Type.STRING },

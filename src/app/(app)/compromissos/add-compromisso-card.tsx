@@ -98,7 +98,7 @@ export function AddCompromissoCard({ defaultDate }: { defaultDate: string }) {
         />
         <datalist id="compromisso-who">
           <option value="Casal" />
-          <option value="Augusto" />
+          <option value="Gabriel" />
           <option value="Marília" />
           <option value="Francisco" />
           <option value="Família" />

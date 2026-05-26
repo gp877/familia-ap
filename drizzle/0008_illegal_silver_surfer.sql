@@ -1,0 +1,1 @@
+ALTER TABLE "pesagem" ADD COLUMN "height_cm" numeric(5, 1);
