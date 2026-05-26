@@ -73,6 +73,7 @@ export default async function SonhosPage() {
             placeholder="qual é o próximo sonho? · Enter salva"
             fontSize={13.5}
             fontWeight={600}
+            clearAfterSubmit
           />
         </div>
       </div>

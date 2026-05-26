@@ -19,6 +19,7 @@ export function InlineEditInput({
   color = "var(--ink)",
   italic = false,
   multiline = false,
+  clearAfterSubmit = false,
 }: {
   initialValue?: string;
   action: (fd: FormData) => Promise<void> | void;
@@ -30,6 +31,8 @@ export function InlineEditInput({
   color?: string;
   italic?: boolean;
   multiline?: boolean;
+  /** Em modo "criar", limpa o input depois que a action resolve. */
+  clearAfterSubmit?: boolean;
 }) {
   const [value, setValue] = useState(initialValue);
   const [isPending, startTransition] = useTransition();
@@ -52,6 +55,10 @@ export function InlineEditInput({
     savedValueRef.current = trimmed;
     startTransition(async () => {
       await action(fd);
+      if (clearAfterSubmit) {
+        savedValueRef.current = "";
+        setValue("");
+      }
     });
   }
 

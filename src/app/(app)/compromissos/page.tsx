@@ -554,6 +554,7 @@ function QuickAddDay({ date }: { date: string }) {
         placeholder="adicionar"
         fontSize={12.5}
         color="var(--muted-d)"
+        clearAfterSubmit
       />
     </div>
   );
