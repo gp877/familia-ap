@@ -179,7 +179,7 @@ export default async function CompromissosPage({
             current={view}
             extraParams={{ month: sp.month }}
             options={[
-              { key: null, label: "Resumo" },
+              { key: null, label: "FDS" },
               { key: "calendar", label: "Calendário" },
               { key: "list", label: "Lista" },
             ]}
@@ -211,9 +211,10 @@ export default async function CompromissosPage({
           monthStr={monthStr}
         />
       ) : (
-        <ClustersView
+        <FdsView
           clusters={clusters}
           byDate={byDate}
+          targetYear={yearN}
           targetMonth={monthN}
         />
       )}
@@ -222,27 +223,64 @@ export default async function CompromissosPage({
 }
 
 // ────────────────────────────────────────────────────────────
-// RESUMO: cards de fim de semana
+// FDS: cards de fim de semana + compromissos em dias úteis
+// (intercalados cronologicamente)
 // ────────────────────────────────────────────────────────────
-function ClustersView({
+function FdsView({
   clusters,
   byDate,
+  targetYear,
   targetMonth,
 }: {
   clusters: WeekendCluster[];
   byDate: Map<string, (typeof compromissos.$inferSelect)[]>;
+  targetYear: number;
   targetMonth: number;
 }) {
+  // Datas já cobertas pelos clusters de FDS — evita duplicar
+  const clusterDates = new Set<string>();
+  for (const c of clusters) for (const d of c.days) clusterDates.add(d.date);
+
+  // Dias úteis (seg–qui) do mês alvo que têm compromissos
+  type WeekdayEntry = { kind: "weekday"; sortKey: string; date: string; dow: number };
+  type ClusterEntry = { kind: "cluster"; sortKey: string; cluster: WeekendCluster; idx: number };
+  const feed: (WeekdayEntry | ClusterEntry)[] = [];
+
+  clusters.forEach((cluster, idx) => {
+    feed.push({ kind: "cluster", sortKey: cluster.days[0].date, cluster, idx });
+  });
+
+  for (const [date, items] of byDate.entries()) {
+    if (clusterDates.has(date)) continue;
+    if (items.length === 0) continue;
+    const dt = new Date(date + "T00:00:00");
+    if (dt.getFullYear() !== targetYear || dt.getMonth() + 1 !== targetMonth) continue;
+    feed.push({ kind: "weekday", sortKey: date, date, dow: dt.getDay() });
+  }
+
+  feed.sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+
   return (
     <div
       style={{
         padding: "24px 16px 0",
         display: "flex",
         flexDirection: "column",
-        gap: 22, // respiro generoso entre FDS
+        gap: 22, // respiro generoso entre cards
       }}
     >
-      {clusters.map((cluster, idx) => {
+      {feed.map((entry) => {
+        if (entry.kind === "weekday") {
+          return (
+            <WeekdayCard
+              key={`wd-${entry.date}`}
+              date={entry.date}
+              dow={entry.dow}
+              items={byDate.get(entry.date) ?? []}
+            />
+          );
+        }
+        const { cluster, idx } = entry;
         const fri = cluster.days[0];
         const sun = cluster.days[2];
         const crossesMonth = cluster.startMonth !== cluster.endMonth;
@@ -254,7 +292,7 @@ function ClustersView({
           : `${formatDay(fri.date)}–${formatDay(sun.date)} ${formatMonthAbbrev(fri.date)}`;
         return (
           <div
-            key={idx}
+            key={`cl-${idx}`}
             style={{
               background: "var(--card)",
               borderRadius: 20,
@@ -340,6 +378,49 @@ function ClustersView({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function WeekdayCard({
+  date,
+  dow,
+  items,
+}: {
+  date: string;
+  dow: number;
+  items: (typeof compromissos.$inferSelect)[];
+}) {
+  return (
+    <div
+      style={{
+        background: "var(--card)",
+        borderRadius: 20,
+        border: "0.5px solid var(--line-d)",
+        padding: "18px 20px",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "baseline",
+          gap: 10,
+          marginBottom: 14,
+        }}
+      >
+        <span
+          style={{
+            fontSize: 11,
+            color: "var(--muted-d)",
+            fontWeight: 700,
+            letterSpacing: "0.06em",
+            textTransform: "uppercase",
+          }}
+        >
+          dia útil · {formatMonthAbbrev(date)}
+        </span>
+      </div>
+      <DayBlock day={{ date, dow }} items={items} dimmed={false} />
     </div>
   );
 }
@@ -443,9 +524,9 @@ function CompromissoRow({ c }: { c: typeof compromissos.$inferSelect }) {
           fontSize={13.5}
           fontWeight={600}
         />
-        {(c.who || c.location || c.notes) && (
+        {(c.who || c.location) && (
           <div style={{ fontSize: 11, color: "var(--muted-d)", lineHeight: 1.4 }}>
-            {[c.who, c.location, c.notes].filter(Boolean).join(" · ")}
+            {[c.who, c.location].filter(Boolean).join(" · ")}
           </div>
         )}
       </div>
@@ -713,9 +794,9 @@ function ListView({
                   />
                 </div>
               </div>
-              {(c.who || c.location || c.notes) && (
+              {(c.who || c.location) && (
                 <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
-                  {[c.who, c.location, c.notes].filter(Boolean).join(" · ")}
+                  {[c.who, c.location].filter(Boolean).join(" · ")}
                 </div>
               )}
             </div>
