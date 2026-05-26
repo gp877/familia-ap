@@ -711,7 +711,7 @@ function CalendarView({
 }
 
 // ────────────────────────────────────────────────────────────
-// LISTA: cronológica
+// LISTA: futuro/hoje expandidos · passados em arquivo por mês
 // ────────────────────────────────────────────────────────────
 function ListView({
   upcoming,
@@ -732,78 +732,190 @@ function ListView({
       </div>
     );
   }
+
+  const todayISO = dateToISO(new Date());
+  const future = upcoming
+    .filter((c) => c.occurredOn >= todayISO)
+    .sort((a, b) =>
+      a.occurredOn === b.occurredOn
+        ? (a.time ?? "").localeCompare(b.time ?? "")
+        : a.occurredOn.localeCompare(b.occurredOn)
+    );
+  const past = upcoming
+    .filter((c) => c.occurredOn < todayISO)
+    .sort((a, b) => b.occurredOn.localeCompare(a.occurredOn));
+
+  // Agrupa passados por YYYY-MM (mais recente primeiro)
+  const pastByMonth = new Map<string, typeof upcoming>();
+  for (const c of past) {
+    const k = c.occurredOn.slice(0, 7);
+    const arr = pastByMonth.get(k) ?? [];
+    arr.push(c);
+    pastByMonth.set(k, arr);
+  }
+
   return (
     <div style={{ padding: "20px 20px 0" }}>
-      {upcoming.map((c, i) => {
-        const dt = new Date(c.occurredOn + "T00:00:00");
-        const dow = dt.getDay();
-        const isWeekend = dow === 0 || dow === 6;
-        return (
-          <div
+      {/* Próximos */}
+      {future.length > 0 ? (
+        future.map((c, i) => (
+          <ListRow
             key={c.id}
+            c={c}
+            isLast={i === future.length - 1 && pastByMonth.size === 0}
+          />
+        ))
+      ) : (
+        <div style={{ fontSize: 12.5, color: "var(--muted)", padding: "10px 0 4px" }}>
+          Nenhum compromisso à frente.
+        </div>
+      )}
+
+      {/* Arquivo: passados por mês (collapsed por padrão) */}
+      {pastByMonth.size > 0 && (
+        <div style={{ marginTop: 24 }}>
+          <div
             style={{
-              display: "grid",
-              gridTemplateColumns: "56px 1fr auto",
-              alignItems: "center",
-              gap: 14,
-              padding: "12px 0",
-              borderBottom: i < upcoming.length - 1 ? "0.5px solid var(--line-d)" : "none",
+              fontSize: 10,
+              fontWeight: 800,
+              letterSpacing: "0.14em",
+              textTransform: "uppercase",
+              color: "var(--muted)",
+              padding: "8px 0 6px",
+              borderTop: "0.5px solid var(--line-d)",
             }}
           >
-            <div style={{ textAlign: "center" }}>
-              <div
-                className="ap-num"
-                style={{
-                  fontSize: 18,
-                  fontWeight: 800,
-                  color: isWeekend ? "var(--accent)" : "var(--ink)",
-                  lineHeight: 1,
-                  letterSpacing: "-0.04em",
-                }}
-              >
-                {formatDay(c.occurredOn)}
-              </div>
-              <div
-                style={{
-                  fontSize: 9,
-                  fontWeight: 800,
-                  letterSpacing: "0.14em",
-                  textTransform: "uppercase",
-                  color: isWeekend ? "var(--accent)" : "var(--muted)",
-                  marginTop: 3,
-                }}
-              >
-                {DOW_LABEL[dow]} · {formatMonthAbbrev(c.occurredOn)}
-              </div>
-            </div>
-            <div style={{ minWidth: 0 }}>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                {c.time && (
-                  <span style={{ fontSize: 12, color: "var(--accent)", fontWeight: 700 }}>
-                    {c.time}
-                  </span>
-                )}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <InlineEditInput
-                    initialValue={c.title}
-                    action={patchCompromisso}
-                    hiddenFields={{ id: c.id }}
-                    fieldName="title"
-                    fontSize={13.5}
-                    fontWeight={600}
-                  />
-                </div>
-              </div>
-              {(c.who || c.location) && (
-                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
-                  {[c.who, c.location].filter(Boolean).join(" · ")}
-                </div>
-              )}
-            </div>
-            <DeleteBtn action={deleteCompromisso.bind(null, c.id)} confirmMsg={null} />
+            Arquivo
           </div>
-        );
-      })}
+          {[...pastByMonth.entries()].map(([yyyymm, items]) => {
+            const [y, m] = yyyymm.split("-").map(Number);
+            const monthLabel = new Date(y, m - 1, 1).toLocaleDateString("pt-BR", {
+              month: "long",
+              year: "numeric",
+            });
+            return (
+              <details
+                key={yyyymm}
+                style={{
+                  borderBottom: "0.5px solid var(--line-d)",
+                }}
+              >
+                <summary
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "baseline",
+                    padding: "10px 0",
+                    cursor: "pointer",
+                    listStyle: "none",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: "var(--ink-d)",
+                  }}
+                >
+                  <span style={{ textTransform: "capitalize" }}>{monthLabel}</span>
+                  <span
+                    className="ap-num"
+                    style={{
+                      fontSize: 11,
+                      color: "var(--muted)",
+                      fontWeight: 700,
+                      letterSpacing: "0.04em",
+                    }}
+                  >
+                    {items.length}{" "}
+                    {items.length === 1 ? "compromisso" : "compromissos"}
+                  </span>
+                </summary>
+                <div style={{ paddingBottom: 6 }}>
+                  {items.map((c, i) => (
+                    <ListRow key={c.id} c={c} isLast={i === items.length - 1} dimmed />
+                  ))}
+                </div>
+              </details>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ListRow({
+  c,
+  isLast,
+  dimmed = false,
+}: {
+  c: typeof compromissos.$inferSelect;
+  isLast: boolean;
+  dimmed?: boolean;
+}) {
+  const dt = new Date(c.occurredOn + "T00:00:00");
+  const dow = dt.getDay();
+  const isWeekend = dow === 0 || dow === 6;
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "56px 1fr auto",
+        alignItems: "center",
+        gap: 14,
+        padding: "12px 0",
+        borderBottom: isLast ? "none" : "0.5px solid var(--line-d)",
+        opacity: dimmed ? 0.72 : 1,
+      }}
+    >
+      <div style={{ textAlign: "center" }}>
+        <div
+          className="ap-num"
+          style={{
+            fontSize: 18,
+            fontWeight: 800,
+            color: isWeekend ? "var(--accent)" : "var(--ink)",
+            lineHeight: 1,
+            letterSpacing: "-0.04em",
+          }}
+        >
+          {formatDay(c.occurredOn)}
+        </div>
+        <div
+          style={{
+            fontSize: 9,
+            fontWeight: 800,
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
+            color: isWeekend ? "var(--accent)" : "var(--muted)",
+            marginTop: 3,
+          }}
+        >
+          {DOW_LABEL[dow]} · {formatMonthAbbrev(c.occurredOn)}
+        </div>
+      </div>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+          {c.time && (
+            <span style={{ fontSize: 12, color: "var(--accent)", fontWeight: 700 }}>
+              {c.time}
+            </span>
+          )}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <InlineEditInput
+              initialValue={c.title}
+              action={patchCompromisso}
+              hiddenFields={{ id: c.id }}
+              fieldName="title"
+              fontSize={13.5}
+              fontWeight={600}
+            />
+          </div>
+        </div>
+        {(c.who || c.location) && (
+          <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+            {[c.who, c.location].filter(Boolean).join(" · ")}
+          </div>
+        )}
+      </div>
+      <DeleteBtn action={deleteCompromisso.bind(null, c.id)} confirmMsg={null} />
     </div>
   );
 }
