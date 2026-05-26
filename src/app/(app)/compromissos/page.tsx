@@ -471,24 +471,13 @@ function DayBlock({
         </div>
       </div>
 
-      {/* Lista de compromissos + quick-add inline */}
+      {/* Um compromisso por dia — a linha É o compromisso (ou input pra criar) */}
       <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 6, paddingTop: 6 }}>
-        {items.length === 0 && (
-          <div
-            style={{
-              fontSize: 11,
-              color: "var(--muted)",
-              fontStyle: "italic",
-              marginBottom: 2,
-            }}
-          >
-            livre
-          </div>
+        {items.length === 0 ? (
+          <EmptyDayRow date={day.date} />
+        ) : (
+          items.map((c) => <CompromissoRow key={c.id} c={c} />)
         )}
-        {items.map((c) => (
-          <CompromissoRow key={c.id} c={c} />
-        ))}
-        <QuickAddDay date={day.date} />
       </div>
     </div>
   );
@@ -535,25 +524,35 @@ function CompromissoRow({ c }: { c: typeof compromissos.$inferSelect }) {
   );
 }
 
-function QuickAddDay({ date }: { date: string }) {
+function EmptyDayRow({ date }: { date: string }) {
   return (
     <div
       style={{
         display: "grid",
         gridTemplateColumns: "auto 1fr",
         gap: 8,
-        alignItems: "center",
-        paddingTop: 2,
+        alignItems: "start",
       }}
     >
-      <span style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, minWidth: 28 }}>+</span>
+      <span
+        style={{
+          fontSize: 11,
+          color: "var(--muted)",
+          fontWeight: 700,
+          paddingTop: 2,
+          minWidth: 28,
+        }}
+      >
+        ·
+      </span>
       <InlineEditInput
         initialValue=""
         action={createCompromisso}
         hiddenFields={{ occurredOn: date }}
-        placeholder="adicionar"
-        fontSize={12.5}
-        color="var(--muted-d)"
+        placeholder="livre"
+        fontSize={13.5}
+        fontWeight={600}
+        italic
         clearAfterSubmit
       />
     </div>
