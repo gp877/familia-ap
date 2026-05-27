@@ -32,13 +32,17 @@ import {
   viagens,
 } from "@/db/schema";
 import { extrairReceitaDeUrl } from "@/app/actions/cardapio";
+import {
+  aiSettingsToSystemPrompt,
+  getOrCreateAiSettings,
+} from "@/app/actions/ai-settings";
 import { requireUserAndHousehold } from "@/lib/auth-helpers";
 
 // ────────────────────────────────────────────────────────────
 // Cliente Gemini — lazy: erro só dispara no momento da chamada,
 // não no import (evita route inteira quebrar em build).
 // ────────────────────────────────────────────────────────────
-const MODEL = "gemini-flash-latest";
+const DEFAULT_MODEL = "gemini-flash-latest";
 
 function getAI(): GoogleGenAI {
   const key = process.env.GEMINI_API_KEY;
@@ -48,6 +52,56 @@ function getAI(): GoogleGenAI {
     );
   }
   return new GoogleGenAI({ apiKey: key });
+}
+
+/**
+ * Mensagem de erro amigável a partir de uma exception bruta do Gemini.
+ * O SDK joga o JSON inteiro da resposta como msg — feio demais pra mostrar
+ * ao usuário.
+ */
+function friendlyAiError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  if (raw.includes("RESOURCE_EXHAUSTED") || raw.includes('"code":429')) {
+    const retryMatch = /"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/.exec(raw);
+    const retrySec = retryMatch ? Math.ceil(parseFloat(retryMatch[1])) : 30;
+    return `Estou no limite de mensagens por minuto da Gemini agora. Tenta de novo em ${retrySec}s — ou abra /configuracoes/ia pra trocar de modelo.`;
+  }
+  if (raw.includes("API key not valid")) {
+    return "A chave da Gemini está inválida. Atualize GEMINI_API_KEY em .env.local / Vercel.";
+  }
+  if (raw.includes("PERMISSION_DENIED")) {
+    return "Sem permissão pra usar esse modelo. Tente outro em /configuracoes/ia.";
+  }
+  // fallback — primeiro pedaço sem o JSON gigante
+  const short = raw.replace(/\{[^]*\}/g, "(detalhe técnico)").slice(0, 220);
+  return `Não consegui processar agora: ${short}`;
+}
+
+/**
+ * Espera N segundos. Cap em 8s pra não travar UX.
+ */
+function sleep(seconds: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, Math.min(seconds, 8) * 1000));
+}
+
+/**
+ * Roda `fn()`. Se cair em 429 (rate-limit), espera o retryDelay sugerido
+ * pela Google (cap 8s) e retenta UMA vez. Caso contrário propaga o erro.
+ */
+async function withRetryOn429<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("RESOURCE_EXHAUSTED") || msg.includes('"code":429')) {
+      const retryMatch = /"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/.exec(msg);
+      const delay = retryMatch ? parseFloat(retryMatch[1]) + 0.5 : 6;
+      console.warn(`[chat-bar] 429 — retentando em ${delay}s`);
+      await sleep(delay);
+      return await fn();
+    }
+    throw err;
+  }
 }
 
 export type ChatBarMessage = {
@@ -125,24 +179,23 @@ async function buildContext(householdId: string, currentUserId: string, currentU
   return parts.join("\n");
 }
 
-const SYSTEM_PROMPT = `Você é AP, assistente da família Família AP (Gabriel + Marília + Francisco).
-
-Tom: conversacional, íntimo, português brasileiro. Primeira pessoa do plural quando fizer sentido ("vocês", "a gente"). Curto, útil, direto. Cite números específicos quando tiver. NUNCA use emoji. Nunca seja formal. Nunca seja empolgado.
+const BASE_SYSTEM_PROMPT = `Você é AP, assistente da família Família AP. Os membros são Gabriel, Marília e Francisco (e às vezes um bebê novo).
 
 Você tem ferramentas pra LER (consultar_*) e ESCREVER (criar_*) dados do sistema da família. Use proativamente:
 - Se a pessoa perguntar algo factual ("qual foi o saldo de abril?", "quantos exames a Marília tem?"), CHAME a tool de consulta antes de responder — não invente.
 - Se a pessoa pedir pra criar/agendar/registrar algo, CHAME a tool de criação.
 - Pode encadear várias tools numa mesma resposta se precisar.
 
-Memória: use \`salvar_memoria\` quando aprender algo importante e durável sobre a família (preferências, fatos, metas, eventos relevantes). Não salve fofoca trivial. Use \`esquecer_memoria\` se a pessoa pedir pra apagar.
+REGRA IMPORTANTE — humanização:
+Quando uma tool retornar um resultado (ex: "DRE 2026-05: receitas R$ 15.000,00 · despesas R$ 4.883,37 · saldo R$ 10.116,63"), NUNCA repita esse texto literalmente. Transforme em uma frase natural e conversacional, com o ângulo que importa pra família. Exemplo bom: "Esse mês vocês gastaram quase R$ 4,9 mil e receberam R$ 15 mil — sobrou R$ 10,1k. Bem aí." Exemplo ruim (NÃO FAÇA): copiar o resultado bruto da tool.
+
+Memória: \`salvar_memoria\` quando aprender algo importante e durável (preferências, fatos, metas). Não salve fofoca. \`esquecer_memoria\` quando pedirem pra apagar.
 
 Datas relativas: "amanhã", "próxima sexta", "daqui a 3 dias" — converta pra YYYY-MM-DD usando a data de hoje no contexto.
 
-Depois de criar algo, confirme brevemente o que foi feito (sem emoji).
-
 Se algo não tem ferramenta, oriente a tela: /financeiro/upload (subir extrato), /sonhos, /compromissos, /cardapio, etc.
 
-Cardápio + Receitas: se o usuário mandar um link (Instagram, YouTube, blog) e pedir pra cadastrar/registrar/salvar receita, chame \`importar_receita_de_url\`. Depois, se ele quiser agendar pra um dia, chame \`agendar_almoco\` com o receitaId retornado. Sempre confirme com 1 linha o que foi feito.`;
+Cardápio + Receitas: link do Insta/YouTube/blog → \`importar_receita_de_url\`. Depois, se quiser agendar, \`agendar_almoco\` com o receitaId retornado.`;
 
 // ────────────────────────────────────────────────────────────
 // Tool declarations
@@ -1129,6 +1182,16 @@ export async function processChatTurnWithTools(
   });
   const summary = await buildContext(householdId, userId, currentUser?.name ?? null);
 
+  // Configuração da AP (alma, tom, modelo) escolhida no /configuracoes/ia
+  const settings = await getOrCreateAiSettings(householdId);
+  const model = settings.modelOverride?.trim() || DEFAULT_MODEL;
+  const systemInstruction =
+    BASE_SYSTEM_PROMPT +
+    "\n\n" +
+    aiSettingsToSystemPrompt(settings) +
+    "\n\n## Contexto atual:\n\n" +
+    summary;
+
   const history: Content[] = allMessages.reverse().map((m) => ({
     role: m.role === "assistant" ? "model" : "user",
     parts: [{ text: m.content }],
@@ -1136,31 +1199,35 @@ export async function processChatTurnWithTools(
 
   const ai = getAI();
 
+  // 1ª chamada — com tools ativos
   let response;
+  let toolErrorFallback: string | null = null;
   try {
-    response = await ai.models.generateContent({
-      model: MODEL,
-      contents: history,
-      config: {
-        systemInstruction: SYSTEM_PROMPT + "\n\n## Contexto atual:\n\n" + summary,
-        temperature: 0.4,
-        maxOutputTokens: 800,
-        tools,
-        toolConfig: {
-          functionCallingConfig: { mode: FunctionCallingConfigMode.AUTO },
+    response = await withRetryOn429(() =>
+      ai.models.generateContent({
+        model,
+        contents: history,
+        config: {
+          systemInstruction,
+          temperature: 0.6,
+          maxOutputTokens: 800,
+          tools,
+          toolConfig: {
+            functionCallingConfig: { mode: FunctionCallingConfigMode.AUTO },
+          },
         },
-      },
-    });
+      })
+    );
   } catch (err) {
     console.error("[chat-bar] generateContent error:", err);
-    throw err;
+    toolErrorFallback = friendlyAiError(err);
+    response = null;
   }
 
-  const fnCalls: FunctionCall[] = response.functionCalls ?? [];
-  let assistantText = response.text?.trim() ?? "";
+  let assistantText = (response?.text?.trim() ?? "");
+  const fnCalls: FunctionCall[] = response?.functionCalls ?? [];
 
-  // Permite até 3 rodadas de tool calls (chamada → resultado → eventualmente
-  // outra chamada com base no resultado)
+  // Loop de até 3 rodadas de tool calls
   let roundsLeft = 3;
   let lastCalls = fnCalls;
   let lastHistory: Content[] = [
@@ -1169,11 +1236,13 @@ export async function processChatTurnWithTools(
       ? [{ role: "model", parts: fnCalls.map((c) => ({ functionCall: c })) } as Content]
       : []),
   ];
+  let lastToolResults: { name: string; result: string }[] = [];
 
   while (lastCalls.length > 0 && roundsLeft-- > 0) {
     const toolResults = await Promise.all(
       lastCalls.map((call) => executeToolCall(call, householdId, userId))
     );
+    lastToolResults = toolResults;
     const fnResponses = toolResults.map((r) => ({
       functionResponse: { name: r.name, response: { result: r.result } },
     }));
@@ -1183,20 +1252,24 @@ export async function processChatTurnWithTools(
     ];
 
     try {
-      response = await ai.models.generateContent({
-        model: MODEL,
-        contents: lastHistory,
-        config: {
-          systemInstruction: SYSTEM_PROMPT + "\n\n## Contexto atual:\n\n" + summary,
-          temperature: 0.3,
-          maxOutputTokens: 600,
-          tools,
-          toolConfig: { functionCallingConfig: { mode: FunctionCallingConfigMode.AUTO } },
-        },
-      });
+      response = await withRetryOn429(() =>
+        ai.models.generateContent({
+          model,
+          contents: lastHistory,
+          config: {
+            systemInstruction,
+            temperature: 0.6,
+            maxOutputTokens: 600,
+            tools,
+            toolConfig: { functionCallingConfig: { mode: FunctionCallingConfigMode.AUTO } },
+          },
+        })
+      );
     } catch (err) {
       console.error("[chat-bar] follow-up generateContent error:", err);
-      assistantText = toolResults.map((r) => r.result).join("\n");
+      // Não usa o tool result cru — tenta uma síntese sem tools depois
+      response = null;
+      toolErrorFallback = friendlyAiError(err);
       break;
     }
 
@@ -1210,7 +1283,49 @@ export async function processChatTurnWithTools(
     }
   }
 
-  if (!assistantText) assistantText = "(sem resposta — tente reformular)";
+  // Síntese final — se não veio texto humanizado mas tools rodaram, força
+  // uma chamada sem tools pra produzir uma resposta natural.
+  if (!assistantText && lastToolResults.length > 0 && !toolErrorFallback) {
+    try {
+      const synthesisHistory: Content[] = [
+        ...lastHistory,
+        {
+          role: "user",
+          parts: [
+            {
+              text: "Agora responda em linguagem natural, em 1-2 frases. NÃO repita os resultados brutos das ferramentas literalmente — interprete e seja conversacional.",
+            },
+          ],
+        },
+      ];
+      const synth = await withRetryOn429(() =>
+        ai.models.generateContent({
+          model,
+          contents: synthesisHistory,
+          config: {
+            systemInstruction,
+            temperature: 0.7,
+            maxOutputTokens: 400,
+          },
+        })
+      );
+      assistantText = synth.text?.trim() ?? "";
+    } catch (err) {
+      console.error("[chat-bar] synthesis error:", err);
+    }
+  }
+
+  // Se ainda não temos texto, usa o erro amigável OU um fallback genérico
+  if (!assistantText) {
+    if (toolErrorFallback) {
+      assistantText = toolErrorFallback;
+    } else if (lastToolResults.length > 0) {
+      // Última opção: resume os tool results de forma simples
+      assistantText = lastToolResults.map((r) => `• ${r.result}`).join("\n");
+    } else {
+      assistantText = "Não consegui responder agora. Tenta reformular?";
+    }
+  }
 
   const [assistantMsg] = await db
     .insert(messages)

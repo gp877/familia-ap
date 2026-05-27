@@ -1,4 +1,5 @@
 import { eq, sql } from "drizzle-orm";
+import Link from "next/link";
 
 import { BigNumber, Card, SectionRow } from "@/components/ap/atoms";
 import { BackButton } from "@/components/ap/inline-form";
@@ -32,6 +33,28 @@ export default async function ConfiguracoesPage() {
       </div>
 
       <SectionRow icon="home" label="Configurações" />
+
+      {/* Atalho destacado pra config da IA */}
+      <div style={{ padding: "8px 20px 0" }}>
+        <Link
+          href="/configuracoes/ia"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "14px 16px",
+            borderRadius: 14,
+            background: "var(--accent)",
+            color: "var(--accent-on)",
+            textDecoration: "none",
+            fontSize: 14,
+            fontWeight: 700,
+          }}
+        >
+          <span>Configurar a AP (alma, tom, memória, modelo)</span>
+          <span style={{ fontSize: 18, fontWeight: 800 }}>→</span>
+        </Link>
+      </div>
 
       <BigNumber value="Demo" sub="popular o sistema com dados de exemplo" />
 

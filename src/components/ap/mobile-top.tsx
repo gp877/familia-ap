@@ -26,7 +26,7 @@ function moduleNameFor(pathname: string) {
   return sub?.module ?? "Família AP";
 }
 
-export function MobileTop() {
+export function MobileTop({ activeKey = null }: { activeKey?: "G" | "M" | null }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const moduleName = moduleNameFor(pathname);
@@ -70,7 +70,7 @@ export function MobileTop() {
             <Icon name="chev" size={14} color="var(--muted)" stroke={2.2} />
           </div>
         </div>
-        <MemberChips size={28} />
+        <MemberChips size={30} activeKey={activeKey} />
       </header>
 
       {open && (

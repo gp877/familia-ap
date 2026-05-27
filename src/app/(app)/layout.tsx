@@ -34,12 +34,18 @@ export default async function AppLayout({
   }
 
   const myFirstName = session.user.name?.split(" ")[0] ?? null;
+  const myEmail = session.user.email?.toLowerCase() ?? "";
+
+  // Identidade no header (G = Gabriel, M = Marília). Detecta pelo email.
+  const activeKey: "G" | "M" | null =
+    myEmail === "mmarilia.augustoo@gmail.com"
+      ? "M"
+      : myEmail.includes("gabriel") || myEmail.includes("piffer")
+        ? "G"
+        : null;
 
   // Acento por usuário — Marília vê rosa, demais (Gabriel) lima.
-  const accent =
-    session.user.email?.toLowerCase() === "mmarilia.augustoo@gmail.com"
-      ? "rosa"
-      : "lima";
+  const accent = activeKey === "M" ? "rosa" : "lima";
 
   return (
     <div
@@ -48,9 +54,9 @@ export default async function AppLayout({
       style={{ background: "var(--bg)", color: "var(--ink)" }}
     >
       <ScrollTopOnNav />
-      <WebSidebar userName={myFirstName} partnerName={partnerName} />
+      <WebSidebar userName={myFirstName} partnerName={partnerName} activeKey={activeKey} />
       <div className="flex min-h-screen flex-1 flex-col" style={{ minWidth: 0 }}>
-        <MobileTop />
+        <MobileTop activeKey={activeKey} />
         <main className="flex-1" style={{ minWidth: 0 }}>
           {children}
         </main>

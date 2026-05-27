@@ -12,6 +12,7 @@ import { NAV_ITEMS } from "@/components/ap/nav-items";
 type Props = {
   userName?: string | null;
   partnerName?: string | null;
+  activeKey?: "G" | "M" | null;
 };
 
 function isActive(pathname: string, href: string) {
@@ -22,7 +23,7 @@ function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function WebSidebar({ userName, partnerName }: Props) {
+export function WebSidebar({ userName, partnerName, activeKey = null }: Props) {
   const pathname = usePathname();
   const display =
     userName && partnerName
@@ -83,7 +84,7 @@ export function WebSidebar({ userName, partnerName }: Props) {
           borderTop: "0.5px solid var(--line-d)",
         }}
       >
-        <MemberChips size={28} />
+        <MemberChips size={28} activeKey={activeKey} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div
             style={{

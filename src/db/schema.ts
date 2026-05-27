@@ -432,6 +432,35 @@ export const memories = pgTable(
 );
 
 // ============================================================
+// Configuração do agente AP por household (alma, linguagem, etc)
+// ============================================================
+export const aiSettings = pgTable("ai_settings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  householdId: uuid("household_id")
+    .notNull()
+    .unique()
+    .references(() => households.id, { onDelete: "cascade" }),
+  /** Texto livre que descreve quem é a AP, valores, estilo. */
+  alma: text("alma"),
+  /** Tom: "intimo" | "formal" | "divertido" — preset que ajusta o system prompt. */
+  tone: text("tone").notNull().default("intimo"),
+  /** Tamanho de resposta: "curto" | "medio" | "detalhado". */
+  responseLength: text("response_length").notNull().default("curto"),
+  /** Permite emoji nas respostas. */
+  allowEmoji: boolean("allow_emoji").notNull().default(false),
+  /** AP pode salvar memórias automaticamente sem perguntar. */
+  autoSaveMemories: boolean("auto_save_memories").notNull().default(true),
+  /** AP chama os usuários pelo nome. */
+  callsUserByName: boolean("calls_user_by_name").notNull().default(true),
+  /** Override do modelo (default = gemini-flash-latest). */
+  modelOverride: text("model_override"),
+  /** Instruções adicionais customizadas. */
+  customInstructions: text("custom_instructions"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ============================================================
 // Compromissos (datas pontuais, curto/médio prazo)
 // ============================================================
 export const compromissos = pgTable(

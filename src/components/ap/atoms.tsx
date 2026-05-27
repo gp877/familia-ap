@@ -297,50 +297,84 @@ export function Sparkline({
 }
 
 // ────────────────────────────────────────────────────────────
-// MemberChips — círculos sobrepostos (default A + M)
+// MemberChips — círculos sobrepostos dos adultos (G + M).
+// O do usuário logado fica destacado (cor + escala). O outro fica
+// muted. Mostra de relance "quem é você" no header.
 // ────────────────────────────────────────────────────────────
 type MemberChipsProps = {
   size?: number;
-  letters?: [string, string];
+  /** Identifica qual chip destacar. "G" = Gabriel (lima), "M" = Marília (rosa). */
+  activeKey?: "G" | "M" | null;
 };
-export function MemberChips({ size = 28, letters = ["A", "M"] }: MemberChipsProps) {
+export function MemberChips({ size = 32, activeKey = null }: MemberChipsProps) {
+  // Lima pro Gabriel, rosa pra Marília
+  const G_COLOR = "#B8FF5C";
+  const M_COLOR = "#FF4FA3";
+
   return (
-    <div style={{ display: "flex" }}>
-      <div
-        style={{
-          width: size,
-          height: size,
-          borderRadius: size,
-          background: "var(--card2)",
-          border: "1.5px solid var(--bg)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontSize: size * 0.4,
-          fontWeight: 700,
-          color: "var(--ink)",
-        }}
-      >
-        {letters[0]}
-      </div>
-      <div
-        style={{
-          width: size,
-          height: size,
-          borderRadius: size,
-          background: "var(--accent)",
-          border: "1.5px solid var(--bg)",
-          marginLeft: -size * 0.4,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontSize: size * 0.4,
-          fontWeight: 700,
-          color: "var(--accent-on)",
-        }}
-      >
-        {letters[1]}
-      </div>
+    <div style={{ display: "flex", alignItems: "center" }}>
+      <Chip
+        letter="G"
+        size={size}
+        active={activeKey === "G"}
+        activeBg={G_COLOR}
+        activeFg="#0A0A0A"
+        zIndex={activeKey === "G" ? 2 : 1}
+      />
+      <Chip
+        letter="M"
+        size={size}
+        active={activeKey === "M"}
+        activeBg={M_COLOR}
+        activeFg="#FFFFFF"
+        offsetLeft={-size * 0.35}
+        zIndex={activeKey === "M" ? 2 : 1}
+      />
+    </div>
+  );
+}
+
+function Chip({
+  letter,
+  size,
+  active,
+  activeBg,
+  activeFg,
+  offsetLeft = 0,
+  zIndex,
+}: {
+  letter: string;
+  size: number;
+  active: boolean;
+  activeBg: string;
+  activeFg: string;
+  offsetLeft?: number;
+  zIndex: number;
+}) {
+  const scale = active ? 1.15 : 0.9;
+  return (
+    <div
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size,
+        background: active ? activeBg : "var(--card2)",
+        border: `1.5px solid var(--bg)`,
+        marginLeft: offsetLeft,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: size * 0.42,
+        fontWeight: 800,
+        color: active ? activeFg : "var(--muted)",
+        transform: `scale(${scale})`,
+        transformOrigin: "center",
+        transition: "transform 0.18s ease-out, background-color 0.18s ease-out, color 0.18s ease-out",
+        zIndex,
+        letterSpacing: "-0.02em",
+      }}
+    >
+      {letter}
     </div>
   );
 }
