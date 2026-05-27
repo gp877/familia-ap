@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, lte } from "drizzle-orm";
+import { asc, desc, eq } from "drizzle-orm";
 import Link from "next/link";
 
 import { BigNumber, SectionRow } from "@/components/ap/atoms";
@@ -8,45 +8,24 @@ import { db } from "@/db";
 import { cardapioEntries, receitas, users } from "@/db/schema";
 import { LunchEditor } from "./lunch-editor";
 
-const DOW_LABEL_FULL = [
-  "domingo",
-  "segunda",
-  "terça",
-  "quarta",
-  "quinta",
-  "sexta",
-  "sábado",
+// 0=segunda .. 6=domingo (alinha com ISO 8601 / pt-BR)
+const DAYS = [
+  { dow: 0, short: "seg", full: "Segunda-feira" },
+  { dow: 1, short: "ter", full: "Terça-feira" },
+  { dow: 2, short: "qua", full: "Quarta-feira" },
+  { dow: 3, short: "qui", full: "Quinta-feira" },
+  { dow: 4, short: "sex", full: "Sexta-feira" },
+  { dow: 5, short: "sáb", full: "Sábado" },
+  { dow: 6, short: "dom", full: "Domingo" },
 ];
-const DOW_SHORT = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
 
-function dateToISO(d: Date) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+function todayDow(): number {
+  // JS getDay(): 0=dom..6=sáb. Converto pra 0=seg..6=dom.
+  const js = new Date().getDay();
+  return js === 0 ? 6 : js - 1;
 }
 
-/** Pega a segunda-feira da semana que contém a data dada. */
-function mondayOf(d: Date): Date {
-  const day = d.getDay(); // 0=dom..6=sáb
-  const diff = day === 0 ? -6 : 1 - day; // dom→-6, seg→0, ter→-1, ...
-  const m = new Date(d);
-  m.setDate(d.getDate() + diff);
-  m.setHours(0, 0, 0, 0);
-  return m;
-}
-
-function addDays(d: Date, n: number): Date {
-  const r = new Date(d);
-  r.setDate(d.getDate() + n);
-  return r;
-}
-
-type SearchParams = Promise<{ week?: string }>;
-
-export default async function CardapioPage({
-  searchParams,
-}: {
-  searchParams: SearchParams;
-}) {
-  const sp = await searchParams;
+export default async function CardapioPage() {
   const session = await auth();
   if (!session?.user?.id) return null;
   const dbUser = await db.query.users.findFirst({
@@ -54,31 +33,12 @@ export default async function CardapioPage({
   });
   if (!dbUser?.householdId) return null;
 
-  // Base = segunda da semana selecionada (param ?week=YYYY-MM-DD da segunda)
-  const baseDate = sp.week
-    ? new Date(sp.week + "T00:00:00")
-    : mondayOf(new Date());
-  const monday = mondayOf(baseDate);
-  const sunday = addDays(monday, 6);
-  const mondayStr = dateToISO(monday);
-  const sundayStr = dateToISO(sunday);
-  const todayStr = dateToISO(new Date());
-
-  const days = Array.from({ length: 7 }, (_, i) => {
-    const d = addDays(monday, i);
-    return { date: dateToISO(d), dow: d.getDay() };
-  });
-
-  // Carrega entradas da semana + receitas vinculadas
+  // Cardápio é atemporal: 1 entrada por (household, dayOfWeek)
   const entries = await db.query.cardapioEntries.findMany({
-    where: and(
-      eq(cardapioEntries.householdId, dbUser.householdId),
-      gte(cardapioEntries.mealDate, mondayStr),
-      lte(cardapioEntries.mealDate, sundayStr)
-    ),
+    where: eq(cardapioEntries.householdId, dbUser.householdId),
     with: { receita: true },
   });
-  const byDate = new Map(entries.map((e) => [e.mealDate, e]));
+  const byDow = new Map(entries.map((e) => [e.dayOfWeek, e]));
 
   // Receitas pra autocomplete
   const allReceitas = await db.query.receitas.findMany({
@@ -87,30 +47,30 @@ export default async function CardapioPage({
     limit: 200,
   });
 
-  const filledCount = days.filter((d) => byDate.get(d.date)).length;
-  const prevWeek = dateToISO(addDays(monday, -7));
-  const nextWeek = dateToISO(addDays(monday, 7));
-  const thisWeek = dateToISO(mondayOf(new Date()));
-  const weekLabel = `${monday.getDate()}/${monday.getMonth() + 1} – ${sunday.getDate()}/${sunday.getMonth() + 1}`;
+  const filledCount = DAYS.filter((d) => byDow.get(d.dow)).length;
+  const today = todayDow();
 
   return (
     <ScreenShell
       insight={
         filledCount === 7 ? (
-          <>Semana toda planejada. Boa.</>
+          <>Semana toda planejada. Esse cardápio vale até vocês mudarem.</>
         ) : filledCount === 0 ? (
-          <>Nenhum almoço definido pra essa semana. Toque num dia pra agendar.</>
+          <>
+            Nenhum almoço definido. Toque num dia pra agendar — o cardápio é
+            fixo, vale pra todas as semanas até mudarem.
+          </>
         ) : (
           <>
-            <b>{filledCount}/7</b> almoços definidos. Faltam{" "}
-            {7 - filledCount} dias.
+            <b>{filledCount}/7</b> almoços definidos. Falta encaixar{" "}
+            {7 - filledCount}.
           </>
         )
       }
     >
       <SectionRow
         icon="bag"
-        label="Cardápio"
+        label="Cardápio da semana"
         action={
           <Link
             href="/cardapio/receitas"
@@ -130,68 +90,28 @@ export default async function CardapioPage({
         }
       />
 
-      {/* Navegação de semana */}
-      <div
-        style={{
-          padding: "8px 20px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 10,
-        }}
-      >
-        <Link href={`/cardapio?week=${prevWeek}`} style={navBtnStyle}>
-          ‹
-        </Link>
-        <div style={{ textAlign: "center", flex: 1 }}>
-          <div className="ap-num" style={{ fontSize: 16, fontWeight: 800, letterSpacing: "-0.02em" }}>
-            {weekLabel}
-          </div>
-          {mondayStr !== thisWeek && (
-            <Link
-              href="/cardapio"
-              style={{
-                fontSize: 10,
-                color: "var(--accent)",
-                fontWeight: 700,
-                textDecoration: "none",
-                letterSpacing: "0.08em",
-                textTransform: "uppercase",
-              }}
-            >
-              voltar a esta semana
-            </Link>
-          )}
-        </div>
-        <Link href={`/cardapio?week=${nextWeek}`} style={navBtnStyle}>
-          ›
-        </Link>
-      </div>
-
       <BigNumber
         value={`${filledCount}/7`}
-        sub={`almoços planejados · semana ${weekLabel}`}
+        sub="almoços definidos · fixo até vocês mudarem"
       />
 
       <div
         style={{
-          padding: "12px 16px 0",
+          padding: "14px 16px 0",
           display: "flex",
           flexDirection: "column",
           gap: 8,
         }}
       >
-        {days.map((d) => {
-          const entry = byDate.get(d.date);
-          const isToday = d.date === todayStr;
+        {DAYS.map((d) => {
+          const entry = byDow.get(d.dow);
           return (
             <LunchEditor
-              key={d.date}
-              date={d.date}
-              dowShort={DOW_SHORT[d.dow]}
-              dowFull={DOW_LABEL_FULL[d.dow]}
-              dayNumber={parseInt(d.date.split("-")[2], 10)}
-              isToday={isToday}
+              key={d.dow}
+              dayOfWeek={d.dow}
+              dowShort={d.short}
+              dowFull={d.full}
+              isToday={d.dow === today}
               entry={entry ?? null}
               receitas={allReceitas.map((r) => ({
                 id: r.id,
@@ -205,19 +125,3 @@ export default async function CardapioPage({
     </ScreenShell>
   );
 }
-
-const navBtnStyle: React.CSSProperties = {
-  width: 40,
-  height: 40,
-  borderRadius: 20,
-  background: "var(--card)",
-  color: "var(--ink)",
-  border: "1px solid var(--line-d)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  textDecoration: "none",
-  fontSize: 18,
-  fontWeight: 700,
-  flexShrink: 0,
-};

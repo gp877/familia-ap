@@ -1,7 +1,7 @@
 "use server";
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { and, eq, gte, lte } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
 import { db } from "@/db";
@@ -104,19 +104,22 @@ export async function deleteReceita(id: string) {
 // ────────────────────────────────────────────────────────────
 
 /**
- * Agenda/atualiza o almoço de uma data. Mantém 1 entry por dia
- * (upsert manual: se já existe, atualiza; senão cria).
+ * Agenda/atualiza o almoço de um dia da semana (0=seg..6=dom).
+ * O cardápio é atemporal: 1 entrada por (household, dayOfWeek).
+ * Fica fixo até ser alterado — vale pra todas as semanas.
  */
 export async function agendarAlmoco(formData: FormData) {
   const { householdId, userId } = await requireUserAndHousehold();
-  const mealDate = formData.get("mealDate") as string;
-  if (!mealDate) throw new Error("Data obrigatória");
+  const dowRaw = formData.get("dayOfWeek") as string;
+  const dayOfWeek = parseInt(dowRaw, 10);
+  if (!Number.isInteger(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6) {
+    throw new Error("dayOfWeek inválido (esperado 0..6)");
+  }
 
   const receitaId = ((formData.get("receitaId") as string) || "").trim() || null;
   const titleRaw = ((formData.get("title") as string) || "").trim();
   const notes = ((formData.get("notes") as string) || "").trim() || null;
 
-  // Se passou receitaId, valida e pega título da receita
   let titleFinal = titleRaw || null;
   if (receitaId) {
     const r = await db.query.receitas.findFirst({ where: eq(receitas.id, receitaId) });
@@ -131,7 +134,7 @@ export async function agendarAlmoco(formData: FormData) {
       .where(
         and(
           eq(cardapioEntries.householdId, householdId),
-          eq(cardapioEntries.mealDate, mealDate)
+          eq(cardapioEntries.dayOfWeek, dayOfWeek)
         )
       );
     revalidatePath("/cardapio");
@@ -141,20 +144,20 @@ export async function agendarAlmoco(formData: FormData) {
   const existing = await db.query.cardapioEntries.findFirst({
     where: and(
       eq(cardapioEntries.householdId, householdId),
-      eq(cardapioEntries.mealDate, mealDate)
+      eq(cardapioEntries.dayOfWeek, dayOfWeek)
     ),
   });
 
   if (existing) {
     await db
       .update(cardapioEntries)
-      .set({ receitaId, title: titleFinal, notes })
+      .set({ receitaId, title: titleFinal, notes, updatedAt: new Date() })
       .where(eq(cardapioEntries.id, existing.id));
   } else {
     await db.insert(cardapioEntries).values({
       householdId,
       createdById: userId,
-      mealDate,
+      dayOfWeek,
       receitaId,
       title: titleFinal,
       notes,
@@ -164,27 +167,26 @@ export async function agendarAlmoco(formData: FormData) {
   revalidatePath("/cardapio");
 }
 
-export async function limparAlmoco(mealDate: string) {
+export async function limparAlmoco(dayOfWeek: number) {
   const { householdId } = await requireUserAndHousehold();
+  if (!Number.isInteger(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6) {
+    throw new Error("dayOfWeek inválido (esperado 0..6)");
+  }
   await db
     .delete(cardapioEntries)
     .where(
       and(
         eq(cardapioEntries.householdId, householdId),
-        eq(cardapioEntries.mealDate, mealDate)
+        eq(cardapioEntries.dayOfWeek, dayOfWeek)
       )
     );
   revalidatePath("/cardapio");
 }
 
-export async function listarCardapioRange(fromDate: string, toDate: string) {
+export async function listarCardapioSemana() {
   const { householdId } = await requireUserAndHousehold();
   return db.query.cardapioEntries.findMany({
-    where: and(
-      eq(cardapioEntries.householdId, householdId),
-      gte(cardapioEntries.mealDate, fromDate),
-      lte(cardapioEntries.mealDate, toDate)
-    ),
+    where: eq(cardapioEntries.householdId, householdId),
     with: { receita: true },
   });
 }

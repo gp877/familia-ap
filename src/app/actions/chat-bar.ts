@@ -509,27 +509,27 @@ const functionDeclarations: FunctionDeclaration[] = [
   {
     name: "agendar_almoco",
     description:
-      "Define o almoço de uma data. Pode passar receitaId (vincula receita) ou title (texto livre). Substitui o almoço existente daquele dia.",
+      "Define o almoço de um dia da semana. O cardápio é ATEMPORAL: 1 entrada por dayOfWeek que vale pra todas as semanas até mudar. Substitui o que já tinha pra esse dia.",
     parameters: {
       type: Type.OBJECT,
       properties: {
-        date: { type: Type.STRING, description: "YYYY-MM-DD" },
+        dayOfWeek: {
+          type: Type.NUMBER,
+          description: "0=segunda, 1=terça, 2=quarta, 3=quinta, 4=sexta, 5=sábado, 6=domingo",
+        },
         receitaId: { type: Type.STRING, description: "ID da receita (use consultar_receitas pra achar)" },
         title: { type: Type.STRING, description: "Texto livre se não tem receita vinculada" },
         notes: { type: Type.STRING },
       },
-      required: ["date"],
+      required: ["dayOfWeek"],
     },
   },
   {
     name: "consultar_cardapio",
-    description: "Lista os almoços planejados num intervalo. Por padrão a semana corrente.",
+    description: "Lista o cardápio fixo dos 7 dias da semana (atemporal).",
     parameters: {
       type: Type.OBJECT,
-      properties: {
-        fromDate: { type: Type.STRING, description: "YYYY-MM-DD inclusive" },
-        toDate: { type: Type.STRING, description: "YYYY-MM-DD inclusive" },
-      },
+      properties: {},
     },
   },
   {
@@ -1049,7 +1049,10 @@ async function executeToolCall(
         };
       }
       case "agendar_almoco": {
-        const date = args.date as string;
+        const dow = Number(args.dayOfWeek);
+        if (!Number.isInteger(dow) || dow < 0 || dow > 6) {
+          return { name, result: "dayOfWeek inválido (0=seg..6=dom)." };
+        }
         const receitaId = ((args.receitaId as string) || "").trim() || null;
         const titleRaw = ((args.title as string) || "").trim();
         const notes = ((args.notes as string) || "").trim() || null;
@@ -1067,49 +1070,44 @@ async function executeToolCall(
         const existing = await db.query.cardapioEntries.findFirst({
           where: and(
             eq(cardapioEntries.householdId, householdId),
-            eq(cardapioEntries.mealDate, date)
+            eq(cardapioEntries.dayOfWeek, dow)
           ),
         });
         if (existing) {
           await db
             .update(cardapioEntries)
-            .set({ receitaId, title: titleFinal, notes })
+            .set({ receitaId, title: titleFinal, notes, updatedAt: new Date() })
             .where(eq(cardapioEntries.id, existing.id));
         } else {
           await db.insert(cardapioEntries).values({
             householdId,
             createdById: userId,
-            mealDate: date,
+            dayOfWeek: dow,
             receitaId,
             title: titleFinal,
             notes,
           });
         }
         revalidatePath("/cardapio");
-        return { name, result: `Almoço de ${date}: ${titleFinal}.` };
+        const DAY_NAMES = ["segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"];
+        return { name, result: `Cardápio de ${DAY_NAMES[dow]}: ${titleFinal}.` };
       }
       case "consultar_cardapio": {
-        const today = todayISO();
-        const fromDate = (args.fromDate as string) || today;
-        const toDate = (args.toDate as string) || addDays(today, 7);
         const rows = await db.query.cardapioEntries.findMany({
-          where: and(
-            eq(cardapioEntries.householdId, householdId),
-            gte(cardapioEntries.mealDate, fromDate),
-            lte(cardapioEntries.mealDate, toDate)
-          ),
+          where: eq(cardapioEntries.householdId, householdId),
           with: { receita: true },
-          orderBy: [asc(cardapioEntries.mealDate)],
+          orderBy: [asc(cardapioEntries.dayOfWeek)],
         });
         if (rows.length === 0) {
-          return { name, result: `Sem almoços agendados de ${fromDate} a ${toDate}.` };
+          return { name, result: "Cardápio vazio — nenhum dia definido." };
         }
+        const DAY_NAMES = ["segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"];
         return {
           name,
           result: rows
             .map(
               (e) =>
-                `${e.mealDate} · ${e.receita?.title ?? e.title ?? "(sem título)"}${e.notes ? ` · ${e.notes}` : ""}`
+                `${DAY_NAMES[e.dayOfWeek]} · ${e.receita?.title ?? e.title ?? "(sem título)"}${e.notes ? ` · ${e.notes}` : ""}`
             )
             .join("\n"),
         };

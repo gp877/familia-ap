@@ -1202,16 +1202,18 @@ export const cardapioEntries = pgTable(
     createdById: text("created_by_id").references(() => users.id, {
       onDelete: "set null",
     }),
-    mealDate: date("meal_date").notNull(),
+    /** 0=segunda .. 6=domingo. Cardápio é atemporal: fixo até mudar. */
+    dayOfWeek: integer("day_of_week").notNull(),
     receitaId: uuid("receita_id").references(() => receitas.id, {
       onDelete: "set null",
     }),
-    title: text("title"), // fallback se sem receita vinculada
+    title: text("title"), // fallback quando sem receita vinculada
     notes: text("notes"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (c) => [
-    index("cardapio_household_date_idx").on(c.householdId, c.mealDate),
+    uniqueIndex("cardapio_household_dow_unique").on(c.householdId, c.dayOfWeek),
   ]
 );
 

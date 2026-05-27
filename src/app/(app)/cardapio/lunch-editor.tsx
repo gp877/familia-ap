@@ -7,7 +7,7 @@ import { agendarAlmoco, limparAlmoco } from "@/app/actions/cardapio";
 
 type Entry = {
   id: string;
-  mealDate: string;
+  dayOfWeek: number;
   receitaId: string | null;
   title: string | null;
   notes: string | null;
@@ -21,23 +21,20 @@ type Entry = {
 type ReceitaOption = { id: string; title: string; imageUrl: string | null };
 
 /**
- * Cartão de 1 dia da semana — clica pra editar inline.
- * Mostra: dia da semana + número + texto do almoço (ou "vazio").
- * Em edição: autocomplete de receitas + texto livre.
+ * Cartão de 1 dia da semana (atemporal — sem data específica).
+ * Clica pra editar inline. Salva via agendarAlmoco com hidden dayOfWeek.
  */
 export function LunchEditor({
-  date,
+  dayOfWeek,
   dowShort,
   dowFull,
-  dayNumber,
   isToday,
   entry,
   receitas,
 }: {
-  date: string;
+  dayOfWeek: number;
   dowShort: string;
   dowFull: string;
-  dayNumber: number;
   isToday: boolean;
   entry: Entry | null;
   receitas: ReceitaOption[];
@@ -54,7 +51,6 @@ export function LunchEditor({
     if (editing) inputRef.current?.focus();
   }, [editing]);
 
-  // Sincroniza com server-state quando entry muda (após revalidate)
   useEffect(() => {
     setQuery(entry?.title ?? "");
     setSelectedReceita(entry?.receita ?? null);
@@ -69,7 +65,7 @@ export function LunchEditor({
 
   function save(receitaId: string | null, title: string) {
     const fd = new FormData();
-    fd.set("mealDate", date);
+    fd.set("dayOfWeek", String(dayOfWeek));
     if (receitaId) fd.set("receitaId", receitaId);
     if (title.trim()) fd.set("title", title);
     startTransition(async () => {
@@ -80,7 +76,7 @@ export function LunchEditor({
 
   function clear() {
     startTransition(async () => {
-      await limparAlmoco(date);
+      await limparAlmoco(dayOfWeek);
       setQuery("");
       setSelectedReceita(null);
       setEditing(false);
@@ -104,47 +100,46 @@ export function LunchEditor({
             : "0.5px solid var(--line-d)",
           cursor: "pointer",
           display: "grid",
-          gridTemplateColumns: "48px 1fr auto",
+          gridTemplateColumns: "56px 1fr auto",
           gap: 12,
           alignItems: "center",
           color: "inherit",
           fontFamily: "inherit",
         }}
       >
-        <div style={{ textAlign: "center" }}>
-          <div
-            className="ap-num"
-            style={{
-              fontSize: 20,
-              fontWeight: 800,
-              color: isToday ? "var(--accent)" : "var(--ink)",
-              lineHeight: 1,
-              letterSpacing: "-0.04em",
-            }}
-          >
-            {String(dayNumber).padStart(2, "0")}
-          </div>
+        <div style={{ textAlign: "left" }}>
           <div
             style={{
-              fontSize: 9,
+              fontSize: 11,
               fontWeight: 800,
-              letterSpacing: "0.14em",
+              letterSpacing: "0.18em",
               textTransform: "uppercase",
               color: isToday ? "var(--accent)" : "var(--muted)",
-              marginTop: 3,
             }}
           >
             {dowShort}
           </div>
+          {isToday && (
+            <div
+              style={{
+                fontSize: 9,
+                color: "var(--accent)",
+                fontWeight: 700,
+                letterSpacing: "0.1em",
+                textTransform: "uppercase",
+                marginTop: 2,
+              }}
+            >
+              hoje
+            </div>
+          )}
         </div>
         <div style={{ minWidth: 0 }}>
           <div
             style={{
-              fontSize: 10,
-              fontWeight: 800,
-              letterSpacing: "0.12em",
-              textTransform: "uppercase",
-              color: "var(--muted)",
+              fontSize: 11,
+              color: "var(--muted-d)",
+              fontWeight: 600,
             }}
           >
             {dowFull}
@@ -212,30 +207,17 @@ export function LunchEditor({
           alignItems: "baseline",
         }}
       >
-        <div>
-          <span
-            className="ap-num"
-            style={{
-              fontSize: 16,
-              fontWeight: 800,
-              color: "var(--accent)",
-              marginRight: 8,
-            }}
-          >
-            {String(dayNumber).padStart(2, "0")}
-          </span>
-          <span
-            style={{
-              fontSize: 11,
-              fontWeight: 800,
-              letterSpacing: "0.14em",
-              textTransform: "uppercase",
-              color: "var(--muted-d)",
-            }}
-          >
-            {dowFull}
-          </span>
-        </div>
+        <span
+          style={{
+            fontSize: 12,
+            fontWeight: 800,
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
+            color: "var(--accent)",
+          }}
+        >
+          {dowFull}
+        </span>
         <button
           type="button"
           onClick={() => {
@@ -342,7 +324,17 @@ export function LunchEditor({
                   {r.title.slice(0, 1).toUpperCase()}
                 </div>
               )}
-              <span style={{ fontSize: 13.5, fontWeight: 600, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              <span
+                style={{
+                  fontSize: 13.5,
+                  fontWeight: 600,
+                  flex: 1,
+                  minWidth: 0,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
                 {r.title}
               </span>
             </button>

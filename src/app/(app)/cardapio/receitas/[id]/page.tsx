@@ -209,7 +209,7 @@ export default async function ReceitaDetailPage({ params }: { params: Params }) 
       {/* Atalho pra agendar */}
       <div style={{ padding: "0 20px 12px" }}>
         <Link
-          href={`/cardapio?week=${new Date().toISOString().slice(0, 10)}`}
+          href="/cardapio"
           style={{
             display: "block",
             padding: "12px 14px",
