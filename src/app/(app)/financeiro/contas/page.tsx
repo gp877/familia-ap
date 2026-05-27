@@ -78,6 +78,7 @@ export default async function ContasPage() {
         sub={`${contas.filter((c) => c.type === "checking").length} CC · ${contas.filter((c) => c.type === "credit_card").length} cartões`}
       />
 
+      {/* Lista de contas-mãe pra vincular cartões */}
       <div style={{ padding: "14px 0 0" }}>
         <InlineForm buttonLabel="Cadastrar conta ou cartão">
           <form action={createBankAccount}>
@@ -96,6 +97,22 @@ export default async function ContasPage() {
                   <option value="credit_card">Cartão de crédito</option>
                   <option value="investment">Investimento</option>
                   <option value="other">Outra</option>
+                </select>
+              </FormField>
+              <FormField
+                label="Conta-mãe"
+                hint="só pra cartão de crédito — qual conta paga a fatura"
+              >
+                <select name="parentAccountId" defaultValue="" style={fieldStyle}>
+                  <option value="">(nenhuma · ignora pra contas raiz)</option>
+                  {contas
+                    .filter((c) => c.type !== "credit_card")
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                        {c.lastFour ? ` ····${c.lastFour}` : ""}
+                      </option>
+                    ))}
                 </select>
               </FormField>
               <div style={{ display: "grid", gap: 8, gridTemplateColumns: "1fr 90px" }}>
@@ -134,82 +151,7 @@ export default async function ContasPage() {
         </InlineForm>
       </div>
 
-      <div style={{ padding: "14px 20px 0", display: "flex", flexDirection: "column", gap: 10 }}>
-        {contas.map((c) => {
-          const s = statsById.get(c.id);
-          return (
-            <Card key={c.id} pad={14} raised={c.type === "credit_card"}>
-              <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <InlineEditInput
-                        initialValue={c.name}
-                        action={patchBankAccount}
-                        hiddenFields={{ id: c.id }}
-                        fieldName="name"
-                        fontSize={14}
-                        fontWeight={700}
-                      />
-                    </div>
-                    <span style={{ fontSize: 11, color: "var(--muted)" }}>····</span>
-                    <div style={{ width: 50 }}>
-                      <InlineEditInput
-                        initialValue={c.lastFour ?? ""}
-                        action={patchBankAccount}
-                        hiddenFields={{ id: c.id }}
-                        fieldName="lastFour"
-                        placeholder="1234"
-                        fontSize={11}
-                        color="var(--muted)"
-                      />
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 2 }}>
-                    <Pill tone="muted">{TYPE_LABEL[c.type]}</Pill>
-                    <InlineEditInput
-                      initialValue={c.institution ?? ""}
-                      action={patchBankAccount}
-                      hiddenFields={{ id: c.id }}
-                      fieldName="institution"
-                      placeholder="+ instituição"
-                      fontSize={11.5}
-                      color="var(--muted-d)"
-                    />
-                  </div>
-                  {s && (
-                    <div style={{ fontSize: 11, color: "var(--muted-d)", marginTop: 6 }}>
-                      Este mês · {s.count} transações · saldo{" "}
-                      <span className="ap-num" style={{ fontSize: 12 }}>
-                        R$ {(parseFloat(s.credit) - parseFloat(s.debit)).toLocaleString("pt-BR", {
-                          minimumFractionDigits: 2,
-                        })}
-                      </span>
-                    </div>
-                  )}
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
-                  <Link
-                    href={`/financeiro/transacoes?account=${c.id}`}
-                    style={{
-                      fontSize: 11,
-                      color: "var(--accent)",
-                      fontWeight: 600,
-                      textDecoration: "none",
-                    }}
-                  >
-                    Ver →
-                  </Link>
-                  <DeleteBtn
-                    action={deleteBankAccount.bind(null, c.id)}
-                    confirmMsg={null}
-                  />
-                </div>
-              </div>
-            </Card>
-          );
-        })}
-      </div>
+      <ContasList contas={contas} statsById={statsById} />
 
       {contas.length === 0 && (
         <div
@@ -229,3 +171,212 @@ export default async function ContasPage() {
     </ScreenShell>
   );
 }
+
+function ContasList({
+  contas,
+  statsById,
+}: {
+  contas: (typeof bankAccounts.$inferSelect)[];
+  statsById: Map<
+    string | null,
+    { count: number; debit: string; credit: string; accountId: string | null }
+  >;
+}) {
+  const roots = contas.filter((c) => c.type !== "credit_card");
+  const cards = contas.filter((c) => c.type === "credit_card");
+  const cardsByParent = new Map<string, typeof contas>();
+  for (const card of cards) {
+    if (card.parentAccountId) {
+      const arr = cardsByParent.get(card.parentAccountId) ?? [];
+      arr.push(card);
+      cardsByParent.set(card.parentAccountId, arr);
+    }
+  }
+  const orphans = cards.filter((c) => !c.parentAccountId);
+  const parentOptions = roots.map((c) => ({
+    id: c.id,
+    label: `${c.name}${c.lastFour ? ` ····${c.lastFour}` : ""}`,
+  }));
+
+  return (
+    <div style={{ padding: "14px 20px 0", display: "flex", flexDirection: "column", gap: 14 }}>
+      {roots.map((c) => {
+        const children = cardsByParent.get(c.id) ?? [];
+        return (
+          <div key={c.id} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <ContaCard conta={c} stats={statsById.get(c.id) ?? null} parentOptions={parentOptions} />
+            {children.length > 0 && (
+              <div style={{ paddingLeft: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+                {children.map((card) => (
+                  <ContaCard
+                    key={card.id}
+                    conta={card}
+                    stats={statsById.get(card.id) ?? null}
+                    parentOptions={parentOptions}
+                    nested
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {orphans.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div
+            style={{
+              fontSize: 9.5,
+              fontWeight: 800,
+              letterSpacing: "0.14em",
+              textTransform: "uppercase",
+              color: "var(--muted)",
+              padding: "8px 0 0",
+            }}
+          >
+            cartões sem conta-mãe
+          </div>
+          {orphans.map((card) => (
+            <ContaCard
+              key={card.id}
+              conta={card}
+              stats={statsById.get(card.id) ?? null}
+              parentOptions={parentOptions}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ContaCard({
+  conta: c,
+  stats: s,
+  parentOptions,
+  nested = false,
+}: {
+  conta: typeof bankAccounts.$inferSelect;
+  stats: { count: number; debit: string; credit: string } | null;
+  parentOptions: { id: string; label: string }[];
+  nested?: boolean;
+}) {
+  return (
+    <Card pad={14} raised={c.type === "credit_card" && !nested}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <InlineEditInput
+                initialValue={c.name}
+                action={patchBankAccount}
+                hiddenFields={{ id: c.id }}
+                fieldName="name"
+                fontSize={14}
+                fontWeight={700}
+              />
+            </div>
+            <span style={{ fontSize: 11, color: "var(--muted)" }}>····</span>
+            <div style={{ width: 50 }}>
+              <InlineEditInput
+                initialValue={c.lastFour ?? ""}
+                action={patchBankAccount}
+                hiddenFields={{ id: c.id }}
+                fieldName="lastFour"
+                placeholder="1234"
+                fontSize={11}
+                color="var(--muted)"
+              />
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 2 }}>
+            <Pill tone="muted">{TYPE_LABEL[c.type]}</Pill>
+            <InlineEditInput
+              initialValue={c.institution ?? ""}
+              action={patchBankAccount}
+              hiddenFields={{ id: c.id }}
+              fieldName="institution"
+              placeholder="+ instituição"
+              fontSize={11.5}
+              color="var(--muted-d)"
+            />
+          </div>
+          {/* Re-vincular cartão a outra conta-mãe */}
+          {c.type === "credit_card" && parentOptions.length > 0 && (
+            <form
+              action={patchBankAccount}
+              style={{
+                marginTop: 6,
+                display: "flex",
+                gap: 6,
+                alignItems: "center",
+              }}
+            >
+              <input type="hidden" name="id" value={c.id} />
+              <select
+                name="parentAccountId"
+                defaultValue={c.parentAccountId ?? ""}
+                style={{
+                  ...fieldStyle,
+                  padding: "4px 8px",
+                  fontSize: 11.5,
+                  background: "var(--card2)",
+                  flex: 1,
+                }}
+              >
+                <option value="">sem conta-mãe</option>
+                {parentOptions.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="submit"
+                style={{
+                  padding: "5px 10px",
+                  borderRadius: 8,
+                  background: "var(--card2)",
+                  color: "var(--ink)",
+                  border: "0.5px solid var(--line-d)",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                vincular
+              </button>
+            </form>
+          )}
+          {s && (
+            <div style={{ fontSize: 11, color: "var(--muted-d)", marginTop: 6 }}>
+              Este mês · {s.count} transações · saldo{" "}
+              <span className="ap-num" style={{ fontSize: 12 }}>
+                R$ {(parseFloat(s.credit) - parseFloat(s.debit)).toLocaleString("pt-BR", {
+                  minimumFractionDigits: 2,
+                })}
+              </span>
+            </div>
+          )}
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+          <Link
+            href={`/financeiro/transacoes?account=${c.id}`}
+            style={{
+              fontSize: 11,
+              color: "var(--accent)",
+              fontWeight: 600,
+              textDecoration: "none",
+            }}
+          >
+            Ver →
+          </Link>
+          <DeleteBtn
+            action={deleteBankAccount.bind(null, c.id)}
+            confirmMsg={null}
+          />
+        </div>
+      </div>
+    </Card>
+  );
+}
+

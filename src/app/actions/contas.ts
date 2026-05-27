@@ -19,6 +19,8 @@ export async function createBankAccount(formData: FormData) {
       : "checking"
   ) as "checking" | "savings" | "credit_card" | "investment" | "other";
 
+  const parentAccountId = ((formData.get("parentAccountId") as string) || "").trim() || null;
+
   await db.insert(bankAccounts).values({
     householdId,
     name,
@@ -26,6 +28,8 @@ export async function createBankAccount(formData: FormData) {
     institution: ((formData.get("institution") as string) || "").trim() || null,
     lastFour: ((formData.get("lastFour") as string) || "").trim() || null,
     color: ((formData.get("color") as string) || "").trim() || null,
+    // Cartões podem ter conta-mãe; outros tipos ignoram.
+    parentAccountId: type === "credit_card" ? parentAccountId : null,
   });
 
   revalidatePath("/financeiro/contas");
@@ -82,6 +86,10 @@ export async function patchBankAccount(formData: FormData) {
     if (["checking", "savings", "credit_card", "investment", "other"].includes(v)) {
       patch.type = v;
     }
+  }
+  if (formData.has("parentAccountId")) {
+    const v = ((formData.get("parentAccountId") as string) || "").trim();
+    patch.parentAccountId = v || null;
   }
   if (Object.keys(patch).length === 0) return;
   await db.update(bankAccounts).set(patch).where(eq(bankAccounts.id, id));

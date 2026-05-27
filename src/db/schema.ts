@@ -1,4 +1,5 @@
 import {
+  type AnyPgColumn,
   boolean,
   date,
   index,
@@ -187,6 +188,15 @@ export const bankAccounts = pgTable(
     householdId: uuid("household_id")
       .notNull()
       .references(() => households.id, { onDelete: "cascade" }),
+    /**
+     * Conta-mãe (só faz sentido para `type=credit_card` — cartões são
+     * vinculados a uma conta corrente que paga a fatura). Null = conta
+     * raiz (CC, poupança, investimento, …).
+     */
+    parentAccountId: uuid("parent_account_id").references(
+      (): AnyPgColumn => bankAccounts.id,
+      { onDelete: "set null" }
+    ),
     name: text("name").notNull(), // ex: "UNICRED CC"
     type: bankAccountTypeEnum("type").notNull().default("checking"),
     institution: text("institution"), // ex: "UNICRED"
@@ -195,7 +205,10 @@ export const bankAccounts = pgTable(
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (a) => [index("bank_account_household_idx").on(a.householdId, a.isActive)]
+  (a) => [
+    index("bank_account_household_idx").on(a.householdId, a.isActive),
+    index("bank_account_parent_idx").on(a.parentAccountId),
+  ]
 );
 
 // ============================================================

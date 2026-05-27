@@ -1,6 +1,7 @@
-import { and, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import Link from "next/link";
 
+import { AccountPicker, expandAccountFilter } from "@/components/ap/account-picker";
 import { BigNumber, SectionRow } from "@/components/ap/atoms";
 import { BackButton } from "@/components/ap/inline-form";
 import { MonthChips } from "@/components/ap/month-chips";
@@ -61,6 +62,12 @@ export default async function TransacoesPage({
   const selectedMonth = sp.month ?? currentMonth;
   const showAll = selectedMonth === "all";
 
+  // Carrega contas primeiro pra resolver hierarquia conta-mãe → cartões
+  const allAccounts = await db.query.bankAccounts.findMany({
+    where: eq(bankAccounts.householdId, dbUser.householdId),
+    orderBy: (a, { asc }) => [asc(a.type), asc(a.name)],
+  });
+
   const conds = [eq(transactions.householdId, dbUser.householdId)];
   if (!showAll) {
     const bounds = monthBounds(selectedMonth);
@@ -75,19 +82,17 @@ export default async function TransacoesPage({
   if (sp.uncategorized === "1") {
     conds.push(isNull(transactions.categoryId));
   }
-  if (sp.account) {
-    conds.push(eq(transactions.bankAccountId, sp.account));
+  // Expande filtro de conta: se selecionou raiz, inclui cartões filhos.
+  const expandedAccountIds = expandAccountFilter(allAccounts, sp.account ?? null);
+  if (expandedAccountIds) {
+    conds.push(inArray(transactions.bankAccountId, expandedAccountIds));
   }
 
-  const [allCategories, allAccounts, txs] = await Promise.all([
+  const [allCategories, txs] = await Promise.all([
     db.query.categories.findMany({
       where: eq(categories.householdId, dbUser.householdId),
       with: { parent: true },
       orderBy: (c, { asc }) => [asc(c.name)],
-    }),
-    db.query.bankAccounts.findMany({
-      where: eq(bankAccounts.householdId, dbUser.householdId),
-      orderBy: (a, { asc }) => [asc(a.name)],
     }),
     db.query.transactions.findMany({
       where: and(...conds),
@@ -199,13 +204,32 @@ export default async function TransacoesPage({
         action={`${txs.length} de ${totalAll}`}
       />
 
+      {/* Conta = PRIMEIRA ação. Cartões são nível 2, dentro da conta-mãe. */}
+      <AccountPicker
+        basePath="/financeiro/transacoes"
+        accounts={allAccounts.map((a) => ({
+          id: a.id,
+          name: a.name,
+          type: a.type,
+          institution: a.institution,
+          lastFour: a.lastFour,
+          parentAccountId: a.parentAccountId,
+        }))}
+        activeAccountId={sp.account ?? null}
+        extraParams={{
+          month: showAll ? "all" : sp.month,
+          status: sp.status,
+          uncategorized: sp.uncategorized,
+        }}
+      />
+
       <MonthChips
         basePath="/financeiro/transacoes"
         currentMonth={showAll ? currentMonth : selectedMonth}
         extraParams={preservedParams}
       />
 
-      {/* Botão "todos" */}
+      {/* Botão "ano todo" */}
       <div style={{ padding: "0 20px 8px", display: "flex", gap: 6 }}>
         <Link
           href={`/financeiro/transacoes?${new URLSearchParams({ ...preservedParams, month: "all" } as Record<string, string>).toString()}`}
@@ -263,52 +287,6 @@ export default async function TransacoesPage({
           );
         })}
       </div>
-
-      {/* Filtro de conta */}
-      {allAccounts.length > 0 && (
-        <div style={{ padding: "8px 20px 0", display: "flex", gap: 6, flexWrap: "wrap" }}>
-          <Link
-            href="/financeiro/transacoes"
-            style={{
-              padding: "4px 12px",
-              borderRadius: 999,
-              fontSize: 11,
-              fontWeight: 600,
-              background: !sp.account ? "var(--card)" : "transparent",
-              color: !sp.account ? "var(--ink)" : "var(--muted-d)",
-              textDecoration: "none",
-              border: "1px solid var(--line-d)",
-            }}
-          >
-            Todas as contas
-          </Link>
-          {allAccounts.map((a) => {
-            const isActive = sp.account === a.id;
-            const next = new URLSearchParams();
-            for (const [k, v] of Object.entries({ ...sp, account: a.id })) {
-              if (v) next.set(k, v as string);
-            }
-            return (
-              <Link
-                key={a.id}
-                href={`/financeiro/transacoes?${next.toString()}`}
-                style={{
-                  padding: "4px 12px",
-                  borderRadius: 999,
-                  fontSize: 11,
-                  fontWeight: 600,
-                  background: isActive ? "var(--card)" : "transparent",
-                  color: isActive ? "var(--ink)" : "var(--muted-d)",
-                  textDecoration: "none",
-                  border: "1px solid var(--line-d)",
-                }}
-              >
-                {a.name}
-              </Link>
-            );
-          })}
-        </div>
-      )}
 
       <div style={{ marginTop: 8 }}>
         <TransactionsMultiSelect

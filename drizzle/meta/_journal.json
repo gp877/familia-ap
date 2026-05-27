@@ -78,6 +78,13 @@
       "when": 1779887234380,
       "tag": "0010_green_madripoor",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1779887699861,
+      "tag": "0011_serious_scalphunter",
+      "breakpoints": true
     }
   ]
 }

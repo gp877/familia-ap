@@ -70,6 +70,15 @@ export default async function FaturasPage() {
       aa(eq(a.householdId, dbUser.householdId!), eq(a.type, "credit_card")),
   });
 
+  // Pra mostrar a conta-mãe de cada cartão nas fatura cards
+  const allAccountsById = new Map(
+    (
+      await db.query.bankAccounts.findMany({
+        where: eq(bankAccounts.householdId, dbUser.householdId),
+      })
+    ).map((a) => [a.id, a])
+  );
+
   const open = all.filter((i) => i.status !== "paid");
   const paid = all.filter((i) => i.status === "paid");
   const totalOpen = open.reduce(
@@ -148,8 +157,16 @@ export default async function FaturasPage() {
           <div style={{ padding: "0 20px", display: "flex", flexDirection: "column", gap: 8 }}>
             {open.map((inv) => {
               const stats = itemCountById.get(inv.id);
+              const parent = inv.bankAccount?.parentAccountId
+                ? allAccountsById.get(inv.bankAccount.parentAccountId) ?? null
+                : null;
               return (
-                <FaturaCard key={inv.id} inv={inv} stats={stats} />
+                <FaturaCard
+                  key={inv.id}
+                  inv={inv}
+                  stats={stats}
+                  parentName={parent?.name ?? null}
+                />
               );
             })}
           </div>
@@ -162,7 +179,18 @@ export default async function FaturasPage() {
           <div style={{ padding: "0 20px", display: "flex", flexDirection: "column", gap: 8 }}>
             {paid.map((inv) => {
               const stats = itemCountById.get(inv.id);
-              return <FaturaCard key={inv.id} inv={inv} stats={stats} paid />;
+              const parent = inv.bankAccount?.parentAccountId
+                ? allAccountsById.get(inv.bankAccount.parentAccountId) ?? null
+                : null;
+              return (
+                <FaturaCard
+                  key={inv.id}
+                  inv={inv}
+                  stats={stats}
+                  parentName={parent?.name ?? null}
+                  paid
+                />
+              );
             })}
           </div>
         </>
@@ -178,10 +206,12 @@ type InvoiceWithBank = typeof invoices.$inferSelect & {
 function FaturaCard({
   inv,
   stats,
+  parentName,
   paid,
 }: {
   inv: InvoiceWithBank;
   stats?: { count: number; total: number };
+  parentName?: string | null;
   paid?: boolean;
 }) {
   const totalAmount = inv.totalAmount
@@ -195,7 +225,7 @@ function FaturaCard({
       <Card pad={12} raised={!paid}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
               <span style={{ fontSize: 13.5, fontWeight: 700 }}>
                 {inv.bankAccount?.name ?? "Cartão"}
               </span>
@@ -203,6 +233,20 @@ function FaturaCard({
                 {formatMonth(inv.referenceMonth)}
               </span>
             </div>
+            {parentName && (
+              <div
+                style={{
+                  fontSize: 10,
+                  color: "var(--muted)",
+                  fontWeight: 700,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  marginTop: 2,
+                }}
+              >
+                paga via {parentName}
+              </div>
+            )}
             <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
               {stats?.count ?? 0} lançamentos
               {inv.dueDate ? ` · vence ${formatDueDate(inv.dueDate)}` : ""}

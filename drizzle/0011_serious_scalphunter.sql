@@ -1,0 +1,3 @@
+ALTER TABLE "bank_account" ADD COLUMN "parent_account_id" uuid;--> statement-breakpoint
+ALTER TABLE "bank_account" ADD CONSTRAINT "bank_account_parent_account_id_bank_account_id_fk" FOREIGN KEY ("parent_account_id") REFERENCES "public"."bank_account"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "bank_account_parent_idx" ON "bank_account" USING btree ("parent_account_id");
