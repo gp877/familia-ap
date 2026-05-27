@@ -207,7 +207,7 @@ export default async function ReceitaDetailPage({ params }: { params: Params }) 
       </div>
 
       {/* Atalho pra agendar */}
-      <div style={{ padding: "0 20px 20px" }}>
+      <div style={{ padding: "0 20px 12px" }}>
         <Link
           href={`/cardapio?week=${new Date().toISOString().slice(0, 10)}`}
           style={{
@@ -224,6 +224,29 @@ export default async function ReceitaDetailPage({ params }: { params: Params }) 
         >
           Agendar no cardápio →
         </Link>
+      </div>
+
+      {/* Excluir receita — botão explícito */}
+      <div style={{ padding: "0 20px 20px" }}>
+        <form action={deleteReceita.bind(null, r.id)}>
+          <button
+            type="submit"
+            style={{
+              display: "block",
+              width: "100%",
+              padding: "12px 14px",
+              borderRadius: 12,
+              background: "transparent",
+              color: "var(--alert)",
+              border: "1px solid var(--alert)",
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            Excluir receita
+          </button>
+        </form>
       </div>
     </ScreenShell>
   );
