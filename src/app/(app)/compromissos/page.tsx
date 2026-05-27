@@ -1,4 +1,5 @@
 import { asc, desc, eq, gte, lte } from "drizzle-orm";
+import Link from "next/link";
 
 import { BigNumber, SectionRow } from "@/components/ap/atoms";
 import { DeleteBtn } from "@/components/ap/inline-form";
@@ -79,7 +80,7 @@ function weekendsThatTouchMonth(year: number, month1: number): WeekendCluster[] 
   return clusters;
 }
 
-type SearchParams = Promise<{ month?: string; view?: string }>;
+type SearchParams = Promise<{ month?: string; view?: string; day?: string }>;
 
 export default async function CompromissosPage({
   searchParams,
@@ -209,6 +210,7 @@ export default async function CompromissosPage({
           month={monthN}
           byDate={byDate}
           monthStr={monthStr}
+          selectedDay={sp.day ?? null}
         />
       ) : (
         <FdsView
@@ -567,11 +569,13 @@ function CalendarView({
   month,
   byDate,
   monthStr,
+  selectedDay,
 }: {
   year: number;
   month: number;
   byDate: Map<string, (typeof compromissos.$inferSelect)[]>;
   monthStr: string;
+  selectedDay: string | null;
 }) {
   const firstDay = new Date(year, month - 1, 1);
   const lastDay = new Date(year, month, 0);
@@ -642,37 +646,28 @@ function CalendarView({
                 const items = byDate.get(c.date) ?? [];
                 const hasItems = items.length > 0;
                 const isToday = c.date === todayISO;
-                return (
-                  <div
-                    key={c.date}
-                    style={{
-                      height: 76,
-                      padding: 6,
-                      borderRadius: 8,
-                      background: hasItems || isWeekend ? "var(--card)" : "transparent",
-                      border: isToday
-                        ? "1px solid var(--accent)"
-                        : isWeekend
-                          ? "1px solid var(--line-d)"
-                          : "1px solid transparent",
-                      opacity: c.inMonth ? 1 : 0.4,
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 2,
-                      overflow: "hidden",
-                      minWidth: 0,
-                    }}
-                  >
+                const isSelected = selectedDay === c.date;
+                const isOpenable = c.inMonth;
+                const linkParams = new URLSearchParams();
+                linkParams.set("view", "calendar");
+                linkParams.set("month", monthStr);
+                if (!isSelected) linkParams.set("day", c.date);
+                const href = `/compromissos?${linkParams.toString()}`;
+
+                const cellInner = (
+                  <>
                     <div
                       className="ap-num"
                       style={{
                         fontSize: 11,
                         fontWeight: 700,
-                        color: isToday
-                          ? "var(--accent)"
-                          : hasItems
-                            ? "var(--ink)"
-                            : "var(--muted-d)",
+                        color: isSelected
+                          ? "var(--accent-on)"
+                          : isToday
+                            ? "var(--accent)"
+                            : hasItems
+                              ? "var(--ink)"
+                              : "var(--muted-d)",
                         lineHeight: 1,
                         flexShrink: 0,
                       }}
@@ -686,7 +681,7 @@ function CalendarView({
                           fontSize: 9.5,
                           fontWeight: 600,
                           lineHeight: 1.2,
-                          color: "var(--ink-d)",
+                          color: isSelected ? "var(--accent-on)" : "var(--ink-d)",
                           overflow: "hidden",
                           textOverflow: "ellipsis",
                           whiteSpace: "nowrap",
@@ -695,23 +690,187 @@ function CalendarView({
                         }}
                         title={it.title}
                       >
-                        {it.time && <span style={{ color: "var(--accent)" }}>{it.time} </span>}
+                        {it.time && (
+                          <span
+                            style={{
+                              color: isSelected ? "var(--accent-on)" : "var(--accent)",
+                            }}
+                          >
+                            {it.time}{" "}
+                          </span>
+                        )}
                         {it.title}
                       </div>
                     ))}
                     {items.length > 2 && (
-                      <div style={{ fontSize: 9, color: "var(--muted)", flexShrink: 0 }}>
+                      <div
+                        style={{
+                          fontSize: 9,
+                          color: isSelected ? "var(--accent-on)" : "var(--muted)",
+                          flexShrink: 0,
+                        }}
+                      >
                         +{items.length - 2}
                       </div>
                     )}
-                  </div>
+                  </>
+                );
+
+                const cellStyle: React.CSSProperties = {
+                  height: 76,
+                  padding: 6,
+                  borderRadius: 8,
+                  background: isSelected
+                    ? "var(--accent)"
+                    : hasItems || isWeekend
+                      ? "var(--card)"
+                      : "transparent",
+                  border: isSelected
+                    ? "1px solid var(--accent)"
+                    : isToday
+                      ? "1px solid var(--accent)"
+                      : isWeekend
+                        ? "1px solid var(--line-d)"
+                        : "1px solid transparent",
+                  opacity: c.inMonth ? 1 : 0.4,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 2,
+                  overflow: "hidden",
+                  minWidth: 0,
+                };
+
+                if (!isOpenable) {
+                  return (
+                    <div key={c.date} style={cellStyle}>
+                      {cellInner}
+                    </div>
+                  );
+                }
+                return (
+                  <Link
+                    key={c.date}
+                    href={href}
+                    scroll={false}
+                    style={{ ...cellStyle, textDecoration: "none", color: "inherit" }}
+                  >
+                    {cellInner}
+                  </Link>
                 );
               })}
             </div>
           ))}
         </div>
       </div>
+
+      {selectedDay && (
+        <DayDetailPanel
+          date={selectedDay}
+          items={byDate.get(selectedDay) ?? []}
+          monthStr={monthStr}
+        />
+      )}
     </>
+  );
+}
+
+// Painel expansível com detalhe do dia clicado no calendário.
+// Mostra todos os compromissos em tamanho legível (sem cell cramping).
+function DayDetailPanel({
+  date,
+  items,
+  monthStr,
+}: {
+  date: string;
+  items: (typeof compromissos.$inferSelect)[];
+  monthStr: string;
+}) {
+  const dt = new Date(date + "T00:00:00");
+  const fullLabel = dt
+    .toLocaleDateString("pt-BR", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+    })
+    .replace(/^\w/, (c) => c.toUpperCase());
+
+  const closeParams = new URLSearchParams();
+  closeParams.set("view", "calendar");
+  closeParams.set("month", monthStr);
+  const closeHref = `/compromissos?${closeParams.toString()}`;
+
+  return (
+    <div style={{ padding: "0 16px 16px" }}>
+      <div
+        style={{
+          background: "var(--card)",
+          borderRadius: 16,
+          border: "1px solid var(--accent)",
+          padding: "14px 16px",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: 10,
+          }}
+        >
+          <div>
+            <div
+              style={{
+                fontSize: 10,
+                fontWeight: 800,
+                letterSpacing: "0.16em",
+                textTransform: "uppercase",
+                color: "var(--accent)",
+              }}
+            >
+              dia selecionado
+            </div>
+            <div
+              style={{
+                fontSize: 15,
+                fontWeight: 700,
+                color: "var(--ink)",
+                marginTop: 2,
+              }}
+            >
+              {fullLabel}
+            </div>
+          </div>
+          <Link
+            href={closeHref}
+            scroll={false}
+            aria-label="Fechar"
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 18,
+              background: "var(--card2)",
+              color: "var(--muted-d)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 16,
+              fontWeight: 700,
+              textDecoration: "none",
+            }}
+          >
+            ×
+          </Link>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {items.length === 0 ? (
+            <EmptyDayRow date={date} />
+          ) : (
+            items.map((c) => <CompromissoRow key={c.id} c={c} />)
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
