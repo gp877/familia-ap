@@ -32,10 +32,8 @@ import {
   viagens,
 } from "@/db/schema";
 import { extrairReceitaDeUrl } from "@/app/actions/cardapio";
-import {
-  aiSettingsToSystemPrompt,
-  getOrCreateAiSettings,
-} from "@/app/actions/ai-settings";
+import { getOrCreateAiSettings } from "@/app/actions/ai-settings";
+import { aiSettingsToSystemPrompt } from "@/lib/ai-prompt";
 import { requireUserAndHousehold } from "@/lib/auth-helpers";
 
 // ────────────────────────────────────────────────────────────
