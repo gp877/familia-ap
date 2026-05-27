@@ -174,7 +174,7 @@ export default async function AniversariosPage({
           const d = parseInt(aniv.monthDay.split("-")[1], 10);
           const isNext = idx === 0;
           return (
-            <details
+            <div
               key={aniv.id}
               style={{
                 background: "var(--card)",
@@ -183,18 +183,16 @@ export default async function AniversariosPage({
                 overflow: "hidden",
               }}
             >
-              <summary
+              {/* Header: data + nome editável + dias + delete (fora de qualquer summary) */}
+              <div
                 style={{
                   display: "grid",
                   gridTemplateColumns: "56px 1fr auto auto",
                   alignItems: "center",
                   gap: 12,
                   padding: "12px 14px",
-                  cursor: "pointer",
-                  listStyle: "none",
                 }}
               >
-                {/* Tag dia/mês — número grande */}
                 <div style={{ textAlign: "center" }}>
                   <div
                     className="ap-num"
@@ -222,14 +220,13 @@ export default async function AniversariosPage({
                   </div>
                 </div>
 
-                {/* Nome editável + relação editável */}
                 <div style={{ minWidth: 0 }}>
                   <InlineEditInput
                     initialValue={aniv.name}
                     action={patchAniversario}
                     hiddenFields={{ id: aniv.id }}
                     fieldName="name"
-                    fontSize={14}
+                    fontSize={16}
                     fontWeight={700}
                   />
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -239,18 +236,17 @@ export default async function AniversariosPage({
                       hiddenFields={{ id: aniv.id }}
                       fieldName="relation"
                       placeholder="+ relação"
-                      fontSize={11}
+                      fontSize={12}
                       color="var(--muted-d)"
                     />
                     {aniv.nextAge && (
-                      <span style={{ fontSize: 11, color: "var(--muted)" }}>
+                      <span style={{ fontSize: 11, color: "var(--muted)", whiteSpace: "nowrap" }}>
                         · faz {aniv.nextAge}
                       </span>
                     )}
                   </div>
                 </div>
 
-                {/* Distância em dias */}
                 <span
                   style={{
                     fontSize: 11,
@@ -265,102 +261,119 @@ export default async function AniversariosPage({
                   action={deleteAniversario.bind(null, aniv.id)}
                   confirmMsg={null}
                 />
-              </summary>
+              </div>
 
-              {/* Detalhes expandidos: ano + notes + presentes */}
-              <div style={{ padding: "0 14px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                  <div>
-                    <div className="ap-eyebrow" style={{ fontSize: 9 }}>ano</div>
-                    <InlineEditInput
-                      initialValue={aniv.birthYear ? String(aniv.birthYear) : ""}
-                      action={patchAniversario}
-                      hiddenFields={{ id: aniv.id }}
-                      fieldName="birthYear"
-                      placeholder="ex: 1948"
-                      fontSize={12}
-                    />
+              {/* Sub-detalhes (ano, notas, presentes) — collapsed por padrão */}
+              <details>
+                <summary
+                  style={{
+                    cursor: "pointer",
+                    listStyle: "none",
+                    padding: "8px 14px",
+                    fontSize: 11,
+                    color: "var(--muted)",
+                    fontWeight: 700,
+                    letterSpacing: "0.04em",
+                    borderTop: "0.5px dashed var(--line-d)",
+                    userSelect: "none",
+                  }}
+                >
+                  + ano, notas, presentes
+                </summary>
+                <div style={{ padding: "4px 14px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    <div>
+                      <div className="ap-eyebrow" style={{ fontSize: 9 }}>ano de nascimento</div>
+                      <InlineEditInput
+                        initialValue={aniv.birthYear ? String(aniv.birthYear) : ""}
+                        action={patchAniversario}
+                        hiddenFields={{ id: aniv.id }}
+                        fieldName="birthYear"
+                        placeholder="ex: 1948"
+                        fontSize={13}
+                      />
+                    </div>
+                    <div>
+                      <div className="ap-eyebrow" style={{ fontSize: 9 }}>notas</div>
+                      <InlineEditInput
+                        initialValue={aniv.notes ?? ""}
+                        action={patchAniversario}
+                        hiddenFields={{ id: aniv.id }}
+                        fieldName="notes"
+                        placeholder="+ notas"
+                        fontSize={13}
+                        color="var(--muted-d)"
+                        italic
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <div className="ap-eyebrow" style={{ fontSize: 9 }}>notas</div>
-                    <InlineEditInput
-                      initialValue={aniv.notes ?? ""}
-                      action={patchAniversario}
-                      hiddenFields={{ id: aniv.id }}
-                      fieldName="notes"
-                      placeholder="+ notas"
-                      fontSize={12}
-                      color="var(--muted-d)"
-                      italic
-                    />
-                  </div>
-                </div>
 
-                <div>
-                  <div className="ap-eyebrow" style={{ marginBottom: 4 }}>presentes dados</div>
-                  {aniv.presentes.length > 0 ? (
-                    <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-                      {aniv.presentes.map((p) => (
-                        <li
-                          key={p.id}
+                  <div>
+                    <div className="ap-eyebrow" style={{ marginBottom: 4 }}>presentes dados</div>
+                    {aniv.presentes.length > 0 ? (
+                      <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                        {aniv.presentes.map((p) => (
+                          <li
+                            key={p.id}
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns: "40px 1fr auto",
+                              gap: 8,
+                              alignItems: "center",
+                              padding: "4px 0",
+                              fontSize: 12.5,
+                            }}
+                          >
+                            <span className="ap-num" style={{ color: "var(--muted)" }}>{p.year}</span>
+                            <span>{p.description}</span>
+                            <DeleteBtn
+                              action={deletePresente.bind(null, p.id)}
+                              confirmMsg={null}
+                            />
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <div style={{ fontSize: 11, color: "var(--muted)" }}>nenhum ainda</div>
+                    )}
+
+                    <form action={addPresente} style={{ marginTop: 6 }}>
+                      <input type="hidden" name="aniversarioId" value={aniv.id} />
+                      <div style={{ display: "grid", gridTemplateColumns: "70px 1fr auto", gap: 6 }}>
+                        <input
+                          type="number"
+                          name="year"
+                          required
+                          defaultValue={new Date().getFullYear()}
+                          style={{ ...fieldStyle, padding: "6px 8px" }}
+                        />
+                        <input
+                          name="description"
+                          required
+                          placeholder="o que vocês deram"
+                          style={{ ...fieldStyle, padding: "6px 8px" }}
+                        />
+                        <button
+                          type="submit"
                           style={{
-                            display: "grid",
-                            gridTemplateColumns: "40px 1fr auto",
-                            gap: 8,
-                            alignItems: "center",
-                            padding: "4px 0",
-                            fontSize: 12.5,
+                            padding: "6px 14px",
+                            borderRadius: 8,
+                            background: "var(--accent)",
+                            color: "var(--accent-on)",
+                            border: "none",
+                            fontSize: 13,
+                            fontWeight: 700,
+                            cursor: "pointer",
                           }}
                         >
-                          <span className="ap-num" style={{ color: "var(--muted)" }}>{p.year}</span>
-                          <span>{p.description}</span>
-                          <DeleteBtn
-                            action={deletePresente.bind(null, p.id)}
-                            confirmMsg={null}
-                          />
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <div style={{ fontSize: 11, color: "var(--muted)" }}>nenhum ainda</div>
-                  )}
-
-                  <form action={addPresente} style={{ marginTop: 6 }}>
-                    <input type="hidden" name="aniversarioId" value={aniv.id} />
-                    <div style={{ display: "grid", gridTemplateColumns: "60px 1fr auto", gap: 6 }}>
-                      <input
-                        type="number"
-                        name="year"
-                        required
-                        defaultValue={new Date().getFullYear()}
-                        style={{ ...fieldStyle, padding: "5px 8px", fontSize: 11.5 }}
-                      />
-                      <input
-                        name="description"
-                        required
-                        placeholder="o que vocês deram"
-                        style={{ ...fieldStyle, padding: "5px 8px", fontSize: 11.5 }}
-                      />
-                      <button
-                        type="submit"
-                        style={{
-                          padding: "5px 12px",
-                          borderRadius: 8,
-                          background: "var(--accent)",
-                          color: "var(--accent-on)",
-                          border: "none",
-                          fontSize: 12,
-                          fontWeight: 700,
-                          cursor: "pointer",
-                        }}
-                      >
-                        +
-                      </button>
-                    </div>
-                  </form>
+                          +
+                        </button>
+                      </div>
+                    </form>
+                  </div>
                 </div>
-              </div>
-            </details>
+              </details>
+            </div>
           );
         })}
       </div>
