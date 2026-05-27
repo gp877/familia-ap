@@ -71,6 +71,13 @@
       "when": 1779875737044,
       "tag": "0009_known_scalphunter",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1779887234380,
+      "tag": "0010_green_madripoor",
+      "breakpoints": true
     }
   ]
 }

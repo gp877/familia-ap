@@ -15,6 +15,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/db";
 import {
   aniversarios,
+  cardapioEntries,
   categories,
   compromissos,
   exames,
@@ -22,6 +23,7 @@ import {
   memories,
   messages,
   pesagens,
+  receitas,
   sonhos,
   supermercadoItens,
   threads,
@@ -29,6 +31,7 @@ import {
   users,
   viagens,
 } from "@/db/schema";
+import { extrairReceitaDeUrl } from "@/app/actions/cardapio";
 import { requireUserAndHousehold } from "@/lib/auth-helpers";
 
 // ────────────────────────────────────────────────────────────
@@ -137,7 +140,9 @@ Datas relativas: "amanhã", "próxima sexta", "daqui a 3 dias" — converta pra 
 
 Depois de criar algo, confirme brevemente o que foi feito (sem emoji).
 
-Se algo não tem ferramenta, oriente a tela: /financeiro/upload (subir extrato), /sonhos, /compromissos, etc.`;
+Se algo não tem ferramenta, oriente a tela: /financeiro/upload (subir extrato), /sonhos, /compromissos, /cardapio, etc.
+
+Cardápio + Receitas: se o usuário mandar um link (Instagram, YouTube, blog) e pedir pra cadastrar/registrar/salvar receita, chame \`importar_receita_de_url\`. Depois, se ele quiser agendar pra um dia, chame \`agendar_almoco\` com o receitaId retornado. Sempre confirme com 1 linha o que foi feito.`;
 
 // ────────────────────────────────────────────────────────────
 // Tool declarations
@@ -411,6 +416,78 @@ const functionDeclarations: FunctionDeclaration[] = [
       properties: {
         kind: { type: Type.STRING, enum: ["fact", "preference", "goal", "event"] },
         limit: { type: Type.NUMBER },
+      },
+    },
+  },
+
+  // ── Cardápio + Receitas ─────────────────────────────────────
+  {
+    name: "criar_receita",
+    description:
+      "Cria uma receita no livro. Use quando o usuário ditar a receita ou pedir pra cadastrar manualmente. Pra importar de um link use `importar_receita_de_url`.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        title: { type: Type.STRING },
+        description: { type: Type.STRING, description: "Resumo de 1 linha" },
+        ingredients: { type: Type.STRING, description: "1 ingrediente por linha, com hífen no começo" },
+        steps: { type: Type.STRING, description: "1 passo por linha, numerado (1., 2., 3...)" },
+        prepTimeMin: { type: Type.NUMBER },
+        servings: { type: Type.NUMBER },
+        tags: { type: Type.STRING, description: "CSV: 'rápido,vegetariano,frango'" },
+        sourceUrl: { type: Type.STRING },
+        imageUrl: { type: Type.STRING },
+      },
+      required: ["title"],
+    },
+  },
+  {
+    name: "importar_receita_de_url",
+    description:
+      "Baixa o conteúdo de um link (Instagram, YouTube, blog) e extrai a receita automaticamente. Use quando o usuário compartilhar um link e pedir pra cadastrar.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        url: { type: Type.STRING, description: "URL completa" },
+      },
+      required: ["url"],
+    },
+  },
+  {
+    name: "agendar_almoco",
+    description:
+      "Define o almoço de uma data. Pode passar receitaId (vincula receita) ou title (texto livre). Substitui o almoço existente daquele dia.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        date: { type: Type.STRING, description: "YYYY-MM-DD" },
+        receitaId: { type: Type.STRING, description: "ID da receita (use consultar_receitas pra achar)" },
+        title: { type: Type.STRING, description: "Texto livre se não tem receita vinculada" },
+        notes: { type: Type.STRING },
+      },
+      required: ["date"],
+    },
+  },
+  {
+    name: "consultar_cardapio",
+    description: "Lista os almoços planejados num intervalo. Por padrão a semana corrente.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        fromDate: { type: Type.STRING, description: "YYYY-MM-DD inclusive" },
+        toDate: { type: Type.STRING, description: "YYYY-MM-DD inclusive" },
+      },
+    },
+  },
+  {
+    name: "consultar_receitas",
+    description: "Lista receitas do livro, opcionalmente filtrando por texto.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        busca: { type: Type.STRING, description: "Texto no título (case-insensitive)" },
+        somenteFavoritas: { type: Type.BOOLEAN },
+        limit: { type: Type.NUMBER, description: "Default 20" },
       },
     },
   },
@@ -864,6 +941,144 @@ async function executeToolCall(
           name,
           result: rows
             .map((m) => `[${m.kind}] ${m.id.slice(0, 8)} · ${m.content}`)
+            .join("\n"),
+        };
+      }
+
+      // ── Cardápio + Receitas ────────────────────────────────
+      case "criar_receita": {
+        const [r] = await db
+          .insert(receitas)
+          .values({
+            householdId,
+            createdById: userId,
+            title: args.title as string,
+            description: (args.description as string) || null,
+            sourceUrl: (args.sourceUrl as string) || null,
+            imageUrl: (args.imageUrl as string) || null,
+            prepTimeMin: args.prepTimeMin ? Number(args.prepTimeMin) : null,
+            servings: args.servings ? Number(args.servings) : null,
+            ingredients: (args.ingredients as string) || null,
+            steps: (args.steps as string) || null,
+            tags: (args.tags as string) || null,
+          })
+          .returning();
+        revalidatePath("/cardapio/receitas");
+        return {
+          name,
+          result: `Receita criada: "${r.title}" (id ${r.id.slice(0, 8)}).`,
+        };
+      }
+      case "importar_receita_de_url": {
+        const url = (args.url as string) || "";
+        if (!url) return { name, result: "URL obrigatória." };
+        const extracted = await extrairReceitaDeUrl(url);
+        const [r] = await db
+          .insert(receitas)
+          .values({
+            householdId,
+            createdById: userId,
+            title: extracted.title,
+            description: extracted.description,
+            sourceUrl: url,
+            imageUrl: extracted.imageUrl,
+            prepTimeMin: extracted.prepTimeMin,
+            servings: extracted.servings,
+            ingredients: extracted.ingredients,
+            steps: extracted.steps,
+            tags: extracted.tags,
+          })
+          .returning();
+        revalidatePath("/cardapio/receitas");
+        return {
+          name,
+          result: `Receita importada de ${url}: "${r.title}" (id ${r.id.slice(0, 8)})${r.prepTimeMin ? ` · ${r.prepTimeMin}min` : ""}${r.servings ? ` · ${r.servings} porções` : ""}.`,
+        };
+      }
+      case "agendar_almoco": {
+        const date = args.date as string;
+        const receitaId = ((args.receitaId as string) || "").trim() || null;
+        const titleRaw = ((args.title as string) || "").trim();
+        const notes = ((args.notes as string) || "").trim() || null;
+        let titleFinal = titleRaw || null;
+        if (receitaId) {
+          const r = await db.query.receitas.findFirst({ where: eq(receitas.id, receitaId) });
+          if (!r || r.householdId !== householdId) {
+            return { name, result: "Receita não encontrada." };
+          }
+          titleFinal = r.title;
+        }
+        if (!receitaId && !titleFinal) {
+          return { name, result: "Precisa de receitaId ou title." };
+        }
+        const existing = await db.query.cardapioEntries.findFirst({
+          where: and(
+            eq(cardapioEntries.householdId, householdId),
+            eq(cardapioEntries.mealDate, date)
+          ),
+        });
+        if (existing) {
+          await db
+            .update(cardapioEntries)
+            .set({ receitaId, title: titleFinal, notes })
+            .where(eq(cardapioEntries.id, existing.id));
+        } else {
+          await db.insert(cardapioEntries).values({
+            householdId,
+            createdById: userId,
+            mealDate: date,
+            receitaId,
+            title: titleFinal,
+            notes,
+          });
+        }
+        revalidatePath("/cardapio");
+        return { name, result: `Almoço de ${date}: ${titleFinal}.` };
+      }
+      case "consultar_cardapio": {
+        const today = todayISO();
+        const fromDate = (args.fromDate as string) || today;
+        const toDate = (args.toDate as string) || addDays(today, 7);
+        const rows = await db.query.cardapioEntries.findMany({
+          where: and(
+            eq(cardapioEntries.householdId, householdId),
+            gte(cardapioEntries.mealDate, fromDate),
+            lte(cardapioEntries.mealDate, toDate)
+          ),
+          with: { receita: true },
+          orderBy: [asc(cardapioEntries.mealDate)],
+        });
+        if (rows.length === 0) {
+          return { name, result: `Sem almoços agendados de ${fromDate} a ${toDate}.` };
+        }
+        return {
+          name,
+          result: rows
+            .map(
+              (e) =>
+                `${e.mealDate} · ${e.receita?.title ?? e.title ?? "(sem título)"}${e.notes ? ` · ${e.notes}` : ""}`
+            )
+            .join("\n"),
+        };
+      }
+      case "consultar_receitas": {
+        const limit = Math.min(Number(args.limit ?? 20), 80);
+        const conditions = [eq(receitas.householdId, householdId)];
+        if (args.somenteFavoritas) conditions.push(eq(receitas.isFavorite, true));
+        if (args.busca) conditions.push(ilike(receitas.title, `%${args.busca}%`));
+        const rows = await db.query.receitas.findMany({
+          where: and(...conditions),
+          orderBy: [desc(receitas.isFavorite), desc(receitas.updatedAt)],
+          limit,
+        });
+        if (rows.length === 0) return { name, result: "Nenhuma receita encontrada." };
+        return {
+          name,
+          result: rows
+            .map(
+              (r) =>
+                `${r.id.slice(0, 8)} · ${r.title}${r.isFavorite ? " ★" : ""}${r.prepTimeMin ? ` · ${r.prepTimeMin}min` : ""}${r.tags ? ` [${r.tags}]` : ""}`
+            )
             .join("\n"),
         };
       }

@@ -1111,3 +1111,75 @@ export const pesagemRelations = relations(pesagens, ({ one }) => ({
     references: [households.id],
   }),
 }));
+
+// ============================================================
+// Cardápio + livro de receitas
+// ============================================================
+export const receitas = pgTable(
+  "receita",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    createdById: text("created_by_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    title: text("title").notNull(),
+    description: text("description"),
+    sourceUrl: text("source_url"), // link original (Insta, YouTube, blog)
+    imageUrl: text("image_url"),
+    prepTimeMin: integer("prep_time_min"),
+    servings: integer("servings"),
+    ingredients: text("ingredients"), // 1 ingrediente por linha
+    steps: text("steps"), // 1 passo por linha
+    notes: text("notes"),
+    tags: text("tags"), // CSV: "rápido,vegetariano,frango"
+    isFavorite: boolean("is_favorite").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (r) => [index("receita_household_idx").on(r.householdId, r.createdAt)]
+);
+
+export const receitaRelations = relations(receitas, ({ one, many }) => ({
+  household: one(households, {
+    fields: [receitas.householdId],
+    references: [households.id],
+  }),
+  cardapioEntries: many(cardapioEntries),
+}));
+
+export const cardapioEntries = pgTable(
+  "cardapio",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    createdById: text("created_by_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    mealDate: date("meal_date").notNull(),
+    receitaId: uuid("receita_id").references(() => receitas.id, {
+      onDelete: "set null",
+    }),
+    title: text("title"), // fallback se sem receita vinculada
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (c) => [
+    index("cardapio_household_date_idx").on(c.householdId, c.mealDate),
+  ]
+);
+
+export const cardapioEntryRelations = relations(cardapioEntries, ({ one }) => ({
+  household: one(households, {
+    fields: [cardapioEntries.householdId],
+    references: [households.id],
+  }),
+  receita: one(receitas, {
+    fields: [cardapioEntries.receitaId],
+    references: [receitas.id],
+  }),
+}));
