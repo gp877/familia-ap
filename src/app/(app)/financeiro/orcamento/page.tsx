@@ -2,6 +2,7 @@ import { and, eq, sql } from "drizzle-orm";
 
 import { BigNumber, Card, Progress, SectionRow } from "@/components/ap/atoms";
 import { BackButton, DeleteBtn, FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
+import { InlineEditInput } from "@/components/ap/inline-edit-input";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import { deleteBudget, upsertBudget } from "@/app/actions/budgets";
 import { auth } from "@/auth";
@@ -218,11 +219,17 @@ export default async function OrcamentoPage({
           const budgetEntries = allBudgets.filter((b) => b.categoryId === cat.id);
           const monthly = budgetEntries.filter((b) => b.month !== 0);
           const yearly = budgetEntries.find((b) => b.month === 0);
+
+          // Decide qual entry é a "principal" (editável inline)
+          // Preferência: anual (month=0) > única mensal > primeira mensal
+          const primaryEntry = yearly ?? (monthly.length >= 1 ? monthly[0] : null);
+          const editMonth = primaryEntry?.month ?? 0; // 0 = anual no form
+
           const monthlyPlanned = yearly
             ? parseFloat(yearly.plannedAmount)
-            : monthly.length === 1
+            : monthly.length >= 1
               ? parseFloat(monthly[0].plannedAmount)
-              : monthly.reduce((sum, b) => sum + parseFloat(b.plannedAmount), 0) / Math.max(1, monthly.length);
+              : 0;
           const yearPlanned = yearly
             ? parseFloat(yearly.plannedAmount) * 12
             : monthly.reduce((sum, b) => sum + parseFloat(b.plannedAmount), 0);
@@ -236,10 +243,8 @@ export default async function OrcamentoPage({
           );
           const realizedTotal = realizedSelf + realizedSubs;
 
-          if (yearPlanned === 0 && realizedTotal === 0) return null;
           const pct = yearPlanned > 0 ? Math.min(100, (realizedTotal / yearPlanned) * 100) : 0;
-
-          const budgetEntry = monthly[0] ?? yearly;
+          const irregular = !yearly && monthly.length > 1;
 
           return (
             <div
@@ -252,17 +257,53 @@ export default async function OrcamentoPage({
               <div
                 style={{
                   display: "flex",
-                  alignItems: "baseline",
+                  alignItems: "flex-start",
                   justifyContent: "space-between",
-                  gap: 8,
+                  gap: 10,
                   marginBottom: 6,
                 }}
               >
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13.5, fontWeight: 600 }}>{cat.name}</div>
-                  {yearPlanned > 0 && (
+                  {/* Linha editável: planejado mensal */}
+                  {!irregular ? (
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "baseline",
+                        gap: 4,
+                        marginTop: 4,
+                        fontSize: 12,
+                        color: "var(--muted)",
+                      }}
+                    >
+                      <span>R$</span>
+                      <div style={{ width: 70 }}>
+                        <InlineEditInput
+                          initialValue={monthlyPlanned > 0 ? monthlyPlanned.toFixed(2) : ""}
+                          action={upsertBudget}
+                          hiddenFields={{
+                            categoryId: cat.id,
+                            year: String(year),
+                            month: String(editMonth),
+                          }}
+                          fieldName="plannedAmount"
+                          placeholder="0"
+                          fontSize={13}
+                          fontWeight={700}
+                          color="var(--ink)"
+                        />
+                      </div>
+                      <span>/mês</span>
+                      {yearPlanned > 0 && (
+                        <span style={{ marginLeft: 6 }}>
+                          · R$ {formatBRL(yearPlanned)}/ano
+                        </span>
+                      )}
+                    </div>
+                  ) : (
                     <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
-                      planejado R$ {formatBRL(monthlyPlanned)}/mês · R$ {formatBRL(yearPlanned)}/ano
+                      orçamentos mensais irregulares — use o form abaixo pra ajustar mês a mês
                     </div>
                   )}
                 </div>
@@ -276,15 +317,19 @@ export default async function OrcamentoPage({
                   >
                     R$ {formatBRL(realizedTotal)}
                   </div>
-                  {yearPlanned > 0 && (
+                  {yearPlanned > 0 ? (
                     <div style={{ fontSize: 10.5, color: "var(--muted)" }}>
                       {pct.toFixed(0)}% do anual
                     </div>
-                  )}
+                  ) : realizedTotal > 0 ? (
+                    <div style={{ fontSize: 10.5, color: "var(--muted)" }}>
+                      sem orçamento
+                    </div>
+                  ) : null}
                 </div>
-                {budgetEntry && (
+                {primaryEntry && (
                   <DeleteBtn
-                    action={deleteBudget.bind(null, budgetEntry.id)}
+                    action={deleteBudget.bind(null, primaryEntry.id)}
                     confirmMsg={`Remover orçamento de "${cat.name}"?`}
                   />
                 )}

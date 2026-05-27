@@ -12,10 +12,13 @@ export async function upsertBudget(formData: FormData) {
   const categoryId = formData.get("categoryId") as string;
   const yearRaw = formData.get("year") as string;
   const monthRaw = formData.get("month") as string;
-  const amountRaw = formData.get("plannedAmount") as string;
+  const amountRaw = ((formData.get("plannedAmount") as string) || "")
+    .trim()
+    .replace(/[R$\s]/g, "")
+    .replace(",", ".");
 
-  if (!categoryId || !yearRaw || !amountRaw) {
-    throw new Error("Categoria, ano e valor obrigatórios");
+  if (!categoryId || !yearRaw) {
+    throw new Error("Categoria e ano obrigatórios");
   }
 
   const cat = await db.query.categories.findFirst({
@@ -28,7 +31,7 @@ export async function upsertBudget(formData: FormData) {
   const year = parseInt(yearRaw, 10);
   const month = monthRaw ? parseInt(monthRaw, 10) : 0; // 0 = anual
 
-  // upsert: tenta achar, se existe atualiza, senão insere
+  // Procura registro existente do par (categoria, ano, mês)
   const existing = await db
     .select()
     .from(budgets)
@@ -37,10 +40,21 @@ export async function upsertBudget(formData: FormData) {
     )
     .limit(1);
 
+  // Vazio ou "0" = apaga (suporta o caso de "limpar" no inline-edit)
+  const amountNum = parseFloat(amountRaw);
+  if (!amountRaw || !Number.isFinite(amountNum) || amountNum <= 0) {
+    if (existing[0]) {
+      await db.delete(budgets).where(eq(budgets.id, existing[0].id));
+      revalidatePath("/financeiro/orcamento");
+      revalidatePath("/financeiro/dre");
+    }
+    return;
+  }
+
   if (existing[0]) {
     await db
       .update(budgets)
-      .set({ plannedAmount: amountRaw, updatedAt: new Date() })
+      .set({ plannedAmount: amountNum.toFixed(2), updatedAt: new Date() })
       .where(eq(budgets.id, existing[0].id));
   } else {
     await db.insert(budgets).values({
@@ -48,7 +62,7 @@ export async function upsertBudget(formData: FormData) {
       categoryId,
       year,
       month,
-      plannedAmount: amountRaw,
+      plannedAmount: amountNum.toFixed(2),
     });
   }
 
