@@ -54,11 +54,11 @@ function getAI(): GoogleGenAI {
 
 /**
  * Mensagem de erro amigável a partir de uma exception bruta do Gemini.
- * O SDK joga o JSON inteiro da resposta como msg — feio demais pra mostrar
- * ao usuário.
+ * Extrai a mensagem útil do JSON em vez de mostrar o stacktrace cru.
  */
 function friendlyAiError(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
+
   if (raw.includes("RESOURCE_EXHAUSTED") || raw.includes('"code":429')) {
     const retryMatch = /"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/.exec(raw);
     const retrySec = retryMatch ? Math.ceil(parseFloat(retryMatch[1])) : 30;
@@ -70,9 +70,20 @@ function friendlyAiError(err: unknown): string {
   if (raw.includes("PERMISSION_DENIED")) {
     return "Sem permissão pra usar esse modelo. Tente outro em /configuracoes/ia.";
   }
-  // fallback — primeiro pedaço sem o JSON gigante
-  const short = raw.replace(/\{[^]*\}/g, "(detalhe técnico)").slice(0, 220);
-  return `Não consegui processar agora: ${short}`;
+  if (raw.includes("thought_signature")) {
+    return "Erro técnico interno (thought_signature). Já está sendo investigado — tente reformular a pergunta.";
+  }
+
+  // Tenta extrair a mensagem do JSON do Gemini ("message": "...")
+  const msgMatch = /"message"\s*:\s*"([^"]+)"/.exec(raw);
+  if (msgMatch) {
+    return `Não consegui processar agora: ${msgMatch[1].slice(0, 240)}`;
+  }
+  // Última opção: primeiro pedaço do raw (sem o JSON gigante)
+  const cleaned = raw.replace(/\{[^]*\}/g, "").trim().slice(0, 240);
+  return cleaned
+    ? `Não consegui processar agora: ${cleaned}`
+    : "Não consegui processar agora. Pode tentar reformular a pergunta?";
 }
 
 /**
@@ -1223,14 +1234,18 @@ export async function processChatTurnWithTools(
   let assistantText = (response?.text?.trim() ?? "");
   const fnCalls: FunctionCall[] = response?.functionCalls ?? [];
 
+  // IMPORTANTE: preservamos o `content` original do response (com
+  // thought_signature, partes em ordem etc) — reconstruir manualmente
+  // os parts perde o thought_signature e Gemini 2.5+ rejeita o
+  // follow-up com erro 400.
+  const initialModelContent = response?.candidates?.[0]?.content;
+
   // Loop de até 3 rodadas de tool calls
   let roundsLeft = 3;
   let lastCalls = fnCalls;
   let lastHistory: Content[] = [
     ...history,
-    ...(fnCalls.length > 0
-      ? [{ role: "model", parts: fnCalls.map((c) => ({ functionCall: c })) } as Content]
-      : []),
+    ...(initialModelContent && fnCalls.length > 0 ? [initialModelContent] : []),
   ];
   let lastToolResults: { name: string; result: string }[] = [];
 
@@ -1263,7 +1278,6 @@ export async function processChatTurnWithTools(
       );
     } catch (err) {
       console.error("[chat-bar] follow-up generateContent error:", err);
-      // Não usa o tool result cru — tenta uma síntese sem tools depois
       response = null;
       toolErrorFallback = friendlyAiError(err);
       break;
@@ -1271,11 +1285,10 @@ export async function processChatTurnWithTools(
 
     lastCalls = response.functionCalls ?? [];
     assistantText = response.text?.trim() ?? "";
-    if (lastCalls.length > 0) {
-      lastHistory = [
-        ...lastHistory,
-        { role: "model", parts: lastCalls.map((c) => ({ functionCall: c })) } as Content,
-      ];
+    // Mesmo motivo: passa o content original do model
+    const followupContent = response.candidates?.[0]?.content;
+    if (followupContent && lastCalls.length > 0) {
+      lastHistory = [...lastHistory, followupContent];
     }
   }
 
