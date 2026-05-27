@@ -1,7 +1,11 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect } from "react";
+
+// useLayoutEffect só roda no client. Em SSR fingimos com useEffect pra
+// evitar warning.
+const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
 /**
  * Scrolla pra o topo SEMPRE que o pathname mudar, INCLUSIVE no 1º render.
@@ -28,7 +32,7 @@ export function ScrollTopOnNav() {
     }
   }, []);
 
-  useEffect(() => {
+  useIsoLayoutEffect(() => {
     if (typeof window === "undefined") return;
     // Se vier com #anchor, deixa o browser posicionar lá
     if (window.location.hash) return;
@@ -37,23 +41,24 @@ export function ScrollTopOnNav() {
       window.scrollTo({ top: 0, left: 0, behavior: "instant" as ScrollBehavior });
       document.documentElement.scrollTop = 0;
       if (document.body) document.body.scrollTop = 0;
-      // Caso o main tenha overflow específico em alguma config:
+      // Caso o main ou outro container tenha overflow específico:
       const mains = document.querySelectorAll<HTMLElement>("main");
       for (const m of mains) m.scrollTop = 0;
     };
 
-    // Imediato + após próximo paint
+    // Imediato (antes do paint, via useLayoutEffect)
     scrollAllToTop();
+    // E novamente após o próximo paint
     requestAnimationFrame(scrollAllToTop);
-    // Brute force: snapa de volta ao topo qualquer scroll que aconteça
-    // nos primeiros ~600ms (vence restaurações tardias, lazy-loading
-    // que muda layout, etc).
+    // Snap-back agressivo: a cada 60ms por 1.2s qualquer scroll que
+    // tente acontecer (lazy-load de imagem, hidratamento tardio,
+    // restauração do browser) é vencido.
     let elapsed = 0;
     const interval = window.setInterval(() => {
       scrollAllToTop();
-      elapsed += 80;
-      if (elapsed >= 600) window.clearInterval(interval);
-    }, 80);
+      elapsed += 60;
+      if (elapsed >= 1200) window.clearInterval(interval);
+    }, 60);
     return () => window.clearInterval(interval);
   }, [pathname]);
 

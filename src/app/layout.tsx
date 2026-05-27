@@ -36,6 +36,22 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} ${caveat.variable} h-full antialiased`}
       data-accent="lima"
     >
+      <head>
+        {/* Roda ANTES do React hydratar: desabilita scroll restoration
+            do browser e snapa pro topo. Resolve "página abre no meio"
+            que acontecia porque o navegador restaurava posição antiga
+            antes do ScrollTopOnNav (cliente) mount. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              try {
+                if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+                if (!location.hash) window.scrollTo(0, 0);
+              } catch (e) {}
+            `,
+          }}
+        />
+      </head>
       <body className="min-h-full flex flex-col bg-bg text-ink">
         <TooltipProvider>{children}</TooltipProvider>
       </body>
