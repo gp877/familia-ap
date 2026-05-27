@@ -4,32 +4,48 @@ import {
   FunctionCallingConfigMode,
   GoogleGenAI,
   Type,
+  type Content,
   type FunctionCall,
   type FunctionDeclaration,
   type Tool,
 } from "@google/genai";
-import { asc, desc, eq, gte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, lte, ne, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
 import { db } from "@/db";
 import {
   aniversarios,
+  categories,
   compromissos,
+  exames,
+  invoices,
+  memories,
   messages,
   pesagens,
   sonhos,
   supermercadoItens,
   threads,
   transactions,
+  users,
   viagens,
 } from "@/db/schema";
 import { requireUserAndHousehold } from "@/lib/auth-helpers";
 
-if (!process.env.GEMINI_API_KEY) {
-  throw new Error("GEMINI_API_KEY not set");
-}
+// ────────────────────────────────────────────────────────────
+// Cliente Gemini — lazy: erro só dispara no momento da chamada,
+// não no import (evita route inteira quebrar em build).
+// ────────────────────────────────────────────────────────────
+const MODEL = "gemini-flash-latest";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+function getAI(): GoogleGenAI {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) {
+    throw new Error(
+      "GEMINI_API_KEY não está configurada. Defina em .env.local (dev) ou em Project Settings → Environment Variables (Vercel)."
+    );
+  }
+  return new GoogleGenAI({ apiKey: key });
+}
 
 export type ChatBarMessage = {
   role: "user" | "assistant";
@@ -42,6 +58,9 @@ export type ChatBarState = {
   error?: string;
 };
 
+// ────────────────────────────────────────────────────────────
+// Thread
+// ────────────────────────────────────────────────────────────
 async function getOrCreateMainThread(householdId: string, userId: string) {
   let thread = await db.query.threads.findFirst({
     where: eq(threads.householdId, householdId),
@@ -61,194 +80,367 @@ async function getOrCreateMainThread(householdId: string, userId: string) {
   return thread;
 }
 
-async function buildContext(householdId: string): Promise<string> {
+// ────────────────────────────────────────────────────────────
+// Contexto inicial — slim. Tools fazem o deep dive.
+// ────────────────────────────────────────────────────────────
+async function buildContext(householdId: string, currentUserId: string, currentUserName: string | null) {
   const todayStr = new Date().toISOString().slice(0, 10);
+  const weekday = new Date().toLocaleDateString("pt-BR", { weekday: "long" });
 
-  const recentTx = await db.query.transactions.findMany({
-    where: eq(transactions.householdId, householdId),
-    orderBy: [desc(transactions.occurredOn)],
-    with: { category: true },
-    limit: 8,
+  const householdUsers = await db.query.users.findMany({
+    where: eq(users.householdId, householdId),
   });
+  const peopleList = householdUsers
+    .map((u) => `${u.name ?? u.email}${u.id === currentUserId ? " (você fala com ele/ela agora)" : ""}`)
+    .join(", ");
 
-  const upcoming = await db.query.compromissos.findMany({
-    where: (c, { and: a }) =>
-      a(eq(c.householdId, householdId), gte(c.occurredOn, todayStr)),
-    orderBy: [asc(compromissos.occurredOn)],
-    limit: 5,
+  // 20 memórias mais recentes do household (todos os usuários)
+  const mems = await db.query.memories.findMany({
+    where: eq(memories.householdId, householdId),
+    orderBy: [desc(memories.updatedAt)],
+    limit: 20,
   });
+  const memById = new Map(householdUsers.map((u) => [u.id, u.name ?? u.email ?? "?"]));
+  const memSection =
+    mems.length > 0
+      ? mems
+          .map(
+            (m) =>
+              `  - [${m.kind}] ${m.content}${m.createdByUserId ? ` (anotado por ${memById.get(m.createdByUserId) ?? "?"})` : ""}`
+          )
+          .join("\n")
+      : "  (sem memórias salvas ainda)";
 
-  const nextTrip = await db.query.viagens.findFirst({
-    where: (v, { and: a, ne }) =>
-      a(eq(v.householdId, householdId), ne(v.status, "past")),
-    orderBy: [asc(viagens.startDate)],
-  });
+  const parts: string[] = [
+    `Data de hoje: ${todayStr} (${weekday})`,
+    `Família AP — membros: ${peopleList}.`,
+    `Você está conversando com: ${currentUserName ?? "usuário"}.`,
+    "\nMemórias salvas sobre a família (use pra personalizar respostas):",
+    memSection,
+  ];
 
-  const activeSonhos = await db.query.sonhos.findMany({
-    where: (s, { and: a }) =>
-      a(eq(s.householdId, householdId), eq(s.status, "active")),
-    limit: 5,
-  });
-
-  const allAniv = await db.query.aniversarios.findMany({
-    where: eq(aniversarios.householdId, householdId),
-  });
-
-  const parts: string[] = [`Data de hoje: ${todayStr} (${new Date().toLocaleDateString("pt-BR", { weekday: "long" })})`];
-
-  if (recentTx.length > 0) {
-    parts.push("\nÚltimas transações:");
-    for (const t of recentTx) {
-      parts.push(
-        `  - ${new Date(t.occurredOn).toLocaleDateString("pt-BR")} · ${t.kind === "debit" ? "-" : "+"}R$${t.amount} · ${t.description} (${t.category?.name ?? "sem categoria"})`
-      );
-    }
-  } else {
-    parts.push("\nSem transações registradas.");
-  }
-  if (upcoming.length > 0) {
-    parts.push("\nPróximos compromissos:");
-    for (const c of upcoming.slice(0, 3)) {
-      parts.push(
-        `  - ${c.occurredOn}${c.time ? ` ${c.time}` : ""}: ${c.title}${c.who ? ` (${c.who})` : ""}`
-      );
-    }
-  }
-  if (nextTrip) {
-    parts.push(
-      `\nPróxima viagem: ${nextTrip.title}${nextTrip.startDate ? ` (saída ${nextTrip.startDate})` : ""}${nextTrip.ticketsBought ? " · passagens compradas" : ""}.`
-    );
-  }
-  if (activeSonhos.length > 0) {
-    parts.push(`\nSonhos ativos: ${activeSonhos.map((s) => s.title).join(", ")}.`);
-  }
-  if (allAniv.length > 0) {
-    parts.push(
-      `\nAniversários: ${allAniv.map((a) => `${a.name} (${a.monthDay})`).join(", ")}.`
-    );
-  }
   return parts.join("\n");
 }
 
 const SYSTEM_PROMPT = `Você é AP, assistente da família Família AP (Gabriel + Marília + Francisco).
 
-Tom: conversacional, íntimo, português brasileiro, primeira pessoa do plural quando relevante ("vocês", "a gente"). Curto e útil. Cite números específicos. NUNCA emoji. Nunca formal. Nunca empolgado.
+Tom: conversacional, íntimo, português brasileiro. Primeira pessoa do plural quando fizer sentido ("vocês", "a gente"). Curto, útil, direto. Cite números específicos quando tiver. NUNCA use emoji. Nunca seja formal. Nunca seja empolgado.
 
-Você tem ferramentas pra CRIAR dados no sistema. Use proativamente quando o usuário pedir pra adicionar/cadastrar/criar algo. Pode usar várias ferramentas na mesma resposta se necessário.
+Você tem ferramentas pra LER (consultar_*) e ESCREVER (criar_*) dados do sistema da família. Use proativamente:
+- Se a pessoa perguntar algo factual ("qual foi o saldo de abril?", "quantos exames a Marília tem?"), CHAME a tool de consulta antes de responder — não invente.
+- Se a pessoa pedir pra criar/agendar/registrar algo, CHAME a tool de criação.
+- Pode encadear várias tools numa mesma resposta se precisar.
 
-Resolva datas relativas: "amanhã", "próxima sexta", "daqui a 3 dias" — converta pra YYYY-MM-DD usando a data de hoje no contexto.
+Memória: use \`salvar_memoria\` quando aprender algo importante e durável sobre a família (preferências, fatos, metas, eventos relevantes). Não salve fofoca trivial. Use \`esquecer_memoria\` se a pessoa pedir pra apagar.
+
+Datas relativas: "amanhã", "próxima sexta", "daqui a 3 dias" — converta pra YYYY-MM-DD usando a data de hoje no contexto.
 
 Depois de criar algo, confirme brevemente o que foi feito (sem emoji).
 
-Se não tem ferramenta pra algo, sugira a tela: /financeiro/upload pra subir extrato, /sonhos pra cadastrar sonhos completos, etc.`;
+Se algo não tem ferramenta, oriente a tela: /financeiro/upload (subir extrato), /sonhos, /compromissos, etc.`;
 
-// ── Tool declarations ──────────────────────────────────────
+// ────────────────────────────────────────────────────────────
+// Tool declarations
+// ────────────────────────────────────────────────────────────
 const functionDeclarations: FunctionDeclaration[] = [
-      {
-        name: "criar_compromisso",
-        description:
-          "Cria um compromisso/evento na agenda. Use quando o usuário pedir pra agendar, marcar, lembrar de algo numa data específica.",
-        parameters: {
-          type: Type.OBJECT,
-          properties: {
-            title: { type: Type.STRING, description: "Título curto, ex: 'Aula de natação do Francisco'" },
-            date: { type: Type.STRING, description: "Data no formato YYYY-MM-DD" },
-            time: { type: Type.STRING, description: "Hora opcional HH:MM" },
-            who: { type: Type.STRING, description: "Quem está envolvido: Gabriel, Marília, Francisco, Casal, Família" },
-            location: { type: Type.STRING, description: "Local opcional" },
-            notes: { type: Type.STRING, description: "Observações opcionais" },
-            recurring: {
-              type: Type.STRING,
-              enum: ["once", "weekly", "biweekly", "monthly"],
-              description: "Se repete: once=só uma vez (padrão), weekly=semanal (12x), biweekly=quinzenal (6x), monthly=mensal (12x)",
-            },
-          },
-          required: ["title", "date"],
+  // ── WRITE ──────────────────────────────────────────────────
+  {
+    name: "criar_compromisso",
+    description: "Cria compromisso/evento na agenda.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        title: { type: Type.STRING, description: "Ex: 'Aula de natação do Francisco'" },
+        date: { type: Type.STRING, description: "YYYY-MM-DD" },
+        time: { type: Type.STRING, description: "HH:MM opcional" },
+        who: { type: Type.STRING, description: "Gabriel, Marília, Francisco, Casal, Família" },
+        location: { type: Type.STRING },
+        notes: { type: Type.STRING },
+        recurring: {
+          type: Type.STRING,
+          enum: ["once", "weekly", "biweekly", "monthly"],
+          description: "once=1x, weekly=semanal 12x, biweekly=quinzenal 6x, monthly=mensal 12x",
         },
       },
-      {
-        name: "criar_sonho",
-        description: "Cria um sonho da família na lista de sonhos.",
-        parameters: {
-          type: Type.OBJECT,
-          properties: {
-            title: { type: Type.STRING },
-            description: { type: Type.STRING },
-            imageUrl: { type: Type.STRING, description: "URL de imagem inspiração (opcional)" },
-          },
-          required: ["title"],
+      required: ["title", "date"],
+    },
+  },
+  {
+    name: "criar_sonho",
+    description: "Cadastra um sonho da família.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        title: { type: Type.STRING },
+        description: { type: Type.STRING },
+        imageUrl: { type: Type.STRING },
+      },
+      required: ["title"],
+    },
+  },
+  {
+    name: "criar_pesagem",
+    description: "Registra pesagem (peso e/ou altura).",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        who: { type: Type.STRING, description: "Gabriel, Marília ou Francisco" },
+        weightKg: { type: Type.STRING, description: "Ex: '83.4'" },
+        heightCm: { type: Type.STRING, description: "Ex: '178' — útil pra Francisco (bebê)" },
+        date: { type: Type.STRING, description: "YYYY-MM-DD (padrão hoje)" },
+        notes: { type: Type.STRING },
+      },
+      required: ["who", "weightKg"],
+    },
+  },
+  {
+    name: "criar_aniversario",
+    description: "Cadastra aniversário.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        name: { type: Type.STRING },
+        monthDay: { type: Type.STRING, description: "MM-DD (ex: 08-11)" },
+        birthYear: { type: Type.NUMBER },
+        relation: { type: Type.STRING },
+        notes: { type: Type.STRING },
+      },
+      required: ["name", "monthDay"],
+    },
+  },
+  {
+    name: "criar_item_supermercado",
+    description: "Cadastra item no estoque do supermercado.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        name: { type: Type.STRING },
+        category: { type: Type.STRING },
+        unit: { type: Type.STRING },
+        defaultQty: { type: Type.STRING },
+        estimatedPrice: { type: Type.STRING },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "criar_viagem",
+    description: "Cadastra uma viagem (planejada, em curso ou já realizada).",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        title: { type: Type.STRING, description: "Ex: 'Lisboa + Porto'" },
+        destinationCity: { type: Type.STRING },
+        destinationCountry: { type: Type.STRING, description: "Sigla 2 letras" },
+        startDate: { type: Type.STRING, description: "YYYY-MM-DD" },
+        endDate: { type: Type.STRING, description: "YYYY-MM-DD" },
+        status: {
+          type: Type.STRING,
+          enum: ["planned", "in_progress", "past"],
+        },
+        notes: { type: Type.STRING },
+      },
+      required: ["title"],
+    },
+  },
+  {
+    name: "criar_transacao",
+    description: "Lança uma transação manual (despesa ou receita).",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        description: { type: Type.STRING },
+        amount: { type: Type.STRING, description: "Valor absoluto, ex: '120.50'" },
+        kind: { type: Type.STRING, enum: ["debit", "credit"], description: "debit=despesa, credit=receita" },
+        date: { type: Type.STRING, description: "YYYY-MM-DD" },
+        category: { type: Type.STRING, description: "Nome da categoria (será matched por nome)" },
+      },
+      required: ["description", "amount", "kind"],
+    },
+  },
+  {
+    name: "salvar_memoria",
+    description:
+      "Salva algo durável sobre a família ou o usuário: preferências, fatos, metas, eventos relevantes. Use proativamente quando aprender algo que vai querer lembrar em conversas futuras.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        content: { type: Type.STRING, description: "Texto curto e específico, 1ª pessoa do usuário não, 3ª pessoa." },
+        kind: {
+          type: Type.STRING,
+          enum: ["fact", "preference", "goal", "event"],
+          description: "fact=fato; preference=preferência; goal=objetivo; event=evento marcante",
         },
       },
-      {
-        name: "criar_pesagem",
-        description: "Registra uma pesagem (peso) de alguém da família.",
-        parameters: {
-          type: Type.OBJECT,
-          properties: {
-            who: { type: Type.STRING, description: "Gabriel, Marília, Francisco" },
-            weightKg: { type: Type.STRING, description: "Peso em kg, ex: '83.4'" },
-            date: { type: Type.STRING, description: "Data YYYY-MM-DD (padrão hoje)" },
-            notes: { type: Type.STRING },
-          },
-          required: ["who", "weightKg"],
-        },
+      required: ["content", "kind"],
+    },
+  },
+  {
+    name: "esquecer_memoria",
+    description: "Apaga uma memória específica pelo ID (use após consultar_memorias).",
+    parameters: {
+      type: Type.OBJECT,
+      properties: { memoryId: { type: Type.STRING } },
+      required: ["memoryId"],
+    },
+  },
+
+  // ── READ ───────────────────────────────────────────────────
+  {
+    name: "consultar_compromissos",
+    description: "Lista compromissos da agenda. Por padrão retorna próximos 10.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        fromDate: { type: Type.STRING, description: "YYYY-MM-DD (inclusive). Default: hoje" },
+        toDate: { type: Type.STRING, description: "YYYY-MM-DD (inclusive)." },
+        who: { type: Type.STRING, description: "Filtra por pessoa envolvida" },
+        searchText: { type: Type.STRING, description: "Busca no título (case-insensitive)" },
+        limit: { type: Type.NUMBER, description: "Default 10" },
       },
-      {
-        name: "criar_aniversario",
-        description: "Cadastra um aniversário (nome + data MM-DD + ano de nascimento opcional).",
-        parameters: {
-          type: Type.OBJECT,
-          properties: {
-            name: { type: Type.STRING, description: "Nome da pessoa" },
-            monthDay: { type: Type.STRING, description: "MM-DD, ex: '08-11' = 11 de agosto" },
-            birthYear: { type: Type.NUMBER, description: "Ano de nascimento (opcional)" },
-            relation: { type: Type.STRING, description: "Relação, ex: 'avó da Marília', 'sobrinho'" },
-            notes: { type: Type.STRING },
-          },
-          required: ["name", "monthDay"],
-        },
+    },
+  },
+  {
+    name: "consultar_pesagens",
+    description: "Lista pesagens de uma pessoa, mais recentes primeiro.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        who: { type: Type.STRING },
+        limit: { type: Type.NUMBER, description: "Default 10" },
       },
-      {
-        name: "criar_item_supermercado",
-        description: "Cadastra um item no estoque do supermercado.",
-        parameters: {
-          type: Type.OBJECT,
-          properties: {
-            name: { type: Type.STRING },
-            category: { type: Type.STRING, description: "ex: padaria, limpeza, frutas, mercado" },
-            unit: { type: Type.STRING, description: "un, kg, L, pct, …" },
-            defaultQty: { type: Type.STRING, description: "Quantidade habitual, ex: '2'" },
-            estimatedPrice: { type: Type.STRING, description: "Preço estimado por unidade" },
-          },
-          required: ["name"],
-        },
+      required: ["who"],
+    },
+  },
+  {
+    name: "consultar_exames",
+    description: "Lista exames de uma pessoa, mais recentes primeiro.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        who: { type: Type.STRING },
+        limit: { type: Type.NUMBER, description: "Default 10" },
       },
-      {
-        name: "criar_fim_de_semana",
-        description: "Adiciona uma programação a um sábado ou domingo específico.",
-        parameters: {
-          type: Type.OBJECT,
-          properties: {
-            date: { type: Type.STRING, description: "YYYY-MM-DD (idealmente sex/sáb/dom)" },
-            title: { type: Type.STRING },
-            notes: { type: Type.STRING },
-          },
-          required: ["date", "title"],
-        },
+      required: ["who"],
+    },
+  },
+  {
+    name: "consultar_viagens",
+    description: "Lista viagens.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        status: { type: Type.STRING, enum: ["planned", "in_progress", "past"] },
+        limit: { type: Type.NUMBER, description: "Default 10" },
       },
-      {
-        name: "consultar_gastos_mes",
-        description: "Retorna o total de gastos (despesas) de um mês específico.",
-        parameters: {
-          type: Type.OBJECT,
-          properties: {
-            month: { type: Type.STRING, description: "YYYY-MM. Se omitido, usa mês atual." },
-          },
-        },
+    },
+  },
+  {
+    name: "consultar_sonhos",
+    description: "Lista sonhos ativos da família.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        status: { type: Type.STRING, enum: ["active", "realized", "paused"] },
+        limit: { type: Type.NUMBER },
       },
+    },
+  },
+  {
+    name: "consultar_aniversarios",
+    description: "Lista aniversários, ordenados por proximidade.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        proximosDias: { type: Type.NUMBER, description: "Filtra aniversários nos próximos N dias. Default 365." },
+        limit: { type: Type.NUMBER },
+      },
+    },
+  },
+  {
+    name: "consultar_estoque",
+    description: "Lista itens do estoque do supermercado, com estoque atual e mínimo.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        somenteFaltando: { type: Type.BOOLEAN, description: "Se true, retorna só itens com estoque abaixo do mínimo" },
+        limit: { type: Type.NUMBER },
+      },
+    },
+  },
+  {
+    name: "consultar_transacoes",
+    description: "Lista transações (despesas/receitas) com filtros.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        mes: { type: Type.STRING, description: "YYYY-MM. Se omitido, último mês." },
+        kind: { type: Type.STRING, enum: ["debit", "credit"] },
+        busca: { type: Type.STRING, description: "Busca na descrição (case-insensitive)" },
+        limit: { type: Type.NUMBER, description: "Default 15" },
+      },
+    },
+  },
+  {
+    name: "consultar_dre",
+    description: "DRE (saldo, receitas, despesas) de um mês ou ano.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        mes: { type: Type.STRING, description: "YYYY-MM para visão mensal" },
+        ano: { type: Type.NUMBER, description: "YYYY para visão anual" },
+      },
+    },
+  },
+  {
+    name: "consultar_faturas",
+    description: "Lista faturas de cartão de crédito.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        status: { type: Type.STRING, enum: ["open", "scheduled", "paid"] },
+        limit: { type: Type.NUMBER },
+      },
+    },
+  },
+  {
+    name: "consultar_memorias",
+    description: "Lista memórias salvas sobre a família.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        kind: { type: Type.STRING, enum: ["fact", "preference", "goal", "event"] },
+        limit: { type: Type.NUMBER },
+      },
+    },
+  },
 ];
 const tools: Tool[] = [{ functionDeclarations }];
 
+// ────────────────────────────────────────────────────────────
+// Helpers de data
+// ────────────────────────────────────────────────────────────
+function addDays(dateStr: string, days: number): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + days);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+}
+function addMonths(dateStr: string, months: number): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(y, m - 1 + months, d);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+}
+function todayISO(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+function formatBRL(n: number): string {
+  return n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// ────────────────────────────────────────────────────────────
+// Executor de tools
+// ────────────────────────────────────────────────────────────
 async function executeToolCall(
   call: FunctionCall,
   householdId: string,
@@ -256,19 +448,17 @@ async function executeToolCall(
 ): Promise<{ name: string; result: string }> {
   const name = call.name ?? "";
   const args = (call.args ?? {}) as Record<string, unknown>;
+
   try {
     switch (name) {
+      // ─── WRITE ──────────────────────────────────────────────
       case "criar_compromisso": {
-        const seriesId =
-          args.recurring && args.recurring !== "once" ? crypto.randomUUID() : null;
+        const recurring = (args.recurring as string) || "once";
+        const seriesId = recurring !== "once" ? crypto.randomUUID() : null;
         const dates: string[] = [args.date as string];
-        if (args.recurring === "weekly") {
-          for (let i = 1; i < 12; i++) dates.push(addDays(args.date as string, 7 * i));
-        } else if (args.recurring === "biweekly") {
-          for (let i = 1; i < 6; i++) dates.push(addDays(args.date as string, 14 * i));
-        } else if (args.recurring === "monthly") {
-          for (let i = 1; i < 12; i++) dates.push(addMonths(args.date as string, i));
-        }
+        if (recurring === "weekly") for (let i = 1; i < 12; i++) dates.push(addDays(args.date as string, 7 * i));
+        else if (recurring === "biweekly") for (let i = 1; i < 6; i++) dates.push(addDays(args.date as string, 14 * i));
+        else if (recurring === "monthly") for (let i = 1; i < 12; i++) dates.push(addMonths(args.date as string, i));
         await db.insert(compromissos).values(
           dates.map((date) => ({
             householdId,
@@ -279,7 +469,7 @@ async function executeToolCall(
             who: (args.who as string) || null,
             location: (args.location as string) || null,
             notes: (args.notes as string) || null,
-            recurringRule: (args.recurring as string) === "once" ? null : (args.recurring as string) || null,
+            recurringRule: recurring === "once" ? null : recurring,
             seriesId,
           }))
         );
@@ -287,7 +477,7 @@ async function executeToolCall(
         revalidatePath("/");
         return {
           name,
-          result: `Criado: "${args.title}" em ${args.date}${args.time ? ` às ${args.time}` : ""}${dates.length > 1 ? ` (${dates.length} ocorrências, ${args.recurring})` : ""}.`,
+          result: `Criado: "${args.title}" em ${args.date}${args.time ? ` às ${args.time}` : ""}${dates.length > 1 ? ` (${dates.length} ocorrências, ${recurring})` : ""}.`,
         };
       }
       case "criar_sonho": {
@@ -300,7 +490,6 @@ async function executeToolCall(
           status: "active",
         });
         revalidatePath("/sonhos");
-        revalidatePath("/");
         return { name, result: `Sonho cadastrado: "${args.title}".` };
       }
       case "criar_pesagem": {
@@ -308,18 +497,19 @@ async function executeToolCall(
           householdId,
           createdById: userId,
           who: args.who as string,
-          weighedOn: (args.date as string) || new Date().toISOString().slice(0, 10),
+          weighedOn: (args.date as string) || todayISO(),
           weightKg: args.weightKg as string,
+          heightCm: (args.heightCm as string) || null,
           notes: (args.notes as string) || null,
         });
         revalidatePath("/saude-peso");
         return {
           name,
-          result: `Pesagem registrada: ${args.who} · ${args.weightKg} kg.`,
+          result: `Pesagem registrada: ${args.who} · ${args.weightKg} kg${args.heightCm ? ` · ${args.heightCm} cm` : ""}.`,
         };
       }
       case "criar_aniversario": {
-        const md = String(args.monthDay).slice(0, 5); // MM-DD
+        const md = String(args.monthDay).slice(0, 5);
         await db.insert(aniversarios).values({
           householdId,
           createdById: userId,
@@ -330,10 +520,7 @@ async function executeToolCall(
           notes: (args.notes as string) || null,
         });
         revalidatePath("/aniversarios");
-        return {
-          name,
-          result: `Aniversário cadastrado: ${args.name} em ${md}.`,
-        };
+        return { name, result: `Aniversário cadastrado: ${args.name} em ${md}.` };
       }
       case "criar_item_supermercado": {
         await db.insert(supermercadoItens).values({
@@ -347,66 +534,354 @@ async function executeToolCall(
         revalidatePath("/supermercado");
         return { name, result: `Item adicionado: "${args.name}".` };
       }
-      case "criar_fim_de_semana": {
-        // mantido por compatibilidade — cria compromisso (módulo unificado)
-        await db.insert(compromissos).values({
+      case "criar_viagem": {
+        const status = ((args.status as string) || "planned") as "planned" | "in_progress" | "past";
+        const startDate = (args.startDate as string) || null;
+        const endDate = (args.endDate as string) || null;
+        const nights =
+          startDate && endDate
+            ? Math.max(
+                0,
+                Math.round(
+                  (new Date(endDate).getTime() - new Date(startDate).getTime()) / 86_400_000
+                )
+              )
+            : null;
+        await db.insert(viagens).values({
           householdId,
           createdById: userId,
-          occurredOn: args.date as string,
           title: args.title as string,
+          destinationCity: (args.destinationCity as string) || null,
+          destinationCountry: (args.destinationCountry as string)?.toUpperCase() || null,
+          startDate,
+          endDate,
+          nights,
+          status,
           notes: (args.notes as string) || null,
         });
-        revalidatePath("/compromissos");
-        return { name, result: `Programação salva em ${args.date}: "${args.title}".` };
+        revalidatePath("/viagens");
+        return { name, result: `Viagem criada: "${args.title}" (${status}).` };
       }
-      case "consultar_gastos_mes": {
-        const now = new Date();
-        const monthStr = (args.month as string) || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+      case "criar_transacao": {
+        const cat = args.category
+          ? await db.query.categories.findFirst({
+              where: and(
+                eq(categories.householdId, householdId),
+                ilike(categories.name, args.category as string)
+              ),
+            })
+          : null;
+        const dateStr = (args.date as string) || todayISO();
+        const occurredOn = new Date(`${dateStr}T12:00:00`);
+        await db.insert(transactions).values({
+          householdId,
+          createdById: userId,
+          occurredOn,
+          amount: args.amount as string,
+          kind: args.kind as "debit" | "credit",
+          description: args.description as string,
+          rawDescription: args.description as string,
+          categoryId: cat?.id ?? null,
+          status: "confirmed",
+        });
+        revalidatePath("/financeiro/transacoes");
+        revalidatePath("/financeiro/dre");
+        revalidatePath("/");
+        return {
+          name,
+          result: `Lançado ${args.kind === "debit" ? "débito" : "crédito"}: R$ ${args.amount} · "${args.description}"${cat ? ` em ${cat.name}` : ""}.`,
+        };
+      }
+      case "salvar_memoria": {
+        const kind = ((args.kind as string) || "fact") as "fact" | "preference" | "goal" | "event";
+        const [m] = await db
+          .insert(memories)
+          .values({
+            householdId,
+            createdByUserId: userId,
+            kind,
+            content: args.content as string,
+          })
+          .returning();
+        return { name, result: `Memória salva [${kind}]: "${m.content}" (id ${m.id.slice(0, 8)}).` };
+      }
+      case "esquecer_memoria": {
+        const id = args.memoryId as string;
+        const existing = await db.query.memories.findFirst({ where: eq(memories.id, id) });
+        if (!existing || existing.householdId !== householdId) {
+          return { name, result: "Memória não encontrada." };
+        }
+        await db.delete(memories).where(eq(memories.id, id));
+        return { name, result: `Memória apagada: "${existing.content}".` };
+      }
+
+      // ─── READ ───────────────────────────────────────────────
+      case "consultar_compromissos": {
+        const fromDate = (args.fromDate as string) || todayISO();
+        const toDate = args.toDate as string | undefined;
+        const limit = Math.min(Number(args.limit ?? 10), 50);
+        const conditions = [eq(compromissos.householdId, householdId), gte(compromissos.occurredOn, fromDate)];
+        if (toDate) conditions.push(lte(compromissos.occurredOn, toDate));
+        if (args.who) conditions.push(eq(compromissos.who, args.who as string));
+        if (args.searchText) conditions.push(ilike(compromissos.title, `%${args.searchText}%`));
+        const rows = await db.query.compromissos.findMany({
+          where: and(...conditions),
+          orderBy: [asc(compromissos.occurredOn), asc(compromissos.time)],
+          limit,
+        });
+        if (rows.length === 0) return { name, result: "Nenhum compromisso encontrado nesse filtro." };
+        return {
+          name,
+          result: rows
+            .map(
+              (c) =>
+                `${c.occurredOn}${c.time ? ` ${c.time}` : ""} · ${c.title}${c.who ? ` (${c.who})` : ""}${c.location ? ` em ${c.location}` : ""}`
+            )
+            .join("\n"),
+        };
+      }
+      case "consultar_pesagens": {
+        const limit = Math.min(Number(args.limit ?? 10), 50);
+        const rows = await db.query.pesagens.findMany({
+          where: and(eq(pesagens.householdId, householdId), eq(pesagens.who, args.who as string)),
+          orderBy: [desc(pesagens.weighedOn)],
+          limit,
+        });
+        if (rows.length === 0) return { name, result: `Sem pesagens de ${args.who}.` };
+        return {
+          name,
+          result: rows
+            .map((p) => `${p.weighedOn} · ${p.weightKg} kg${p.heightCm ? ` · ${p.heightCm} cm` : ""}`)
+            .join("\n"),
+        };
+      }
+      case "consultar_exames": {
+        const limit = Math.min(Number(args.limit ?? 10), 50);
+        const rows = await db.query.exames.findMany({
+          where: and(eq(exames.householdId, householdId), eq(exames.who, args.who as string)),
+          orderBy: [desc(exames.examDate)],
+          limit,
+        });
+        if (rows.length === 0) return { name, result: `Sem exames de ${args.who}.` };
+        return {
+          name,
+          result: rows
+            .map((e) => `${e.examDate} · ${e.name} (${e.status})${e.doctor ? ` · ${e.doctor}` : ""}`)
+            .join("\n"),
+        };
+      }
+      case "consultar_viagens": {
+        const limit = Math.min(Number(args.limit ?? 10), 50);
+        const conditions = [eq(viagens.householdId, householdId)];
+        if (args.status) conditions.push(eq(viagens.status, args.status as "planned" | "in_progress" | "past"));
+        const rows = await db.query.viagens.findMany({
+          where: and(...conditions),
+          orderBy: [desc(viagens.startDate)],
+          limit,
+        });
+        if (rows.length === 0) return { name, result: "Sem viagens." };
+        return {
+          name,
+          result: rows
+            .map(
+              (v) =>
+                `${v.title}${v.destinationCity ? ` (${v.destinationCity})` : ""}${v.startDate ? ` · saída ${v.startDate}` : ""} · ${v.status}`
+            )
+            .join("\n"),
+        };
+      }
+      case "consultar_sonhos": {
+        const limit = Math.min(Number(args.limit ?? 10), 50);
+        const conditions = [eq(sonhos.householdId, householdId)];
+        if (args.status) conditions.push(eq(sonhos.status, args.status as "active" | "realized" | "paused"));
+        const rows = await db.query.sonhos.findMany({
+          where: and(...conditions),
+          orderBy: [desc(sonhos.createdAt)],
+          limit,
+        });
+        if (rows.length === 0) return { name, result: "Sem sonhos cadastrados." };
+        return {
+          name,
+          result: rows
+            .map((s) => `${s.title} (${s.status})${s.description ? ` · ${s.description}` : ""}`)
+            .join("\n"),
+        };
+      }
+      case "consultar_aniversarios": {
+        const dias = Number(args.proximosDias ?? 365);
+        const limit = Math.min(Number(args.limit ?? 30), 100);
+        const all = await db.query.aniversarios.findMany({
+          where: eq(aniversarios.householdId, householdId),
+        });
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const enriched = all.map((a) => {
+          const [mm, dd] = a.monthDay.split("-").map(Number);
+          let target = new Date(today.getFullYear(), mm - 1, dd);
+          if (target < today) target = new Date(today.getFullYear() + 1, mm - 1, dd);
+          const daysUntil = Math.round((target.getTime() - today.getTime()) / 86_400_000);
+          return { ...a, daysUntil };
+        });
+        const filtered = enriched
+          .filter((a) => a.daysUntil <= dias)
+          .sort((a, b) => a.daysUntil - b.daysUntil)
+          .slice(0, limit);
+        if (filtered.length === 0) return { name, result: `Nenhum aniversário nos próximos ${dias} dias.` };
+        return {
+          name,
+          result: filtered
+            .map(
+              (a) =>
+                `${a.monthDay} · ${a.name}${a.relation ? ` (${a.relation})` : ""} · em ${a.daysUntil}d${a.birthYear ? ` · faz ${today.getFullYear() - a.birthYear + (a.daysUntil > 0 ? 1 : 0)}` : ""}`
+            )
+            .join("\n"),
+        };
+      }
+      case "consultar_estoque": {
+        const limit = Math.min(Number(args.limit ?? 30), 100);
+        const rows = await db.query.supermercadoItens.findMany({
+          where: eq(supermercadoItens.householdId, householdId),
+          orderBy: [asc(supermercadoItens.name)],
+        });
+        const filtered = args.somenteFaltando
+          ? rows.filter((it) => {
+              const cur = parseFloat(it.currentStock ?? "0");
+              const min = parseFloat(it.minStock ?? "0");
+              return min > 0 && cur < min;
+            })
+          : rows;
+        const display = filtered.slice(0, limit);
+        if (display.length === 0) {
+          return { name, result: args.somenteFaltando ? "Tudo abastecido." : "Estoque vazio." };
+        }
+        return {
+          name,
+          result: display
+            .map(
+              (it) =>
+                `${it.name}${it.category ? ` (${it.category})` : ""} · estoque ${it.currentStock ?? "0"}${it.unit ? ` ${it.unit}` : ""}${it.minStock ? ` (mín ${it.minStock})` : ""}`
+            )
+            .join("\n"),
+        };
+      }
+      case "consultar_transacoes": {
+        const limit = Math.min(Number(args.limit ?? 15), 60);
+        const monthStr = (args.mes as string) || todayISO().slice(0, 7);
         const [y, m] = monthStr.split("-").map(Number);
         const start = new Date(y, m - 1, 1);
         const end = new Date(y, m, 1);
+        const conditions = [
+          eq(transactions.householdId, householdId),
+          ne(transactions.status, "ignored" as const),
+          gte(transactions.occurredOn, start),
+          lte(transactions.occurredOn, end),
+        ];
+        if (args.kind) conditions.push(eq(transactions.kind, args.kind as "debit" | "credit"));
+        if (args.busca) conditions.push(ilike(transactions.description, `%${args.busca}%`));
+        const rows = await db.query.transactions.findMany({
+          where: and(...conditions),
+          orderBy: [desc(transactions.occurredOn)],
+          with: { category: true },
+          limit,
+        });
+        if (rows.length === 0) return { name, result: `Sem transações em ${monthStr}.` };
+        return {
+          name,
+          result: rows
+            .map(
+              (t) =>
+                `${new Date(t.occurredOn).toISOString().slice(0, 10)} · ${t.kind === "debit" ? "-" : "+"}R$${t.amount} · ${t.description} (${t.category?.name ?? "sem categoria"})`
+            )
+            .join("\n"),
+        };
+      }
+      case "consultar_dre": {
+        const now = new Date();
+        const monthStr = (args.mes as string) || null;
+        const ano = args.ano ? Number(args.ano) : monthStr ? Number(monthStr.split("-")[0]) : now.getFullYear();
+        let start: Date, end: Date, label: string;
+        if (monthStr) {
+          const [y, m] = monthStr.split("-").map(Number);
+          start = new Date(y, m - 1, 1);
+          end = new Date(y, m, 1);
+          label = monthStr;
+        } else {
+          start = new Date(ano, 0, 1);
+          end = new Date(ano + 1, 0, 1);
+          label = String(ano);
+        }
         const r = await db
           .select({
-            total: sql<string>`coalesce(sum(${transactions.amount}::numeric), 0)::text`,
+            debit: sql<string>`coalesce(sum(case when ${transactions.kind} = 'debit' then ${transactions.amount}::numeric else 0 end), 0)::text`,
+            credit: sql<string>`coalesce(sum(case when ${transactions.kind} = 'credit' then ${transactions.amount}::numeric else 0 end), 0)::text`,
             count: sql<number>`count(*)::int`,
           })
           .from(transactions)
           .where(
-            sql`${transactions.householdId} = ${householdId} AND ${transactions.kind} = 'debit' AND ${transactions.status} != 'ignored' AND ${transactions.occurredOn} >= ${start.toISOString()} AND ${transactions.occurredOn} < ${end.toISOString()}`
+            sql`${transactions.householdId} = ${householdId} AND ${transactions.status} != 'ignored' AND ${transactions.occurredOn} >= ${start.toISOString()} AND ${transactions.occurredOn} < ${end.toISOString()}`
           )
           .then((rows) => rows[0]);
+        const debit = parseFloat(r?.debit ?? "0");
+        const credit = parseFloat(r?.credit ?? "0");
+        const saldo = credit - debit;
         return {
           name,
-          result: `Gastos de ${monthStr}: R$ ${parseFloat(r?.total ?? "0").toFixed(2)} em ${r?.count ?? 0} transações.`,
+          result: `DRE ${label}: receitas R$ ${formatBRL(credit)} · despesas R$ ${formatBRL(debit)} · saldo R$ ${formatBRL(saldo)} (${r?.count ?? 0} transações).`,
         };
       }
+      case "consultar_faturas": {
+        const limit = Math.min(Number(args.limit ?? 10), 50);
+        const conditions = [eq(invoices.householdId, householdId)];
+        if (args.status) conditions.push(eq(invoices.status, args.status as "open" | "scheduled" | "paid"));
+        const rows = await db.query.invoices.findMany({
+          where: and(...conditions),
+          orderBy: [desc(invoices.referenceMonth)],
+          with: { bankAccount: true },
+          limit,
+        });
+        if (rows.length === 0) return { name, result: "Sem faturas cadastradas." };
+        return {
+          name,
+          result: rows
+            .map(
+              (i) =>
+                `${i.bankAccount?.name ?? "?"} · ${i.referenceMonth} · R$ ${i.totalAmount} · ${i.status}${i.dueDate ? ` · vence ${i.dueDate}` : ""}`
+            )
+            .join("\n"),
+        };
+      }
+      case "consultar_memorias": {
+        const limit = Math.min(Number(args.limit ?? 20), 100);
+        const conditions = [eq(memories.householdId, householdId)];
+        if (args.kind) conditions.push(eq(memories.kind, args.kind as "fact" | "preference" | "goal" | "event"));
+        const rows = await db.query.memories.findMany({
+          where: and(...conditions),
+          orderBy: [desc(memories.updatedAt)],
+          limit,
+        });
+        if (rows.length === 0) return { name, result: "Sem memórias salvas." };
+        return {
+          name,
+          result: rows
+            .map((m) => `[${m.kind}] ${m.id.slice(0, 8)} · ${m.content}`)
+            .join("\n"),
+        };
+      }
+
       default:
         return { name, result: `Função "${name}" não reconhecida.` };
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return { name, result: `Erro ao executar: ${msg}` };
+    console.error(`[chat-bar tool error] ${name}:`, err);
+    return { name, result: `Erro ao executar ${name}: ${msg}` };
   }
 }
 
-function addDays(dateStr: string, days: number): string {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  const dt = new Date(y, m - 1, d);
-  dt.setDate(dt.getDate() + days);
-  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
-}
-function addMonths(dateStr: string, months: number): string {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  const dt = new Date(y, m - 1 + months, d);
-  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
-}
-
-/**
- * Núcleo compartilhado: processa uma mensagem do usuário, executa tools se
- * necessário, persiste user+assistant no DB e retorna ambos os registros.
- * Usado tanto pelo ChatBar (rodapé global, retorna state) quanto pelo /chat
- * (form action direta, retorna void).
- */
+// ────────────────────────────────────────────────────────────
+// Núcleo: processa 1 turno do chat (user msg → assistant msg)
+// Usado pelo ChatBar (rodapé), /chat (página), e webhook do WhatsApp.
+// ────────────────────────────────────────────────────────────
 export async function processChatTurnWithTools(
   content: string,
   householdId: string,
@@ -434,75 +909,93 @@ export async function processChatTurnWithTools(
     limit: 20,
   });
 
-  const summary = await buildContext(householdId);
+  const currentUser = await db.query.users.findFirst({
+    where: eq(users.id, userId),
+  });
+  const summary = await buildContext(householdId, userId, currentUser?.name ?? null);
 
-  const history = allMessages.reverse().map((m) => ({
-    role: m.role === "assistant" ? ("model" as const) : ("user" as const),
+  const history: Content[] = allMessages.reverse().map((m) => ({
+    role: m.role === "assistant" ? "model" : "user",
     parts: [{ text: m.content }],
   }));
 
-  let response = await ai.models.generateContent({
-    model: "gemini-flash-latest",
-    contents: history,
-    config: {
-      systemInstruction:
-        SYSTEM_PROMPT +
-        "\n\n## Contexto atual da família (auto-gerado):\n\n" +
-        summary,
-      temperature: 0.4,
-      maxOutputTokens: 600,
-      tools,
-      toolConfig: {
-        functionCallingConfig: { mode: FunctionCallingConfigMode.AUTO },
+  const ai = getAI();
+
+  let response;
+  try {
+    response = await ai.models.generateContent({
+      model: MODEL,
+      contents: history,
+      config: {
+        systemInstruction: SYSTEM_PROMPT + "\n\n## Contexto atual:\n\n" + summary,
+        temperature: 0.4,
+        maxOutputTokens: 800,
+        tools,
+        toolConfig: {
+          functionCallingConfig: { mode: FunctionCallingConfigMode.AUTO },
+        },
       },
-    },
-  });
+    });
+  } catch (err) {
+    console.error("[chat-bar] generateContent error:", err);
+    throw err;
+  }
 
   const fnCalls: FunctionCall[] = response.functionCalls ?? [];
   let assistantText = response.text?.trim() ?? "";
 
-  if (fnCalls.length > 0) {
+  // Permite até 3 rodadas de tool calls (chamada → resultado → eventualmente
+  // outra chamada com base no resultado)
+  let roundsLeft = 3;
+  let lastCalls = fnCalls;
+  let lastHistory: Content[] = [
+    ...history,
+    ...(fnCalls.length > 0
+      ? [{ role: "model", parts: fnCalls.map((c) => ({ functionCall: c })) } as Content]
+      : []),
+  ];
+
+  while (lastCalls.length > 0 && roundsLeft-- > 0) {
     const toolResults = await Promise.all(
-      fnCalls.map((call) => executeToolCall(call, householdId, userId))
+      lastCalls.map((call) => executeToolCall(call, householdId, userId))
     );
-
     const fnResponses = toolResults.map((r) => ({
-      functionResponse: {
-        name: r.name,
-        response: { result: r.result },
-      },
+      functionResponse: { name: r.name, response: { result: r.result } },
     }));
+    lastHistory = [
+      ...lastHistory,
+      { role: "user", parts: fnResponses } as Content,
+    ];
 
-    response = await ai.models.generateContent({
-      model: "gemini-flash-latest",
-      contents: [
-        ...history,
-        {
-          role: "model",
-          parts: fnCalls.map((c) => ({ functionCall: c })),
+    try {
+      response = await ai.models.generateContent({
+        model: MODEL,
+        contents: lastHistory,
+        config: {
+          systemInstruction: SYSTEM_PROMPT + "\n\n## Contexto atual:\n\n" + summary,
+          temperature: 0.3,
+          maxOutputTokens: 600,
+          tools,
+          toolConfig: { functionCallingConfig: { mode: FunctionCallingConfigMode.AUTO } },
         },
-        {
-          role: "user",
-          parts: fnResponses,
-        },
-      ],
-      config: {
-        systemInstruction:
-          SYSTEM_PROMPT +
-          "\n\n## Contexto atual da família (auto-gerado):\n\n" +
-          summary,
-        temperature: 0.3,
-        maxOutputTokens: 400,
-      },
-    });
+      });
+    } catch (err) {
+      console.error("[chat-bar] follow-up generateContent error:", err);
+      assistantText = toolResults.map((r) => r.result).join("\n");
+      break;
+    }
 
-    assistantText =
-      response.text?.trim() ?? toolResults.map((r) => r.result).join(" ");
+    lastCalls = response.functionCalls ?? [];
+    assistantText = response.text?.trim() ?? "";
+    if (lastCalls.length > 0) {
+      lastHistory = [
+        ...lastHistory,
+        { role: "model", parts: lastCalls.map((c) => ({ functionCall: c })) } as Content,
+      ];
+    }
   }
 
-  if (!assistantText) {
-    assistantText = "(sem resposta — tente reformular)";
-  }
+  if (!assistantText) assistantText = "(sem resposta — tente reformular)";
 
   const [assistantMsg] = await db
     .insert(messages)
@@ -514,16 +1007,16 @@ export async function processChatTurnWithTools(
     })
     .returning();
 
-  await db
-    .update(threads)
-    .set({ updatedAt: new Date() })
-    .where(eq(threads.id, thread.id));
+  await db.update(threads).set({ updatedAt: new Date() }).where(eq(threads.id, thread.id));
 
   revalidatePath("/chat");
 
   return { userMsg, assistantMsg };
 }
 
+// ────────────────────────────────────────────────────────────
+// Action usada pelo ChatBar (useActionState)
+// ────────────────────────────────────────────────────────────
 export async function sendMessageReturn(
   prevState: ChatBarState,
   formData: FormData
@@ -533,12 +1026,7 @@ export async function sendMessageReturn(
 
   try {
     const { householdId, userId } = await requireUserAndHousehold();
-    const { userMsg, assistantMsg } = await processChatTurnWithTools(
-      content,
-      householdId,
-      userId
-    );
-
+    const { userMsg, assistantMsg } = await processChatTurnWithTools(content, householdId, userId);
     return {
       messages: [
         ...prevState.messages,
@@ -548,13 +1036,19 @@ export async function sendMessageReturn(
     };
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
+    console.error("[chat-bar] sendMessageReturn error:", err);
     return {
       messages: [
         ...prevState.messages,
         { role: "user", content, id: `local-${Date.now()}` },
-        { role: "assistant", content: `(erro: ${errMsg})`, id: `local-err-${Date.now()}` },
+        {
+          role: "assistant",
+          content: `(erro: ${errMsg})`,
+          id: `local-err-${Date.now()}`,
+        },
       ],
       error: errMsg,
     };
   }
 }
+

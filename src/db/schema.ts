@@ -113,6 +113,8 @@ export const users = pgTable("user", {
   householdId: uuid("household_id").references(() => households.id, {
     onDelete: "set null",
   }),
+  /** Telefone E.164 (+5511…) — usado pra mapear mensagens do WhatsApp ao usuário. */
+  phone: text("phone").unique(),
 });
 
 export const accounts = pgTable(

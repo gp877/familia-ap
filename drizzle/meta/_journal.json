@@ -64,6 +64,13 @@
       "when": 1779815572009,
       "tag": "0008_illegal_silver_surfer",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1779875737044,
+      "tag": "0009_known_scalphunter",
+      "breakpoints": true
     }
   ]
 }
