@@ -311,6 +311,7 @@ function TripCard({
     <Card raised={accent} pad={14} style={{ display: "flex", gap: 14, alignItems: "center" }}>
       <Link
         href={`/viagens/${v.id}`}
+        aria-label={`Abrir ${v.title}`}
         style={{
           width: 52,
           height: 52,
@@ -361,12 +362,41 @@ function TripCard({
           />
           {v.ticketsBought && <Pill tone="ok">passagens</Pill>}
         </div>
-        <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 3 }}>
+        {/* Metadata é o segundo alvo de toque pra entrar na viagem */}
+        <Link
+          href={`/viagens/${v.id}`}
+          style={{
+            display: "block",
+            fontSize: 11.5,
+            color: "var(--muted)",
+            marginTop: 3,
+            textDecoration: "none",
+          }}
+        >
           {[dates, v.nights ? `${v.nights} noites` : null, v.destinationCity]
             .filter(Boolean)
             .join(" · ") || "—"}
-        </div>
+        </Link>
       </div>
+      <Link
+        href={`/viagens/${v.id}`}
+        aria-label={`Abrir ${v.title}`}
+        style={{
+          width: 40,
+          height: 40,
+          borderRadius: 10,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "var(--muted-d)",
+          textDecoration: "none",
+          flexShrink: 0,
+          fontSize: 18,
+          fontWeight: 700,
+        }}
+      >
+        ›
+      </Link>
       <DeleteBtn action={deleteViagem.bind(null, v.id)} confirmMsg={null} />
     </Card>
   );

@@ -191,6 +191,15 @@
     box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 25%, transparent);
   }
 
+  /* Anti-zoom iOS Safari: inputs precisam de >=16px para não disparar
+     o auto-zoom de focus. Aplica só em mobile (desktop mantém o design
+     original com fontSize variável). */
+  @media (max-width: 768px) {
+    input, textarea, select {
+      font-size: 16px !important;
+    }
+  }
+
   /* Links sem underline mas com hover de cor */
   a {
     color: inherit;

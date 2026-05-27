@@ -21,6 +21,14 @@ function formatBRL(n: number) {
   });
 }
 
+/** Sem R$ e sem centavos — pra big numbers/cards que quebram linha no mobile. */
+function formatBRLInt(n: number) {
+  return Math.round(n).toLocaleString("pt-BR", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  });
+}
+
 function daysUntilMD(md: string): number {
   const [m, d] = md.split("-").map(Number);
   const today = new Date();
@@ -138,10 +146,10 @@ export default async function InicioPage() {
       <SectionRow icon="home" label={`${greeting} · ${firstName || "tudo certo"}`} />
 
       <BigNumber
-        value={txCount > 0 ? `R$ ${formatBRL(saldo)}` : "Família AP"}
+        value={txCount > 0 ? formatBRLInt(saldo) : "Família AP"}
         sub={
           txCount > 0
-            ? `${saldo >= 0 ? "livres" : "no vermelho"} · ${monthLabel}`
+            ? `R$ · ${saldo >= 0 ? "livres" : "no vermelho"} · ${monthLabel}`
             : "plataforma pronta — configura nos atalhos abaixo"
         }
         accent={txCount > 0 && saldo >= 0}
@@ -151,14 +159,14 @@ export default async function InicioPage() {
       <div style={{ padding: "14px 20px 0", display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr" }}>
         <Card pad={12}>
           <div className="ap-eyebrow">despesas · {monthLabel}</div>
-          <div className="ap-num" style={{ fontSize: 18, color: "var(--alert)", marginTop: 4 }}>
-            R$ {formatBRL(totalDebit)}
+          <div className="ap-num" style={{ fontSize: 16, color: "var(--alert)", marginTop: 4 }}>
+            {formatBRLInt(totalDebit)}
           </div>
         </Card>
         <Card pad={12}>
           <div className="ap-eyebrow">receitas · {monthLabel}</div>
-          <div className="ap-num" style={{ fontSize: 18, color: "var(--ok)", marginTop: 4 }}>
-            R$ {formatBRL(totalCredit)}
+          <div className="ap-num" style={{ fontSize: 16, color: "var(--ok)", marginTop: 4 }}>
+            {formatBRLInt(totalCredit)}
           </div>
         </Card>
       </div>

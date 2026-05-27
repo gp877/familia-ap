@@ -15,11 +15,12 @@ function formatBRL(n: number) {
   });
 }
 
-function formatBRLShort(n: number) {
-  if (Math.abs(n) >= 1000) {
-    return `${(n / 1000).toFixed(1)}k`;
-  }
-  return n.toFixed(0);
+/** Sem R$ e sem centavos — usado no BigNumber/cards para não quebrar linha. */
+function formatBRLInt(n: number) {
+  return Math.round(n).toLocaleString("pt-BR", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  });
 }
 
 const CAT_COLORS = ["var(--accent)", "var(--alert)", "#5DA9FF", "#B57FFF", "#7BD86F", "#FFB85C"];
@@ -235,8 +236,8 @@ export default async function DREPage({
       />
 
       <BigNumber
-        value={`R$ ${formatBRL(Math.abs(yearSaldo))}`}
-        sub={yearSaldo >= 0 ? `saldo positivo de ${year}` : "no vermelho"}
+        value={formatBRLInt(Math.abs(yearSaldo))}
+        sub={yearSaldo >= 0 ? `R$ · saldo positivo de ${year}` : "R$ · no vermelho"}
         accent={yearSaldo >= 0}
       />
 
@@ -284,26 +285,26 @@ export default async function DREPage({
       >
         <Card pad={12}>
           <div className="ap-eyebrow">receitas {year}</div>
-          <div className="ap-num" style={{ fontSize: 18, color: "var(--ok)", marginTop: 4 }}>
-            R$ {formatBRL(yearCredit)}
+          <div className="ap-num" style={{ fontSize: 16, color: "var(--ok)", marginTop: 4 }}>
+            {formatBRLInt(yearCredit)}
           </div>
         </Card>
         <Card pad={12}>
           <div className="ap-eyebrow">despesas {year}</div>
-          <div className="ap-num" style={{ fontSize: 18, color: "var(--alert)", marginTop: 4 }}>
-            R$ {formatBRL(yearDebit)}
+          <div className="ap-num" style={{ fontSize: 16, color: "var(--alert)", marginTop: 4 }}>
+            {formatBRLInt(yearDebit)}
           </div>
           {totalPlanned > 0 && (
             <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 4 }}>
-              de R$ {formatBRL(totalPlanned)}
+              de {formatBRLInt(totalPlanned)}
             </div>
           )}
         </Card>
         {totalPlanned > 0 && (
           <Card pad={12}>
             <div className="ap-eyebrow">orçado</div>
-            <div className="ap-num" style={{ fontSize: 18, marginTop: 4 }}>
-              R$ {formatBRL(totalPlanned)}
+            <div className="ap-num" style={{ fontSize: 16, marginTop: 4 }}>
+              {formatBRLInt(totalPlanned)}
             </div>
             <div
               style={{
@@ -422,11 +423,11 @@ export default async function DREPage({
                           color: overBudget ? "var(--alert)" : "var(--ink)",
                         }}
                       >
-                        R$ {formatBRL(g.total)}
+                        {formatBRLInt(g.total)}
                       </div>
                       <div style={{ fontSize: 10.5, color: "var(--muted)" }}>
                         {g.planned > 0
-                          ? `de R$ ${formatBRL(g.planned)} · ${budgetPct.toFixed(0)}%`
+                          ? `de ${formatBRLInt(g.planned)} · ${budgetPct.toFixed(0)}%`
                           : `${pct.toFixed(0)}% das despesas`}
                       </div>
                     </div>
@@ -454,7 +455,7 @@ export default async function DREPage({
               >
                 <span style={{ fontSize: 13, color: "var(--muted)" }}>Sem categoria</span>
                 <div className="ap-num" style={{ fontSize: 13, color: "var(--muted)" }}>
-                  R$ {formatBRL(uncategorizedDebit)}
+                  {formatBRLInt(uncategorizedDebit)}
                 </div>
               </div>
             )}
@@ -618,8 +619,8 @@ async function MonthlyDRE({ householdId, monthStr }: { householdId: string; mont
       />
 
       <BigNumber
-        value={`R$ ${formatBRL(Math.abs(saldo))}`}
-        sub={saldo >= 0 ? "saldo positivo do mês" : "no vermelho"}
+        value={formatBRLInt(Math.abs(saldo))}
+        sub={saldo >= 0 ? "R$ · saldo positivo do mês" : "R$ · no vermelho"}
         accent={saldo >= 0}
       />
 
@@ -633,21 +634,21 @@ async function MonthlyDRE({ householdId, monthStr }: { householdId: string; mont
       >
         <Card pad={12}>
           <div className="ap-eyebrow">receitas</div>
-          <div className="ap-num" style={{ fontSize: 18, color: "var(--ok)", marginTop: 4 }}>
-            R$ {formatBRL(totalCredit)}
+          <div className="ap-num" style={{ fontSize: 16, color: "var(--ok)", marginTop: 4 }}>
+            {formatBRLInt(totalCredit)}
           </div>
         </Card>
         <Card pad={12}>
           <div className="ap-eyebrow">despesas</div>
-          <div className="ap-num" style={{ fontSize: 18, color: "var(--alert)", marginTop: 4 }}>
-            R$ {formatBRL(totalDebit)}
+          <div className="ap-num" style={{ fontSize: 16, color: "var(--alert)", marginTop: 4 }}>
+            {formatBRLInt(totalDebit)}
           </div>
         </Card>
         {totalPlanned > 0 && (
           <Card pad={12}>
             <div className="ap-eyebrow">orçado</div>
-            <div className="ap-num" style={{ fontSize: 18, marginTop: 4 }}>
-              R$ {formatBRL(totalPlanned)}
+            <div className="ap-num" style={{ fontSize: 16, marginTop: 4 }}>
+              {formatBRLInt(totalPlanned)}
             </div>
             <div style={{ fontSize: 10, color: totalDebit > totalPlanned ? "var(--alert)" : "var(--muted)", marginTop: 4 }}>
               {((totalDebit / totalPlanned) * 100).toFixed(0)}% usado
@@ -675,10 +676,10 @@ async function MonthlyDRE({ householdId, monthStr }: { householdId: string; mont
                 <span style={{ fontSize: 13.5, fontWeight: 600 }}>{g.name}</span>
                 <div style={{ textAlign: "right" }}>
                   <div className="ap-num" style={{ fontSize: 14, color: overBudget ? "var(--alert)" : "var(--ink)" }}>
-                    R$ {formatBRL(g.total)}
+                    {formatBRLInt(g.total)}
                   </div>
                   <div style={{ fontSize: 10.5, color: "var(--muted)" }}>
-                    {g.planned > 0 ? `de R$ ${formatBRL(g.planned)} · ${budgetPct.toFixed(0)}%` : `${pct.toFixed(0)}% das despesas`}
+                    {g.planned > 0 ? `de ${formatBRLInt(g.planned)} · ${budgetPct.toFixed(0)}%` : `${pct.toFixed(0)}% das despesas`}
                   </div>
                 </div>
               </div>
@@ -694,7 +695,7 @@ async function MonthlyDRE({ householdId, monthStr }: { householdId: string; mont
           <div style={{ padding: "12px 0", display: "flex", justifyContent: "space-between" }}>
             <span style={{ fontSize: 13, color: "var(--muted)" }}>Sem categoria</span>
             <div className="ap-num" style={{ fontSize: 13, color: "var(--muted)" }}>
-              R$ {formatBRL(uncategorizedDebit)}
+              {formatBRLInt(uncategorizedDebit)}
             </div>
           </div>
         )}
@@ -714,7 +715,7 @@ async function MonthlyDRE({ householdId, monthStr }: { householdId: string; mont
               }}>
                 <span style={{ fontSize: 13.5, fontWeight: 600 }}>{r.name}</span>
                 <div className="ap-num" style={{ fontSize: 14, color: "var(--ok)" }}>
-                  R$ {formatBRL(r.total)}
+                  {formatBRLInt(r.total)}
                 </div>
               </div>
             ))}
@@ -722,7 +723,7 @@ async function MonthlyDRE({ householdId, monthStr }: { householdId: string; mont
               <div style={{ padding: "10px 0", display: "flex", justifyContent: "space-between" }}>
                 <span style={{ fontSize: 13, color: "var(--muted)" }}>Sem categoria</span>
                 <div className="ap-num" style={{ fontSize: 13, color: "var(--muted)" }}>
-                  R$ {formatBRL(uncategorizedCredit)}
+                  {formatBRLInt(uncategorizedCredit)}
                 </div>
               </div>
             )}

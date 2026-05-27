@@ -245,9 +245,9 @@ export function DeleteBtn({
       title="Excluir"
       aria-label="Excluir"
       style={{
-        width: 28,
-        height: 28,
-        borderRadius: 14,
+        width: 36,
+        height: 36,
+        borderRadius: 18,
         background: "transparent",
         color: "var(--muted)",
         border: "none",
@@ -255,9 +255,10 @@ export function DeleteBtn({
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
+        flexShrink: 0,
       }}
     >
-      <X size={14} />
+      <X size={16} />
     </button>
   );
 }

@@ -48,9 +48,9 @@ export function MobileTop() {
             onClick={() => setOpen(true)}
             aria-label="Abrir menu"
             style={{
-              width: 34,
-              height: 34,
-              borderRadius: 17,
+              width: 40,
+              height: 40,
+              borderRadius: 20,
               background: "var(--card)",
               color: "var(--ink)",
               display: "flex",
@@ -58,9 +58,10 @@ export function MobileTop() {
               justifyContent: "center",
               border: "none",
               cursor: "pointer",
+              flexShrink: 0,
             }}
           >
-            <Icon name="menu" size={18} />
+            <Icon name="menu" size={20} />
           </button>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <span style={{ fontSize: 17, fontWeight: 600, letterSpacing: "-0.01em" }}>

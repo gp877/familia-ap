@@ -646,7 +646,7 @@ function CalendarView({
                   <div
                     key={c.date}
                     style={{
-                      minHeight: 72,
+                      height: 76,
                       padding: 6,
                       borderRadius: 8,
                       background: hasItems || isWeekend ? "var(--card)" : "transparent",
@@ -659,6 +659,8 @@ function CalendarView({
                       display: "flex",
                       flexDirection: "column",
                       gap: 2,
+                      overflow: "hidden",
+                      minWidth: 0,
                     }}
                   >
                     <div
@@ -672,11 +674,12 @@ function CalendarView({
                             ? "var(--ink)"
                             : "var(--muted-d)",
                         lineHeight: 1,
+                        flexShrink: 0,
                       }}
                     >
                       {formatDay(c.date)}
                     </div>
-                    {items.slice(0, 3).map((it) => (
+                    {items.slice(0, 2).map((it) => (
                       <div
                         key={it.id}
                         style={{
@@ -687,6 +690,8 @@ function CalendarView({
                           overflow: "hidden",
                           textOverflow: "ellipsis",
                           whiteSpace: "nowrap",
+                          minWidth: 0,
+                          flexShrink: 0,
                         }}
                         title={it.title}
                       >
@@ -694,9 +699,9 @@ function CalendarView({
                         {it.title}
                       </div>
                     ))}
-                    {items.length > 3 && (
-                      <div style={{ fontSize: 9, color: "var(--muted)" }}>
-                        +{items.length - 3}
+                    {items.length > 2 && (
+                      <div style={{ fontSize: 9, color: "var(--muted)", flexShrink: 0 }}>
+                        +{items.length - 2}
                       </div>
                     )}
                   </div>
@@ -756,15 +761,22 @@ function ListView({
 
   return (
     <div style={{ padding: "20px 20px 0" }}>
-      {/* Próximos */}
+      {/* Próximos — com separadores sutis quando o mês muda */}
       {future.length > 0 ? (
-        future.map((c, i) => (
-          <ListRow
-            key={c.id}
-            c={c}
-            isLast={i === future.length - 1 && pastByMonth.size === 0}
-          />
-        ))
+        future.map((c, i) => {
+          const currentMonth = c.occurredOn.slice(0, 7);
+          const prevMonth = i > 0 ? future[i - 1].occurredOn.slice(0, 7) : null;
+          const showMonthDivider = i > 0 && currentMonth !== prevMonth;
+          return (
+            <div key={c.id}>
+              {showMonthDivider && <MonthDivider yyyymm={currentMonth} />}
+              <ListRow
+                c={c}
+                isLast={i === future.length - 1 && pastByMonth.size === 0}
+              />
+            </div>
+          );
+        })
       ) : (
         <div style={{ fontSize: 12.5, color: "var(--muted)", padding: "10px 0 4px" }}>
           Nenhum compromisso à frente.
@@ -837,6 +849,37 @@ function ListView({
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+function MonthDivider({ yyyymm }: { yyyymm: string }) {
+  const [y, m] = yyyymm.split("-").map(Number);
+  const label = new Date(y, m - 1, 1).toLocaleDateString("pt-BR", {
+    month: "long",
+    year: "numeric",
+  });
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        padding: "14px 0 6px",
+      }}
+    >
+      <span
+        style={{
+          fontSize: 9,
+          fontWeight: 800,
+          letterSpacing: "0.18em",
+          textTransform: "uppercase",
+          color: "var(--muted)",
+        }}
+      >
+        {label}
+      </span>
+      <div style={{ flex: 1, height: 0.5, background: "var(--line-d)" }} />
     </div>
   );
 }

@@ -1,9 +1,10 @@
 import type { ReactNode } from "react";
 
-import { Insight, UserBubble } from "@/components/ap/atoms";
+import { Insight } from "@/components/ap/atoms";
 import { ChatBar } from "@/components/ap/chat-bar";
 
 type Props = {
+  /** @deprecated bubble de pergunta foi removido; prop mantida pra compat com call sites antigos */
   userQ?: ReactNode;
   children: ReactNode;
   insight?: ReactNode;
@@ -14,9 +15,9 @@ type Props = {
 /**
  * ScreenShell — wrap padrão de cada tela.
  * Mobile: max 480px centrado · Desktop (lg+): até 4xl (~896px) ou 7xl se wide
- * Estrutura: user-bubble (opcional) → conteúdo → insight → ChatBar (funcional)
+ * Estrutura: conteúdo → insight → ChatBar (funcional)
  */
-export function ScreenShell({ userQ, children, insight, wide, hideChat }: Props) {
+export function ScreenShell({ children, insight, wide, hideChat }: Props) {
   return (
     <div
       className={`mx-auto flex w-full flex-col max-w-[480px] ${
@@ -24,7 +25,6 @@ export function ScreenShell({ userQ, children, insight, wide, hideChat }: Props)
       }`}
       style={{ minHeight: "100%" }}
     >
-      {userQ && <UserBubble>{userQ}</UserBubble>}
       <div style={{ flex: 1 }}>{children}</div>
       {insight && <Insight>{insight}</Insight>}
       {!hideChat && (
