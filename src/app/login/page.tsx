@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-import { signInWithGoogle } from "@/app/actions/auth";
+import { enterDemo, signInWithGoogle } from "@/app/actions/auth";
 import { Logo } from "@/components/ap/logo";
 import { auth } from "@/auth";
 
@@ -66,15 +66,65 @@ export default async function LoginPage() {
             </button>
           </form>
 
+          {/* Separador */}
+          <div
+            style={{
+              width: "100%",
+              marginTop: 18,
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+            }}
+          >
+            <div style={{ flex: 1, height: 0.5, background: "var(--line-d)" }} />
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: "0.18em",
+                textTransform: "uppercase",
+                color: "var(--muted)",
+              }}
+            >
+              ou
+            </span>
+            <div style={{ flex: 1, height: 0.5, background: "var(--line-d)" }} />
+          </div>
+
+          <form action={enterDemo} style={{ width: "100%", marginTop: 14 }}>
+            <button
+              type="submit"
+              style={{
+                width: "100%",
+                height: 44,
+                borderRadius: 22,
+                background: "transparent",
+                color: "var(--ink-d)",
+                border: "1px solid var(--line-d)",
+                fontWeight: 600,
+                fontSize: 13.5,
+                letterSpacing: "-0.005em",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+              }}
+            >
+              Entrar como demo
+            </button>
+          </form>
+
           <p
             style={{
-              marginTop: 18,
+              marginTop: 14,
               fontSize: 11,
               color: "var(--muted)",
               textAlign: "center",
+              lineHeight: 1.45,
             }}
           >
-            Sua sessão é gerenciada pelo Google · senha nunca passa por aqui
+            Demo: dados mockados, isolados do sistema real. Pra você mostrar o app sem cadastro.
           </p>
         </div>
 
@@ -86,7 +136,7 @@ export default async function LoginPage() {
             textAlign: "center",
           }}
         >
-          acesso restrito · só os emails autorizados conseguem entrar
+          acesso restrito · só os emails autorizados conseguem entrar com Google
         </p>
       </div>
     </div>

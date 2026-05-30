@@ -45,9 +45,21 @@ function dateAgo(n: number): string {
 /**
  * Popula o household do usuário com dados de exemplo em todos os módulos.
  * Idempotente: não duplica o que já existe (verifica antes de inserir).
+ *
+ * Wrapper consumido pelo form de configurações. Delega pra
+ * `seedDemoForHousehold` que aceita ids explícitos — útil pro fluxo de
+ * demo login (não tem sessão de usuário ainda).
  */
 export async function seedDemoData() {
   const { householdId, userId } = await requireUserAndHousehold();
+  return seedDemoForHousehold(householdId, userId);
+}
+
+/**
+ * Mesma seed, mas recebe `householdId` e `userId` explicitamente. Usado
+ * pelo `enterDemo` que monta a sessão antes de chamar.
+ */
+export async function seedDemoForHousehold(householdId: string, userId: string) {
 
   // ── BANK ACCOUNTS ────────────────────────────────────────
   const existingAccounts = await db.query.bankAccounts.findMany({
