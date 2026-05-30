@@ -428,6 +428,315 @@ export async function seedDemoData() {
     }
   }
 
+  // ── TRANSAÇÕES + FATURAS dos bancos extras (Nubank, Itaú, Inter) ──
+  // Tudo idempotente: marca com "(demo · bank)" no description e pula se
+  // já existir.
+  const existingExtraMock = await db.query.transactions.findMany({
+    where: (t, { eq, and, like }) =>
+      and(eq(t.householdId, householdId), like(t.description, "%(demo · %")),
+    limit: 1,
+  });
+  if (existingExtraMock.length === 0) {
+    // Encontra as contas extras (que já foram criadas por seedExtraBanks)
+    const allAccts = await db.query.bankAccounts.findMany({
+      where: (a, { eq }) => eq(a.householdId, householdId),
+    });
+    const nubankCC = allAccts.find((a) => a.name === "Nubank · CC (demo)");
+    const nubankRoxinho = allAccts.find((a) => a.name === "Nubank Roxinho (demo)");
+    const nubankUltra = allAccts.find((a) => a.name === "Nubank Ultravioleta (demo)");
+    const itauCC = allAccts.find((a) => a.name === "Itaú · CC (demo)");
+    const interCC = allAccts.find((a) => a.name === "Inter · CC (demo)");
+    const interBlack = allAccts.find((a) => a.name === "Inter Black (demo)");
+
+    // Cria invoices pros 3 cartões novos (corrente + anterior)
+    async function ensureInvoice(cardId: string, refMonth: string, dueOffset: number) {
+      const existing = await db.query.invoices.findFirst({
+        where: (i, { eq, and }) =>
+          and(eq(i.householdId, householdId), eq(i.bankAccountId, cardId), eq(i.referenceMonth, refMonth)),
+      });
+      if (existing) return existing;
+      const due = new Date(now.getFullYear(), now.getMonth(), dueOffset);
+      const [created] = await db
+        .insert(invoices)
+        .values({
+          householdId,
+          bankAccountId: cardId,
+          referenceMonth: refMonth,
+          dueDate: due.toISOString().slice(0, 10),
+          status: "open",
+        })
+        .returning();
+      return created;
+    }
+
+    const newInvoices: { invoiceId: string; cardId: string; isCurrent: boolean }[] = [];
+    for (const card of [nubankRoxinho, nubankUltra, interBlack]) {
+      if (!card) continue;
+      const inv = await ensureInvoice(card.id, currentMonth, 15);
+      newInvoices.push({ invoiceId: inv.id, cardId: card.id, isCurrent: true });
+      const invPrev = await ensureInvoice(card.id, prevMonth, 15);
+      newInvoices.push({ invoiceId: invPrev.id, cardId: card.id, isCurrent: false });
+    }
+
+    // Helper pra construir tx
+    type TxInsert = typeof transactions.$inferInsert;
+    const extraTxs: TxInsert[] = [];
+
+    // ── Nubank CC: salário extra + algumas despesas ──────────
+    if (nubankCC) {
+      extraTxs.push(
+        {
+          householdId,
+          bankAccountId: nubankCC.id,
+          createdById: userId,
+          occurredOn: daysAgo(3),
+          amount: "1500.00",
+          kind: "credit",
+          description: "Freelance (demo · Nubank)",
+          rawDescription: "TED RECEBIDO - PROJETO X",
+          categoryId: salario?.id ?? null,
+          status: "confirmed",
+        },
+        {
+          householdId,
+          bankAccountId: nubankCC.id,
+          createdById: userId,
+          occurredOn: daysAgo(6),
+          amount: "320.00",
+          kind: "debit",
+          description: "Conta de luz (demo · Nubank)",
+          rawDescription: "DEBITO AUTOMATICO - NEOENERGIA",
+          categoryId: moradia?.id ?? null,
+          status: "confirmed",
+        },
+        {
+          householdId,
+          bankAccountId: nubankCC.id,
+          createdById: userId,
+          occurredOn: daysAgo(11),
+          amount: "89.90",
+          kind: "debit",
+          description: "Netflix (demo · Nubank)",
+          rawDescription: "DEBITO RECORRENTE - NETFLIX.COM",
+          categoryId: lazer?.id ?? null,
+          status: "confirmed",
+        },
+        {
+          householdId,
+          bankAccountId: nubankCC.id,
+          createdById: userId,
+          occurredOn: daysAgo(18),
+          amount: "230.00",
+          kind: "debit",
+          description: "Farmácia (demo · Nubank)",
+          rawDescription: "PIX FARMACIA POPULAR",
+          categoryId: saudeCat?.id ?? null,
+          status: "confirmed",
+        }
+      );
+    }
+
+    // ── Nubank Roxinho (cartão) ──────────────────────────────
+    const roxinhoCurrent = newInvoices.find(
+      (i) => i.cardId === nubankRoxinho?.id && i.isCurrent
+    );
+    const roxinhoPrev = newInvoices.find(
+      (i) => i.cardId === nubankRoxinho?.id && !i.isCurrent
+    );
+    if (nubankRoxinho && roxinhoCurrent && roxinhoPrev) {
+      extraTxs.push(
+        {
+          householdId,
+          bankAccountId: nubankRoxinho.id,
+          invoiceId: roxinhoCurrent.invoiceId,
+          createdById: userId,
+          occurredOn: daysAgo(5),
+          amount: "450.00",
+          kind: "debit",
+          description: "Padaria do Bairro (demo · Roxinho)",
+          rawDescription: "PADARIA DO BAIRRO",
+          categoryId: alimentacao?.id ?? null,
+          status: "pending",
+        },
+        {
+          householdId,
+          bankAccountId: nubankRoxinho.id,
+          invoiceId: roxinhoCurrent.invoiceId,
+          createdById: userId,
+          occurredOn: daysAgo(9),
+          amount: "189.00",
+          kind: "debit",
+          description: "Spotify Family (demo · Roxinho)",
+          rawDescription: "SPOTIFY*PREMIUM",
+          categoryId: lazer?.id ?? null,
+          status: "pending",
+        },
+        {
+          householdId,
+          bankAccountId: nubankRoxinho.id,
+          invoiceId: roxinhoCurrent.invoiceId,
+          createdById: userId,
+          occurredOn: daysAgo(14),
+          amount: "85.40",
+          kind: "debit",
+          description: "Uber (demo · Roxinho)",
+          rawDescription: "UBER *TRIP",
+          categoryId: transporte?.id ?? null,
+          status: "pending",
+        },
+        {
+          householdId,
+          bankAccountId: nubankRoxinho.id,
+          invoiceId: roxinhoPrev.invoiceId,
+          createdById: userId,
+          occurredOn: daysAgo(38),
+          amount: "1499.00",
+          kind: "debit",
+          description: "Notebook em 12x (demo · Roxinho)",
+          rawDescription: "AMAZON.COM Parc.2/12",
+          installmentCurrent: 2,
+          installmentTotal: 12,
+          categoryId: null,
+          status: "confirmed",
+        }
+      );
+    }
+
+    // ── Nubank Ultravioleta (cartão da Marília) ──────────────
+    const ultraCurrent = newInvoices.find(
+      (i) => i.cardId === nubankUltra?.id && i.isCurrent
+    );
+    if (nubankUltra && ultraCurrent) {
+      extraTxs.push(
+        {
+          householdId,
+          bankAccountId: nubankUltra.id,
+          invoiceId: ultraCurrent.invoiceId,
+          createdById: userId,
+          occurredOn: daysAgo(4),
+          amount: "880.00",
+          kind: "debit",
+          description: "Shopping Midway (demo · Ultra)",
+          rawDescription: "RENNER*FILIAL",
+          categoryId: null,
+          status: "pending",
+        },
+        {
+          householdId,
+          bankAccountId: nubankUltra.id,
+          invoiceId: ultraCurrent.invoiceId,
+          createdById: userId,
+          occurredOn: daysAgo(13),
+          amount: "320.00",
+          kind: "debit",
+          description: "Curso online (demo · Ultra)",
+          rawDescription: "UDEMY.COM",
+          categoryId: null,
+          status: "pending",
+        }
+      );
+    }
+
+    // ── Itaú CC: poupança/investimento + 1 despesa ───────────
+    if (itauCC) {
+      extraTxs.push(
+        {
+          householdId,
+          bankAccountId: itauCC.id,
+          createdById: userId,
+          occurredOn: daysAgo(8),
+          amount: "2000.00",
+          kind: "credit",
+          description: "Aporte poupança (demo · Itaú)",
+          rawDescription: "TRANSFERENCIA ENTRE CONTAS",
+          categoryId: null,
+          status: "confirmed",
+        },
+        {
+          householdId,
+          bankAccountId: itauCC.id,
+          createdById: userId,
+          occurredOn: daysAgo(22),
+          amount: "150.00",
+          kind: "debit",
+          description: "Tarifa pacote serviços (demo · Itaú)",
+          rawDescription: "TARIFA PACOTE",
+          categoryId: null,
+          status: "confirmed",
+        }
+      );
+    }
+
+    // ── Inter CC + Inter Black (cartão) ──────────────────────
+    if (interCC) {
+      extraTxs.push(
+        {
+          householdId,
+          bankAccountId: interCC.id,
+          createdById: userId,
+          occurredOn: daysAgo(9),
+          amount: "750.00",
+          kind: "debit",
+          description: "Plano saúde (demo · Inter)",
+          rawDescription: "DEBITO RECORRENTE - UNIMED",
+          categoryId: saudeCat?.id ?? null,
+          status: "confirmed",
+        }
+      );
+    }
+
+    const blackCurrent = newInvoices.find(
+      (i) => i.cardId === interBlack?.id && i.isCurrent
+    );
+    if (interBlack && blackCurrent) {
+      extraTxs.push(
+        {
+          householdId,
+          bankAccountId: interBlack.id,
+          invoiceId: blackCurrent.invoiceId,
+          createdById: userId,
+          occurredOn: daysAgo(6),
+          amount: "1250.00",
+          kind: "debit",
+          description: "Passagem aérea POA (demo · Inter Black)",
+          rawDescription: "LATAM AIRLINES",
+          categoryId: null,
+          status: "pending",
+        },
+        {
+          householdId,
+          bankAccountId: interBlack.id,
+          invoiceId: blackCurrent.invoiceId,
+          createdById: userId,
+          occurredOn: daysAgo(17),
+          amount: "278.50",
+          kind: "debit",
+          description: "Restaurante japonês (demo · Inter Black)",
+          rawDescription: "SUSHIBAR*ITAIM",
+          categoryId: restaurante?.id ?? null,
+          status: "pending",
+        }
+      );
+    }
+
+    if (extraTxs.length > 0) {
+      await db.insert(transactions).values(extraTxs);
+
+      // Atualiza totalAmount das novas faturas
+      for (const ni of newInvoices) {
+        const total = extraTxs
+          .filter((t) => t.invoiceId === ni.invoiceId && t.kind === "debit")
+          .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+        if (total > 0) {
+          await db
+            .update(invoices)
+            .set({ totalAmount: String(total), updatedAt: new Date() })
+            .where(eq(invoices.id, ni.invoiceId));
+        }
+      }
+    }
+  }
+
   // ── ORÇAMENTOS ─────────────────────────────────────────────
   if (alimentacao) {
     const exists = await db.query.budgets.findFirst({
