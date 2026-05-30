@@ -1,6 +1,7 @@
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import Link from "next/link";
 
+import { AccountPicker } from "@/components/ap/account-picker";
 import { BigNumber, Card, Pill, SectionRow } from "@/components/ap/atoms";
 import { BackButton, FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
 import { ScreenShell } from "@/components/ap/screen-shell";
@@ -16,14 +17,6 @@ function formatBRL(n: number) {
   });
 }
 
-function formatMonth(yyyymm: string) {
-  const [y, m] = yyyymm.split("-").map(Number);
-  return new Date(y, m - 1, 1).toLocaleDateString("pt-BR", {
-    month: "short",
-    year: "numeric",
-  });
-}
-
 function formatDueDate(d: string | Date) {
   return new Date(d).toLocaleDateString("pt-BR", {
     day: "2-digit",
@@ -31,7 +24,14 @@ function formatDueDate(d: string | Date) {
   });
 }
 
-export default async function FaturasPage() {
+type SearchParams = Promise<{ account?: string }>;
+
+export default async function FaturasPage({
+  searchParams,
+}: {
+  searchParams: SearchParams;
+}) {
+  const sp = await searchParams;
   const session = await auth();
   if (!session?.user?.id) return null;
   const dbUser = await db.query.users.findFirst({
@@ -39,8 +39,38 @@ export default async function FaturasPage() {
   });
   if (!dbUser?.householdId) return null;
 
+  // Carrega contas antes pra resolver hierarquia conta-mãe → cartões
+  const allAccounts = await db.query.bankAccounts.findMany({
+    where: eq(bankAccounts.householdId, dbUser.householdId),
+    orderBy: (a, { asc }) => [asc(a.type), asc(a.name)],
+  });
+
+  // Resolve filtro: faturas pertencem a credit_cards. Selecionar:
+  //   • um cartão → só esse
+  //   • uma conta raiz (CC/savings/etc) → faturas dos cartões filhos
+  //   • nada → todas
+  const filterCardIds: string[] | null = (() => {
+    if (!sp.account) return null;
+    const sel = allAccounts.find((a) => a.id === sp.account);
+    if (!sel) return null;
+    if (sel.type === "credit_card") return [sel.id];
+    return allAccounts
+      .filter((a) => a.parentAccountId === sel.id && a.type === "credit_card")
+      .map((a) => a.id);
+  })();
+
+  const invoiceWhere = filterCardIds
+    ? filterCardIds.length === 0
+      ? // conta selecionada sem cartões filhos → lista vazia
+        and(eq(invoices.householdId, dbUser.householdId), eq(invoices.id, "00000000-0000-0000-0000-000000000000"))
+      : and(
+          eq(invoices.householdId, dbUser.householdId),
+          inArray(invoices.bankAccountId, filterCardIds)
+        )
+    : eq(invoices.householdId, dbUser.householdId);
+
   const all = await db.query.invoices.findMany({
-    where: eq(invoices.householdId, dbUser.householdId),
+    where: invoiceWhere,
     with: { bankAccount: true },
     orderBy: [desc(invoices.referenceMonth)],
   });
@@ -65,19 +95,8 @@ export default async function FaturasPage() {
     }
   }
 
-  const creditCards = await db.query.bankAccounts.findMany({
-    where: (a, { and: aa }) =>
-      aa(eq(a.householdId, dbUser.householdId!), eq(a.type, "credit_card")),
-  });
-
-  // Pra mostrar a conta-mãe de cada cartão nas fatura cards
-  const allAccountsById = new Map(
-    (
-      await db.query.bankAccounts.findMany({
-        where: eq(bankAccounts.householdId, dbUser.householdId),
-      })
-    ).map((a) => [a.id, a])
-  );
+  const creditCards = allAccounts.filter((a) => a.type === "credit_card");
+  const allAccountsById = new Map(allAccounts.map((a) => [a.id, a]));
 
   const open = all.filter((i) => i.status !== "paid");
   const paid = all.filter((i) => i.status === "paid");
@@ -106,6 +125,19 @@ export default async function FaturasPage() {
       </div>
 
       <SectionRow icon="bank" label="Faturas de cartão" action={`${all.length} no total`} />
+
+      <AccountPicker
+        basePath="/financeiro/faturas"
+        accounts={allAccounts.map((a) => ({
+          id: a.id,
+          name: a.name,
+          type: a.type,
+          institution: a.institution,
+          lastFour: a.lastFour,
+          parentAccountId: a.parentAccountId,
+        }))}
+        activeAccountId={sp.account ?? null}
+      />
 
       <BigNumber
         value={`R$ ${formatBRL(totalOpen)}`}
@@ -217,26 +249,67 @@ function FaturaCard({
   const totalAmount = inv.totalAmount
     ? parseFloat(inv.totalAmount)
     : stats?.total ?? 0;
+  const monthChipColor = paid ? "var(--ok)" : "var(--accent)";
   return (
     <Link
       href={`/financeiro/faturas/${inv.id}`}
       style={{ textDecoration: "none", color: "inherit" }}
     >
       <Card pad={12} raised={!paid}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          {/* Chip de mês de competência — bem visível à esquerda */}
+          <div
+            style={{
+              flexShrink: 0,
+              width: 64,
+              padding: "8px 6px",
+              borderRadius: 12,
+              background: `color-mix(in oklab, ${monthChipColor} 18%, var(--card))`,
+              border: `0.5px solid ${monthChipColor}`,
+              textAlign: "center",
+            }}
+          >
+            <div
+              className="ap-num"
+              style={{
+                fontSize: 17,
+                fontWeight: 800,
+                color: monthChipColor,
+                letterSpacing: "-0.02em",
+                lineHeight: 1,
+              }}
+            >
+              {formatMonthDay(inv.referenceMonth)}
+            </div>
+            <div
+              style={{
+                fontSize: 9,
+                fontWeight: 800,
+                letterSpacing: "0.12em",
+                textTransform: "uppercase",
+                color: monthChipColor,
+                marginTop: 3,
+              }}
+            >
+              {formatMonthYear(inv.referenceMonth)}
+            </div>
+          </div>
+
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
               <span style={{ fontSize: 13.5, fontWeight: 700 }}>
                 {inv.bankAccount?.name ?? "Cartão"}
               </span>
-              <span style={{ fontSize: 11.5, color: "var(--muted)" }}>
-                {formatMonth(inv.referenceMonth)}
-              </span>
+              {inv.bankAccount?.lastFour && (
+                <span style={{ fontSize: 10.5, color: "var(--muted)" }}>
+                  ····{inv.bankAccount.lastFour}
+                </span>
+              )}
             </div>
             {parentName && (
               <div
                 style={{
-                  fontSize: 10,
+                  fontSize: 9.5,
                   color: "var(--muted)",
                   fontWeight: 700,
                   letterSpacing: "0.08em",
@@ -252,7 +325,7 @@ function FaturaCard({
               {inv.dueDate ? ` · vence ${formatDueDate(inv.dueDate)}` : ""}
             </div>
           </div>
-          <div style={{ textAlign: "right" }}>
+          <div style={{ textAlign: "right", flexShrink: 0 }}>
             <div className="ap-num" style={{ fontSize: 16 }}>
               R$ {formatBRL(totalAmount)}
             </div>
@@ -278,4 +351,16 @@ function FaturaCard({
       </Card>
     </Link>
   );
+}
+
+/** "mai" "jun" — abreviação do mês da referenceMonth YYYY-MM. */
+function formatMonthDay(yyyymm: string): string {
+  const [, m] = yyyymm.split("-").map(Number);
+  return new Date(2000, m - 1, 1).toLocaleDateString("pt-BR", { month: "short" }).replace(".", "");
+}
+
+/** "2026" — ano da referenceMonth YYYY-MM. */
+function formatMonthYear(yyyymm: string): string {
+  const [y] = yyyymm.split("-").map(Number);
+  return String(y);
 }
