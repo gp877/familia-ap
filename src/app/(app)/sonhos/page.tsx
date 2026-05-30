@@ -159,8 +159,8 @@ function SonhoCarouselCard({ s }: { s: typeof sonhos.$inferSelect }) {
         borderRadius: 16,
         border: "0.5px solid var(--line-d)",
         overflow: "hidden",
-        minWidth: 240,
-        maxWidth: 240,
+        minWidth: 260,
+        maxWidth: 260,
         flexShrink: 0,
         scrollSnapAlign: "start",
         display: "flex",
@@ -197,7 +197,7 @@ function SonhoCarouselCard({ s }: { s: typeof sonhos.$inferSelect }) {
           ★
         </div>
       )}
-      <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
+      <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
         <div style={{ display: "flex", alignItems: "start", gap: 8 }}>
           <CheckboxToggle
             checked={false}
@@ -212,33 +212,93 @@ function SonhoCarouselCard({ s }: { s: typeof sonhos.$inferSelect }) {
               action={patchSonho}
               hiddenFields={{ id: s.id }}
               fieldName="title"
-              fontSize={13.5}
+              fontSize={14}
               fontWeight={700}
             />
           </div>
           <DeleteBtn action={deleteSonho.bind(null, s.id)} confirmMsg={null} />
         </div>
-        <InlineEditInput
-          initialValue={s.description ?? ""}
-          action={patchSonho}
-          hiddenFields={{ id: s.id }}
+
+        {/* Descrição — campo OBVIAMENTE editável (bg + border) */}
+        <EditableField
+          icon="✎"
+          label="descrição"
+          value={s.description ?? ""}
           fieldName="description"
-          placeholder="+ descrição"
-          fontSize={11.5}
-          fontWeight={400}
-          color="var(--muted-d)"
+          id={s.id}
         />
-        <InlineEditInput
-          initialValue={s.imageUrl ?? ""}
-          action={patchSonho}
-          hiddenFields={{ id: s.id }}
+
+        {/* URL da imagem */}
+        <EditableField
+          icon="🖼"
+          label="url da imagem"
+          value={s.imageUrl ?? ""}
           fieldName="imageUrl"
-          placeholder="+ url imagem"
-          fontSize={10}
-          fontWeight={400}
-          color="var(--muted)"
+          id={s.id}
+          monospace
         />
       </div>
+    </div>
+  );
+}
+
+/**
+ * Campo editável visivelmente sinalizado: ícone + label muted + valor
+ * em chip com background/border. Estado vazio mostra "clique pra
+ * adicionar {label}" — afordância de input clara.
+ */
+function EditableField({
+  icon,
+  label,
+  value,
+  fieldName,
+  id,
+  monospace = false,
+}: {
+  icon: string;
+  label: string;
+  value: string;
+  fieldName: string;
+  id: string;
+  monospace?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        background: "var(--card2)",
+        border: "0.5px dashed var(--line-d)",
+        borderRadius: 10,
+        padding: "8px 10px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 4,
+      }}
+    >
+      <div
+        style={{
+          fontSize: 9.5,
+          fontWeight: 700,
+          letterSpacing: "0.1em",
+          textTransform: "uppercase",
+          color: "var(--muted)",
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
+        }}
+      >
+        <span aria-hidden>{icon}</span>
+        {label}
+      </div>
+      <InlineEditInput
+        initialValue={value}
+        action={patchSonho}
+        hiddenFields={{ id }}
+        fieldName={fieldName}
+        placeholder={`clique pra adicionar ${label}`}
+        fontSize={12.5}
+        fontWeight={500}
+        color={monospace ? "var(--muted-d)" : "var(--ink-d)"}
+      />
     </div>
   );
 }
