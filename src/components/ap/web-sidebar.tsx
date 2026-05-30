@@ -41,6 +41,13 @@ export function WebSidebar({ userName, partnerName, activeKey = null }: Props) {
         gap: 24,
         borderRight: "0.5px solid var(--line-d)",
         flexShrink: 0,
+        // Pin no viewport — não acompanha rolagem da página principal.
+        // Resolve o problema do bloco inferior (config/sair) ficar lá
+        // embaixo em telas longas exigindo rolagem pra acessar.
+        position: "sticky",
+        top: 0,
+        height: "100vh",
+        overflowY: "auto",
       }}
     >
       <div style={{ paddingLeft: 4 }}>

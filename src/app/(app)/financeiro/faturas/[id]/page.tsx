@@ -1,9 +1,9 @@
-import { and, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lte, ne } from "drizzle-orm";
 import { notFound } from "next/navigation";
 
 import { BigNumber, Card, Pill, SectionRow } from "@/components/ap/atoms";
 import { ConfirmSubmitButton } from "@/components/ap/confirm-submit";
-import { BackButton, FormField, fieldStyle } from "@/components/ap/inline-form";
+import { BackButton } from "@/components/ap/inline-form";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import {
   deleteInvoiceForm,
@@ -85,35 +85,62 @@ export default async function FaturaDetailPage({
   }));
 
   // Candidatos a pagamento: transações do extrato (não desta fatura)
-  // dentro do range [closingDate, dueDate+15d] aproximadamente
-  const dueDate = inv.dueDate ? new Date(inv.dueDate) : null;
+  // dentro de uma janela ampla — referenceMonth +/- 1 mês.
+  //
+  // Priorizamos as da CONTA-MÃE do cartão (a CC que paga a fatura). Se o
+  // cartão não tiver conta-mãe vinculada, mostra todas as contas
+  // correntes do household.
   const refMonth = inv.referenceMonth;
   const [refY, refM] = refMonth.split("-").map(Number);
-  const monthStart = new Date(refY, refM - 1, 1);
-  const monthEnd = new Date(refY, refM, 15);
+  const candidateStart = new Date(refY, refM - 2, 1); // mês anterior
+  const candidateEnd = new Date(refY, refM, 28); // até o dia 28 do mês ref
 
-  const paymentCandidates = await db.query.transactions.findMany({
+  const cardParentId = inv.bankAccount?.parentAccountId ?? null;
+  // Se o cartão tem conta-mãe, lista também outras contas correntes pra
+  // o fallback (caso o pagamento tenha saído de outra conta).
+  const eligibleAccounts = await db.query.bankAccounts.findMany({
     where: and(
-      eq(transactions.householdId, dbUser.householdId),
-      eq(transactions.kind, "debit"),
-      isNull(transactions.invoiceId),
-      gte(transactions.occurredOn, monthStart),
-      lte(transactions.occurredOn, monthEnd)
+      eq(bankAccounts.householdId, dbUser.householdId),
+      ne(bankAccounts.type, "credit_card")
     ),
-    orderBy: [desc(transactions.occurredOn)],
-    limit: 40,
   });
+  const eligibleAccountIds = eligibleAccounts.map((a) => a.id);
 
-  // Filtra candidatos cujo valor é próximo do total da fatura (±2%)
+  const paymentCandidates = eligibleAccountIds.length > 0
+    ? await db.query.transactions.findMany({
+        where: and(
+          eq(transactions.householdId, dbUser.householdId),
+          eq(transactions.kind, "debit"),
+          isNull(transactions.invoiceId),
+          gte(transactions.occurredOn, candidateStart),
+          lte(transactions.occurredOn, candidateEnd),
+          inArray(transactions.bankAccountId, eligibleAccountIds)
+        ),
+        orderBy: [desc(transactions.occurredOn)],
+        limit: 50,
+      })
+    : [];
+
+  // Categoriza candidatos:
+  //   • highly-likely: valor ±2% do total da fatura
+  //   • parent-account: vieram da conta-mãe do cartão (se houver)
+  //   • outros: vieram de outras contas
   const total = inv.totalAmount ? parseFloat(inv.totalAmount) : 0;
-  const closeCandidates = paymentCandidates
-    .filter((tx) => {
-      const amt = parseFloat(tx.amount);
-      if (total === 0) return false;
-      const diff = Math.abs(amt - total) / total;
-      return diff < 0.02; // 2% de tolerância
-    })
-    .slice(0, 5);
+  const closeCandidates = paymentCandidates.filter((tx) => {
+    const amt = parseFloat(tx.amount);
+    if (total === 0) return false;
+    return Math.abs(amt - total) / total < 0.02;
+  });
+  const closeIds = new Set(closeCandidates.map((c) => c.id));
+  const otherCandidates = paymentCandidates.filter((tx) => !closeIds.has(tx.id));
+  // Põe primeiro os da conta-mãe (se definida)
+  const sortedOthers = cardParentId
+    ? [...otherCandidates].sort((a, b) => {
+        const aFromParent = a.bankAccountId === cardParentId ? -1 : 0;
+        const bFromParent = b.bankAccountId === cardParentId ? -1 : 0;
+        return aFromParent - bFromParent;
+      })
+    : otherCandidates;
 
   // Transação atual de pagamento (se vinculada)
   let paymentTx: typeof transactions.$inferSelect | null = null;
@@ -216,84 +243,85 @@ export default async function FaturaDetailPage({
           </Card>
         ) : (
           <>
-            {closeCandidates.length > 0 ? (
+            {closeCandidates.length > 0 && (
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                <div style={{ fontSize: 11, color: "var(--muted)" }}>
-                  Sugestões (valor próximo no extrato):
+                <div
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 800,
+                    letterSpacing: "0.14em",
+                    textTransform: "uppercase",
+                    color: "var(--accent)",
+                  }}
+                >
+                  sugestões (valor próximo do total)
                 </div>
                 {closeCandidates.map((tx) => (
-                  <form key={tx.id} action={linkInvoicePayment}>
-                    <input type="hidden" name="invoiceId" value={inv.id} />
-                    <input type="hidden" name="transactionId" value={tx.id} />
-                    <button
-                      type="submit"
-                      style={{
-                        width: "100%",
-                        padding: "10px 12px",
-                        borderRadius: 12,
-                        background: "var(--card)",
-                        color: "var(--ink)",
-                        border: "1px solid var(--line-d)",
-                        fontSize: 12.5,
-                        textAlign: "left",
-                        cursor: "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 10,
-                      }}
-                    >
-                      <span style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 600 }}>{tx.description}</div>
-                        <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
-                          {formatDate(tx.occurredOn)} ·{" "}
-                          <span className="ap-num">
-                            R$ {formatBRL(parseFloat(tx.amount))}
-                          </span>
-                        </div>
-                      </span>
-                      <span style={{ color: "var(--accent)", fontSize: 11, fontWeight: 600 }}>
-                        vincular
-                      </span>
-                    </button>
-                  </form>
+                  <PaymentCandidateRow
+                    key={tx.id}
+                    tx={tx}
+                    invoiceId={inv.id}
+                    accent
+                    accountLabel={
+                      eligibleAccounts.find((a) => a.id === tx.bankAccountId)?.name ?? null
+                    }
+                  />
                 ))}
-              </div>
-            ) : (
-              <div
-                style={{
-                  fontSize: 12,
-                  color: "var(--muted)",
-                  padding: "10px 12px",
-                  background: "var(--card)",
-                  borderRadius: 12,
-                }}
-              >
-                Sem candidato automático. Vincule manualmente abaixo.
               </div>
             )}
 
-            <form action={linkInvoicePayment} style={{ marginTop: 10 }}>
-              <input type="hidden" name="invoiceId" value={inv.id} />
-              <FormField label="ID da transação manual" hint="cole o UUID se souber qual lançamento é">
-                <input name="transactionId" placeholder="uuid..." style={fieldStyle} />
-              </FormField>
-              <button
-                type="submit"
+            {sortedOthers.length > 0 ? (
+              <div
                 style={{
-                  marginTop: 6,
-                  padding: "8px 14px",
-                  borderRadius: 12,
-                  background: "var(--accent)",
-                  color: "var(--accent-on)",
-                  border: "none",
-                  fontSize: 12,
-                  fontWeight: 700,
-                  cursor: "pointer",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 8,
+                  marginTop: closeCandidates.length > 0 ? 18 : 0,
                 }}
               >
-                Vincular manualmente
-              </button>
-            </form>
+                <div
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 800,
+                    letterSpacing: "0.14em",
+                    textTransform: "uppercase",
+                    color: "var(--muted)",
+                  }}
+                >
+                  outros lançamentos do extrato — clique pra vincular
+                </div>
+                {sortedOthers.slice(0, 20).map((tx) => (
+                  <PaymentCandidateRow
+                    key={tx.id}
+                    tx={tx}
+                    invoiceId={inv.id}
+                    accountLabel={
+                      eligibleAccounts.find((a) => a.id === tx.bankAccountId)?.name ?? null
+                    }
+                  />
+                ))}
+                {sortedOthers.length > 20 && (
+                  <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
+                    +{sortedOthers.length - 20} lançamentos mais antigos. Filtre pela conta no /transacoes.
+                  </div>
+                )}
+              </div>
+            ) : (
+              closeCandidates.length === 0 && (
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: "var(--muted)",
+                    padding: "14px",
+                    background: "var(--card)",
+                    borderRadius: 12,
+                    textAlign: "center",
+                  }}
+                >
+                  Sem lançamentos de débito não vinculados no extrato pra esse período. Suba um PDF do extrato em <code>/financeiro/upload</code>.
+                </div>
+              )
+            )}
           </>
         )}
       </div>
@@ -326,5 +354,89 @@ export default async function FaturaDetailPage({
         </form>
       </div>
     </ScreenShell>
+  );
+}
+
+/**
+ * Linha clicável que vincula uma transação do extrato à fatura como
+ * pagamento. Antes era preciso colar o UUID — agora é só clicar.
+ */
+function PaymentCandidateRow({
+  tx,
+  invoiceId,
+  accountLabel,
+  accent = false,
+}: {
+  tx: typeof transactions.$inferSelect;
+  invoiceId: string;
+  accountLabel: string | null;
+  accent?: boolean;
+}) {
+  return (
+    <form action={linkInvoicePayment}>
+      <input type="hidden" name="invoiceId" value={invoiceId} />
+      <input type="hidden" name="transactionId" value={tx.id} />
+      <button
+        type="submit"
+        style={{
+          width: "100%",
+          padding: "10px 12px",
+          borderRadius: 12,
+          background: accent
+            ? "color-mix(in oklab, var(--accent) 12%, var(--card))"
+            : "var(--card)",
+          color: "var(--ink)",
+          border: accent
+            ? "1px solid var(--accent)"
+            : "0.5px solid var(--line-d)",
+          fontSize: 12.5,
+          textAlign: "left",
+          cursor: "pointer",
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          fontFamily: "inherit",
+        }}
+      >
+        <span style={{ flex: 1, minWidth: 0 }}>
+          <div
+            style={{
+              fontWeight: 600,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {tx.description}
+          </div>
+          <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+            {formatDate(tx.occurredOn)}
+            {accountLabel ? ` · ${accountLabel}` : ""}
+          </div>
+        </span>
+        <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
+          <span
+            className="ap-num"
+            style={{
+              fontSize: 13,
+              fontWeight: 700,
+              color: accent ? "var(--accent)" : "var(--ink)",
+            }}
+          >
+            R$ {formatBRL(parseFloat(tx.amount))}
+          </span>
+          <span
+            style={{
+              fontSize: 10,
+              color: accent ? "var(--accent)" : "var(--muted)",
+              fontWeight: 700,
+              letterSpacing: "0.04em",
+            }}
+          >
+            vincular →
+          </span>
+        </span>
+      </button>
+    </form>
   );
 }
