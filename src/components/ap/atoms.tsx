@@ -427,7 +427,7 @@ type BigNumberProps = {
 };
 export function BigNumber({ value, sub, accent }: BigNumberProps) {
   return (
-    <div style={{ padding: "0 20px 6px" }}>
+    <div style={{ padding: "18px 20px 8px" }}>
       <div
         className="ap-num"
         style={{ fontSize: 36, color: accent ? "var(--accent)" : "var(--ink)" }}
@@ -435,7 +435,7 @@ export function BigNumber({ value, sub, accent }: BigNumberProps) {
         {value}
       </div>
       {sub && (
-        <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
+        <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>
           {sub}
         </div>
       )}

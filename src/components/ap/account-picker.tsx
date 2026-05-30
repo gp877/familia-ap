@@ -75,7 +75,7 @@ export function AccountPicker({
   }
 
   return (
-    <div style={{ padding: "12px 16px 4px", display: "flex", flexDirection: "column", gap: 10 }}>
+    <div style={{ padding: "12px 16px 10px", display: "flex", flexDirection: "column", gap: 10 }}>
       {/* Nível 1: contas raiz como cards grandes */}
       <div
         style={{

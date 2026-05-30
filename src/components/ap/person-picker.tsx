@@ -20,7 +20,7 @@ export function PersonPicker({
   return (
     <div
       style={{
-        padding: "12px 16px 4px",
+        padding: "12px 16px 10px",
         display: "grid",
         gridTemplateColumns: `repeat(${HOUSEHOLD_PEOPLE.length}, 1fr)`,
         gap: 10,

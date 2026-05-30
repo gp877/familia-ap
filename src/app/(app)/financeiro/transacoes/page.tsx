@@ -251,18 +251,18 @@ export default async function TransacoesPage({
         </Link>
       </div>
 
-      <div style={{ padding: "0 20px" }}>
+      <div style={{ padding: "12px 20px 4px" }}>
         <div className="ap-num" style={{ fontSize: 28, color: "var(--ink)" }}>
           − R$ {formatBRL(totalDebit)}
         </div>
-        <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
+        <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>
           em despesas · receitas: R$ {formatBRL(totalCredit)}
           {activeAccount ? ` · ${activeAccount.name}` : ""}
         </div>
       </div>
 
       {/* Pills de status */}
-      <div style={{ padding: "12px 20px 0", display: "flex", gap: 6, flexWrap: "wrap" }}>
+      <div style={{ padding: "14px 20px 0", display: "flex", gap: 6, flexWrap: "wrap" }}>
         {[
           { key: null, label: "Todas" },
           { key: "pending", label: "Pendentes" },
