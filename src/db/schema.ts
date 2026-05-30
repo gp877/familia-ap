@@ -615,10 +615,42 @@ export const roteiros = pgTable(
     programTarde: text("program_tarde"),
     programNoite: text("program_noite"),
     estimatedCost: numeric("estimated_cost", { precision: 14, scale: 2 }),
+    /** Custos discriminados por categoria — substituem o estimatedCost
+        genérico quando preenchidos. */
+    costAlimentacao: numeric("cost_alimentacao", { precision: 14, scale: 2 }),
+    costHospedagem: numeric("cost_hospedagem", { precision: 14, scale: 2 }),
+    costPasseios: numeric("cost_passeios", { precision: 14, scale: 2 }),
+    costTraslados: numeric("cost_traslados", { precision: 14, scale: 2 }),
     notes: text("notes"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (r) => [index("roteiro_viagem_day_idx").on(r.viagemId, r.dayNumber)]
+);
+
+// ============================================================
+// Passagens aéreas (segmentos de voo) ligadas à viagem
+// ============================================================
+export const viagemPassagens = pgTable(
+  "viagem_passagem",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    viagemId: uuid("viagem_id")
+      .notNull()
+      .references(() => viagens.id, { onDelete: "cascade" }),
+    segmentOrder: integer("segment_order").notNull().default(0),
+    airline: text("airline"),
+    flightNumber: text("flight_number"),
+    departureAirport: text("departure_airport"), // IATA: "GRU"
+    departureAt: timestamp("departure_at", { withTimezone: true }),
+    arrivalAirport: text("arrival_airport"), // IATA: "LIS"
+    arrivalAt: timestamp("arrival_at", { withTimezone: true }),
+    cost: numeric("cost", { precision: 14, scale: 2 }),
+    passengers: integer("passengers"),
+    bookingReference: text("booking_reference"), // localizador / código de reserva
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (p) => [index("viagem_passagem_viagem_idx").on(p.viagemId, p.segmentOrder)]
 );
 
 // ============================================================
@@ -971,11 +1003,19 @@ export const viagemRelations = relations(viagens, ({ one, many }) => ({
     references: [households.id],
   }),
   roteiros: many(roteiros),
+  passagens: many(viagemPassagens),
 }));
 
 export const roteiroRelations = relations(roteiros, ({ one }) => ({
   viagem: one(viagens, {
     fields: [roteiros.viagemId],
+    references: [viagens.id],
+  }),
+}));
+
+export const viagemPassagemRelations = relations(viagemPassagens, ({ one }) => ({
+  viagem: one(viagens, {
+    fields: [viagemPassagens.viagemId],
     references: [viagens.id],
   }),
 }));
