@@ -60,28 +60,36 @@ export default async function DREPage({
   const yearStart = new Date(year, 0, 1);
   const yearEnd = new Date(year + 1, 0, 1);
 
-  // Agregado por categoria + mês + kind
-  const byCategoryMonth = await db
-    .select({
-      categoryId: transactions.categoryId,
-      categoryName: categories.name,
-      parentId: categories.parentId,
-      txKind: transactions.kind,
-      month: sql<number>`extract(month from ${transactions.occurredOn})::int`,
-      total: sql<string>`sum(${transactions.amount}::numeric)::text`,
-    })
-    .from(transactions)
-    .leftJoin(categories, eq(transactions.categoryId, categories.id))
-    .where(
-      sql`${transactions.householdId} = ${dbUser.householdId} AND ${transactions.status} != 'ignored' AND ${transactions.occurredOn} >= ${yearStart.toISOString()} AND ${transactions.occurredOn} < ${yearEnd.toISOString()}`
-    )
-    .groupBy(
-      transactions.categoryId,
-      categories.name,
-      categories.parentId,
-      transactions.kind,
-      sql`extract(month from ${transactions.occurredOn})`
-    );
+  // 3 queries do ano em paralelo (antes sequenciais)
+  const [byCategoryMonth, allCats, yearBudgets] = await Promise.all([
+    db
+      .select({
+        categoryId: transactions.categoryId,
+        categoryName: categories.name,
+        parentId: categories.parentId,
+        txKind: transactions.kind,
+        month: sql<number>`extract(month from ${transactions.occurredOn})::int`,
+        total: sql<string>`sum(${transactions.amount}::numeric)::text`,
+      })
+      .from(transactions)
+      .leftJoin(categories, eq(transactions.categoryId, categories.id))
+      .where(
+        sql`${transactions.householdId} = ${dbUser.householdId} AND ${transactions.status} != 'ignored' AND ${transactions.occurredOn} >= ${yearStart.toISOString()} AND ${transactions.occurredOn} < ${yearEnd.toISOString()}`
+      )
+      .groupBy(
+        transactions.categoryId,
+        categories.name,
+        categories.parentId,
+        transactions.kind,
+        sql`extract(month from ${transactions.occurredOn})`
+      ),
+    db.query.categories.findMany({
+      where: eq(categories.householdId, dbUser.householdId),
+    }),
+    db.query.budgets.findMany({
+      where: and(eq(budgets.householdId, dbUser.householdId), eq(budgets.year, year)),
+    }),
+  ]);
 
   // Soma totais por mês + por categoria mãe
   const monthlyData: Array<{ month: number; debit: number; credit: number }> = Array.from({ length: 12 }, (_, i) => ({
@@ -89,9 +97,6 @@ export default async function DREPage({
     debit: 0,
     credit: 0,
   }));
-  const allCats = await db.query.categories.findMany({
-    where: eq(categories.householdId, dbUser.householdId),
-  });
   const catById = new Map(allCats.map((c) => [c.id, c]));
 
   type ExpenseGroup = {
@@ -132,11 +137,6 @@ export default async function DREPage({
       m.credit += value;
     }
   }
-
-  // Orçamentos do ano (somando anual + mensal)
-  const yearBudgets = await db.query.budgets.findMany({
-    where: and(eq(budgets.householdId, dbUser.householdId), eq(budgets.year, year)),
-  });
 
   for (const b of yearBudgets) {
     const cat = catById.get(b.categoryId);
@@ -476,30 +476,30 @@ async function MonthlyDRE({ householdId, monthStr }: { householdId: string; mont
   const end = new Date(yearN, monthN, 1);
   const label = start.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
 
-  const byCategory = await db
-    .select({
-      categoryId: transactions.categoryId,
-      categoryName: categories.name,
-      parentId: categories.parentId,
-      txKind: transactions.kind,
-      total: sql<string>`sum(${transactions.amount}::numeric)::text`,
-    })
-    .from(transactions)
-    .leftJoin(categories, eq(transactions.categoryId, categories.id))
-    .where(
-      sql`${transactions.householdId} = ${householdId} AND ${transactions.status} != 'ignored' AND ${transactions.occurredOn} >= ${start.toISOString()} AND ${transactions.occurredOn} < ${end.toISOString()}`
-    )
-    .groupBy(transactions.categoryId, categories.name, categories.parentId, transactions.kind);
-
-  const allCats = await db.query.categories.findMany({
-    where: eq(categories.householdId, householdId),
-  });
+  // 3 queries em paralelo (antes sequenciais)
+  const [byCategory, allCats, monthBudgets] = await Promise.all([
+    db
+      .select({
+        categoryId: transactions.categoryId,
+        categoryName: categories.name,
+        parentId: categories.parentId,
+        txKind: transactions.kind,
+        total: sql<string>`sum(${transactions.amount}::numeric)::text`,
+      })
+      .from(transactions)
+      .leftJoin(categories, eq(transactions.categoryId, categories.id))
+      .where(
+        sql`${transactions.householdId} = ${householdId} AND ${transactions.status} != 'ignored' AND ${transactions.occurredOn} >= ${start.toISOString()} AND ${transactions.occurredOn} < ${end.toISOString()}`
+      )
+      .groupBy(transactions.categoryId, categories.name, categories.parentId, transactions.kind),
+    db.query.categories.findMany({
+      where: eq(categories.householdId, householdId),
+    }),
+    db.query.budgets.findMany({
+      where: and(eq(budgets.householdId, householdId), eq(budgets.year, yearN)),
+    }),
+  ]);
   const catById = new Map(allCats.map((c) => [c.id, c]));
-
-  // Orçamentos do mês
-  const monthBudgets = await db.query.budgets.findMany({
-    where: and(eq(budgets.householdId, householdId), eq(budgets.year, yearN)),
-  });
   const plannedByCategory = new Map<string, number>();
   for (const b of monthBudgets) {
     const planned = b.month === 0 ? parseFloat(b.plannedAmount) : b.month === monthN ? parseFloat(b.plannedAmount) : null;

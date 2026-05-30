@@ -42,29 +42,27 @@ export default async function OrcamentoPage({
   const year = sp.year ? parseInt(sp.year, 10) : new Date().getFullYear();
   const currentMonth = new Date().getMonth() + 1;
 
-  // Categorias da família
-  const allCats = await db.query.categories.findMany({
-    where: eq(categories.householdId, dbUser.householdId),
-    orderBy: (c, { asc }) => [asc(c.kind), asc(c.name)],
-  });
-
-  // Orçamentos do ano
-  const allBudgets = await db.query.budgets.findMany({
-    where: and(eq(budgets.householdId, dbUser.householdId), eq(budgets.year, year)),
-    with: { category: true },
-  });
-
-  // Realizado do ano por categoria (despesas)
-  const realized = await db
-    .select({
-      categoryId: transactions.categoryId,
-      total: sql<string>`sum(${transactions.amount}::numeric)::text`,
-    })
-    .from(transactions)
-    .where(
-      sql`${transactions.householdId} = ${dbUser.householdId} AND ${transactions.kind} = 'debit' AND ${transactions.status} != 'ignored' AND extract(year from ${transactions.occurredOn}) = ${year}`
-    )
-    .groupBy(transactions.categoryId);
+  // 3 queries em paralelo (antes sequenciais)
+  const [allCats, allBudgets, realized] = await Promise.all([
+    db.query.categories.findMany({
+      where: eq(categories.householdId, dbUser.householdId),
+      orderBy: (c, { asc }) => [asc(c.kind), asc(c.name)],
+    }),
+    db.query.budgets.findMany({
+      where: and(eq(budgets.householdId, dbUser.householdId), eq(budgets.year, year)),
+      with: { category: true },
+    }),
+    db
+      .select({
+        categoryId: transactions.categoryId,
+        total: sql<string>`sum(${transactions.amount}::numeric)::text`,
+      })
+      .from(transactions)
+      .where(
+        sql`${transactions.householdId} = ${dbUser.householdId} AND ${transactions.kind} = 'debit' AND ${transactions.status} != 'ignored' AND extract(year from ${transactions.occurredOn}) = ${year}`
+      )
+      .groupBy(transactions.categoryId),
+  ]);
 
   const realizedById = new Map(
     realized

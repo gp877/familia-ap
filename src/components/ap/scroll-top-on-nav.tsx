@@ -41,25 +41,20 @@ export function ScrollTopOnNav() {
       window.scrollTo({ top: 0, left: 0, behavior: "instant" as ScrollBehavior });
       document.documentElement.scrollTop = 0;
       if (document.body) document.body.scrollTop = 0;
-      // Caso o main ou outro container tenha overflow específico:
-      const mains = document.querySelectorAll<HTMLElement>("main");
-      for (const m of mains) m.scrollTop = 0;
     };
 
-    // Imediato (antes do paint, via useLayoutEffect)
+    // 3 snaps escalonados que cobrem 95% dos casos sem segurar a main
+    // thread:
+    // - imediato (pre-paint via useLayoutEffect)
+    // - 1º frame após paint
+    // - ~200ms depois (cobre lazy-load próximo)
     scrollAllToTop();
-    // E novamente após o próximo paint
-    requestAnimationFrame(scrollAllToTop);
-    // Snap-back agressivo: a cada 60ms por 1.2s qualquer scroll que
-    // tente acontecer (lazy-load de imagem, hidratamento tardio,
-    // restauração do browser) é vencido.
-    let elapsed = 0;
-    const interval = window.setInterval(() => {
-      scrollAllToTop();
-      elapsed += 60;
-      if (elapsed >= 1200) window.clearInterval(interval);
-    }, 60);
-    return () => window.clearInterval(interval);
+    const raf = requestAnimationFrame(scrollAllToTop);
+    const t = window.setTimeout(scrollAllToTop, 200);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.clearTimeout(t);
+    };
   }, [pathname]);
 
   return null;

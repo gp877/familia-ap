@@ -55,37 +55,31 @@ export default async function ExtratosPage({
   });
   if (!dbUser?.householdId) return null;
 
-  // Carrega todas as contas pra montar AccountPicker
-  const allAccounts = await db.query.bankAccounts.findMany({
-    where: eq(bankAccounts.householdId, dbUser.householdId),
-    orderBy: (a, { asc }) => [asc(a.type), asc(a.name)],
-  });
+  // 3 queries em paralelo
+  const [allAccounts, allUploads, aggByUpload] = await Promise.all([
+    db.query.bankAccounts.findMany({
+      where: eq(bankAccounts.householdId, dbUser.householdId),
+      orderBy: (a, { asc }) => [asc(a.type), asc(a.name)],
+    }),
+    db.query.uploads.findMany({
+      where: (u, { and: aa, eq: ee }) =>
+        aa(ee(u.householdId, dbUser.householdId!), ee(u.sourceType, "bank_statement")),
+      orderBy: [desc(uploads.createdAt)],
+    }),
+    db
+      .select({
+        uploadId: transactions.uploadId,
+        count: sql<number>`count(*)::int`,
+        debit: sql<string>`coalesce(sum(case when ${transactions.kind} = 'debit' then ${transactions.amount}::numeric else 0 end), 0)::text`,
+        credit: sql<string>`coalesce(sum(case when ${transactions.kind} = 'credit' then ${transactions.amount}::numeric else 0 end), 0)::text`,
+        minDate: sql<string>`min(${transactions.occurredOn})::text`,
+        maxDate: sql<string>`max(${transactions.occurredOn})::text`,
+      })
+      .from(transactions)
+      .where(eq(transactions.householdId, dbUser.householdId))
+      .groupBy(transactions.uploadId),
+  ]);
   const accountsById = new Map(allAccounts.map((a) => [a.id, a]));
-
-  // Carrega uploads do tipo bank_statement
-  const allUploads = await db.query.uploads.findMany({
-    where: (u, { and: aa, eq: ee }) =>
-      aa(
-        ee(u.householdId, dbUser.householdId!),
-        ee(u.sourceType, "bank_statement")
-      ),
-    orderBy: [desc(uploads.createdAt)],
-  });
-
-  // Pra cada upload, deriva: count de transações, mês de referência (mode
-  // dos meses das transações), total débito/crédito
-  const aggByUpload = await db
-    .select({
-      uploadId: transactions.uploadId,
-      count: sql<number>`count(*)::int`,
-      debit: sql<string>`coalesce(sum(case when ${transactions.kind} = 'debit' then ${transactions.amount}::numeric else 0 end), 0)::text`,
-      credit: sql<string>`coalesce(sum(case when ${transactions.kind} = 'credit' then ${transactions.amount}::numeric else 0 end), 0)::text`,
-      minDate: sql<string>`min(${transactions.occurredOn})::text`,
-      maxDate: sql<string>`max(${transactions.occurredOn})::text`,
-    })
-    .from(transactions)
-    .where(eq(transactions.householdId, dbUser.householdId))
-    .groupBy(transactions.uploadId);
 
   const aggMap = new Map<
     string,

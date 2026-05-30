@@ -31,28 +31,29 @@ export default async function ContasPage() {
   });
   if (!dbUser?.householdId) return null;
 
-  const contas = await db.query.bankAccounts.findMany({
-    where: eq(bankAccounts.householdId, dbUser.householdId),
-    orderBy: [asc(bankAccounts.type), asc(bankAccounts.name)],
-  });
-
-  // Contagem + soma por conta (do mês)
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
   const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString();
 
-  const stats = await db
-    .select({
-      accountId: transactions.bankAccountId,
-      count: sql<number>`count(*)::int`,
-      debit: sql<string>`coalesce(sum(case when ${transactions.kind} = 'debit' then ${transactions.amount}::numeric else 0 end), 0)::text`,
-      credit: sql<string>`coalesce(sum(case when ${transactions.kind} = 'credit' then ${transactions.amount}::numeric else 0 end), 0)::text`,
-    })
-    .from(transactions)
-    .where(
-      sql`${transactions.householdId} = ${dbUser.householdId} AND ${transactions.status} != 'ignored' AND ${transactions.occurredOn} >= ${monthStart} AND ${transactions.occurredOn} < ${monthEnd}`
-    )
-    .groupBy(transactions.bankAccountId);
+  // 2 queries em paralelo
+  const [contas, stats] = await Promise.all([
+    db.query.bankAccounts.findMany({
+      where: eq(bankAccounts.householdId, dbUser.householdId),
+      orderBy: [asc(bankAccounts.type), asc(bankAccounts.name)],
+    }),
+    db
+      .select({
+        accountId: transactions.bankAccountId,
+        count: sql<number>`count(*)::int`,
+        debit: sql<string>`coalesce(sum(case when ${transactions.kind} = 'debit' then ${transactions.amount}::numeric else 0 end), 0)::text`,
+        credit: sql<string>`coalesce(sum(case when ${transactions.kind} = 'credit' then ${transactions.amount}::numeric else 0 end), 0)::text`,
+      })
+      .from(transactions)
+      .where(
+        sql`${transactions.householdId} = ${dbUser.householdId} AND ${transactions.status} != 'ignored' AND ${transactions.occurredOn} >= ${monthStart} AND ${transactions.occurredOn} < ${monthEnd}`
+      )
+      .groupBy(transactions.bankAccountId),
+  ]);
 
   const statsById = new Map(stats.map((s) => [s.accountId, s]));
 

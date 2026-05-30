@@ -61,58 +61,55 @@ export default async function InicioPage() {
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
 
-  const monthStats = await db
-    .select({
-      debit: sql<string>`coalesce(sum(case when ${transactions.kind} = 'debit' then ${transactions.amount}::numeric else 0 end), 0)::text`,
-      credit: sql<string>`coalesce(sum(case when ${transactions.kind} = 'credit' then ${transactions.amount}::numeric else 0 end), 0)::text`,
-      count: sql<number>`count(*)::int`,
-      pending: sql<number>`count(*) filter (where ${transactions.status} = 'pending')::int`,
-    })
-    .from(transactions)
-    .where(
-      sql`${transactions.householdId} = ${dbUser.householdId} AND ${transactions.status} != 'ignored' AND ${transactions.occurredOn} >= ${monthStart.toISOString()} AND ${transactions.occurredOn} < ${monthEnd.toISOString()}`
-    )
-    .then((r) => r[0]);
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+  // 5 queries em paralelo (antes sequenciais — era o maior gargalo da home)
+  const [monthStats, nextCompromissos, upcomingTrips, allAniv, activeSonhos] =
+    await Promise.all([
+      db
+        .select({
+          debit: sql<string>`coalesce(sum(case when ${transactions.kind} = 'debit' then ${transactions.amount}::numeric else 0 end), 0)::text`,
+          credit: sql<string>`coalesce(sum(case when ${transactions.kind} = 'credit' then ${transactions.amount}::numeric else 0 end), 0)::text`,
+          count: sql<number>`count(*)::int`,
+          pending: sql<number>`count(*) filter (where ${transactions.status} = 'pending')::int`,
+        })
+        .from(transactions)
+        .where(
+          sql`${transactions.householdId} = ${dbUser.householdId} AND ${transactions.status} != 'ignored' AND ${transactions.occurredOn} >= ${monthStart.toISOString()} AND ${transactions.occurredOn} < ${monthEnd.toISOString()}`
+        )
+        .then((r) => r[0]),
+      db.query.compromissos.findMany({
+        where: (c, { and: a }) =>
+          a(eq(c.householdId, dbUser.householdId!), gte(c.occurredOn, todayStr)),
+        orderBy: [asc(compromissos.occurredOn), asc(compromissos.time)],
+        limit: 3,
+      }),
+      db.query.viagens.findMany({
+        where: (v, { and: a, ne }) =>
+          a(eq(v.householdId, dbUser.householdId!), ne(v.status, "past")),
+        orderBy: [asc(viagens.startDate)],
+        limit: 1,
+      }),
+      db.query.aniversarios.findMany({
+        where: eq(aniversarios.householdId, dbUser.householdId),
+      }),
+      db.query.sonhos.findMany({
+        where: (s, { and: a }) =>
+          a(eq(s.householdId, dbUser.householdId!), eq(s.status, "active")),
+        orderBy: [desc(sonhos.createdAt)],
+        limit: 6,
+      }),
+    ]);
 
   const totalDebit = parseFloat(monthStats?.debit ?? "0");
   const totalCredit = parseFloat(monthStats?.credit ?? "0");
   const saldo = totalCredit - totalDebit;
   const txCount = monthStats?.count ?? 0;
   const pendingCount = monthStats?.pending ?? 0;
-
-  // === Próximo compromisso ===
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const nextCompromissos = await db.query.compromissos.findMany({
-    where: (c, { and: a }) =>
-      a(eq(c.householdId, dbUser.householdId!), gte(c.occurredOn, todayStr)),
-    orderBy: [asc(compromissos.occurredOn), asc(compromissos.time)],
-    limit: 3,
-  });
-
-  // === Próximas viagens ===
-  const upcomingTrips = await db.query.viagens.findMany({
-    where: (v, { and: a, ne }) =>
-      a(eq(v.householdId, dbUser.householdId!), ne(v.status, "past")),
-    orderBy: [asc(viagens.startDate)],
-    limit: 1,
-  });
   const nextTrip = upcomingTrips[0];
-
-  // === Próximo aniversário ===
-  const allAniv = await db.query.aniversarios.findMany({
-    where: eq(aniversarios.householdId, dbUser.householdId),
-  });
   const nextAniv = allAniv
     .map((a) => ({ ...a, days: daysUntilMD(a.monthDay) }))
     .sort((a, b) => a.days - b.days)[0];
-
-  // === Sonhos ativos ===
-  const activeSonhos = await db.query.sonhos.findMany({
-    where: (s, { and: a }) =>
-      a(eq(s.householdId, dbUser.householdId!), eq(s.status, "active")),
-    orderBy: [desc(sonhos.createdAt)],
-    limit: 6,
-  });
 
   const greeting = (() => {
     const h = new Date().getHours();

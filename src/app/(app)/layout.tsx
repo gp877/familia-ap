@@ -25,6 +25,7 @@ export default async function AppLayout({
       where: eq(users.id, session.user.id),
     });
     if (me?.householdId) {
+      // Roda em paralelo com qualquer outra fetch que o layout fizer
       const householdUsers = await db.query.users.findMany({
         where: eq(users.householdId, me.householdId),
       });

@@ -39,11 +39,23 @@ export default async function FaturasPage({
   });
   if (!dbUser?.householdId) return null;
 
-  // Carrega contas antes pra resolver hierarquia conta-mãe → cartões
-  const allAccounts = await db.query.bankAccounts.findMany({
-    where: eq(bankAccounts.householdId, dbUser.householdId),
-    orderBy: (a, { asc }) => [asc(a.type), asc(a.name)],
-  });
+  // 1ª rodada paralela: accounts + agregado de contagem por invoice
+  // (não dependem do filtro). 2ª rodada: invoices com filtro resolvido.
+  const [allAccounts, itemCounts] = await Promise.all([
+    db.query.bankAccounts.findMany({
+      where: eq(bankAccounts.householdId, dbUser.householdId),
+      orderBy: (a, { asc }) => [asc(a.type), asc(a.name)],
+    }),
+    db
+      .select({
+        invoiceId: transactions.invoiceId,
+        count: sql<number>`count(*)::int`,
+        total: sql<string>`sum(${transactions.amount}::numeric) filter (where ${transactions.kind} = 'debit')::text`,
+      })
+      .from(transactions)
+      .where(eq(transactions.householdId, dbUser.householdId))
+      .groupBy(transactions.invoiceId),
+  ]);
 
   // Resolve filtro: faturas pertencem a credit_cards. Selecionar:
   //   • um cartão → só esse
@@ -74,16 +86,6 @@ export default async function FaturasPage({
     with: { bankAccount: true },
     orderBy: [desc(invoices.referenceMonth)],
   });
-
-  const itemCounts = await db
-    .select({
-      invoiceId: transactions.invoiceId,
-      count: sql<number>`count(*)::int`,
-      total: sql<string>`sum(${transactions.amount}::numeric) filter (where ${transactions.kind} = 'debit')::text`,
-    })
-    .from(transactions)
-    .where(eq(transactions.householdId, dbUser.householdId))
-    .groupBy(transactions.invoiceId);
 
   const itemCountById = new Map<string, { count: number; total: number }>();
   for (const r of itemCounts) {

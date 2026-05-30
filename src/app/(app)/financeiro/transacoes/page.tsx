@@ -62,11 +62,23 @@ export default async function TransacoesPage({
   const selectedMonth = sp.month ?? currentMonth;
   const showAll = selectedMonth === "all";
 
-  // Carrega contas primeiro pra resolver hierarquia conta-mãe → cartões
-  const allAccounts = await db.query.bankAccounts.findMany({
-    where: eq(bankAccounts.householdId, dbUser.householdId),
-    orderBy: (a, { asc }) => [asc(a.type), asc(a.name)],
-  });
+  // 1ª rodada paralela: dados independentes do filtro
+  const [allAccounts, allCategories, totalAll] = await Promise.all([
+    db.query.bankAccounts.findMany({
+      where: eq(bankAccounts.householdId, dbUser.householdId),
+      orderBy: (a, { asc }) => [asc(a.type), asc(a.name)],
+    }),
+    db.query.categories.findMany({
+      where: eq(categories.householdId, dbUser.householdId),
+      with: { parent: true },
+      orderBy: (c, { asc }) => [asc(c.name)],
+    }),
+    db
+      .select({ c: sql<number>`count(*)::int` })
+      .from(transactions)
+      .where(eq(transactions.householdId, dbUser.householdId))
+      .then((r) => r[0]?.c ?? 0),
+  ]);
 
   const conds = [eq(transactions.householdId, dbUser.householdId)];
   if (!showAll) {
@@ -88,18 +100,12 @@ export default async function TransacoesPage({
     conds.push(inArray(transactions.bankAccountId, expandedAccountIds));
   }
 
-  const [allCategories, txs] = await Promise.all([
-    db.query.categories.findMany({
-      where: eq(categories.householdId, dbUser.householdId),
-      with: { parent: true },
-      orderBy: (c, { asc }) => [asc(c.name)],
-    }),
-    db.query.transactions.findMany({
-      where: and(...conds),
-      orderBy: [desc(transactions.occurredOn), desc(transactions.createdAt)],
-      limit: 500,
-    }),
-  ]);
+  // 2ª rodada: transações com filtro resolvido
+  const txs = await db.query.transactions.findMany({
+    where: and(...conds),
+    orderBy: [desc(transactions.occurredOn), desc(transactions.createdAt)],
+    limit: 500,
+  });
 
   const categoryOptions: CategoryOption[] = allCategories.map((c) => ({
     id: c.id,
@@ -120,13 +126,6 @@ export default async function TransacoesPage({
   const activeAccount = sp.account
     ? allAccounts.find((a) => a.id === sp.account)
     : null;
-
-  // Total transações no DB pra mostrar "X/Y" no header
-  const totalAll = await db
-    .select({ c: sql<number>`count(*)::int` })
-    .from(transactions)
-    .where(eq(transactions.householdId, dbUser.householdId))
-    .then((r) => r[0]?.c ?? 0);
 
   if (totalAll === 0) {
     return (

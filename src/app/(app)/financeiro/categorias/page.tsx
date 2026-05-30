@@ -28,19 +28,20 @@ export default async function CategoriasPage() {
   });
   if (!dbUser?.householdId) return null;
 
-  const all = await db.query.categories.findMany({
-    where: eq(categories.householdId, dbUser.householdId),
-    orderBy: [asc(categories.kind), asc(categories.sortOrder), asc(categories.name)],
-  });
-
-  const counts = await db
-    .select({
-      categoryId: transactions.categoryId,
-      count: sql<number>`count(*)::int`,
-    })
-    .from(transactions)
-    .where(eq(transactions.householdId, dbUser.householdId))
-    .groupBy(transactions.categoryId);
+  const [all, counts] = await Promise.all([
+    db.query.categories.findMany({
+      where: eq(categories.householdId, dbUser.householdId),
+      orderBy: [asc(categories.kind), asc(categories.sortOrder), asc(categories.name)],
+    }),
+    db
+      .select({
+        categoryId: transactions.categoryId,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(transactions)
+      .where(eq(transactions.householdId, dbUser.householdId))
+      .groupBy(transactions.categoryId),
+  ]);
 
   const countByCategory = new Map<string, number>();
   for (const c of counts) {

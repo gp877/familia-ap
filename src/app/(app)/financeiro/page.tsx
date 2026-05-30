@@ -31,38 +31,42 @@ export default async function FinanceiroPage() {
   const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
   const monthLabel = now.toLocaleDateString("pt-BR", { month: "long" });
 
-  // Agregados do mês
-  const monthAgg = await db
-    .select({
-      totalDebit: sql<string>`coalesce(sum(case when ${transactions.kind} = 'debit' then ${transactions.amount}::numeric else 0 end), 0)::text`,
-      totalCredit: sql<string>`coalesce(sum(case when ${transactions.kind} = 'credit' then ${transactions.amount}::numeric else 0 end), 0)::text`,
-      txCount: sql<number>`count(*)::int`,
-      pendingCount: sql<number>`count(*) filter (where ${transactions.status} = 'pending')::int`,
-    })
-    .from(transactions)
-    .where(
-      sql`${transactions.householdId} = ${dbUser.householdId} AND ${transactions.status} != 'ignored' AND ${transactions.occurredOn} >= ${monthStart.toISOString()} AND ${transactions.occurredOn} < ${monthEnd.toISOString()}`
-    )
-    .then((r) => r[0]);
+  // 3 queries em paralelo — antes eram sequenciais
+  const [monthAgg, byCat, accounts] = await Promise.all([
+    db
+      .select({
+        totalDebit: sql<string>`coalesce(sum(case when ${transactions.kind} = 'debit' then ${transactions.amount}::numeric else 0 end), 0)::text`,
+        totalCredit: sql<string>`coalesce(sum(case when ${transactions.kind} = 'credit' then ${transactions.amount}::numeric else 0 end), 0)::text`,
+        txCount: sql<number>`count(*)::int`,
+        pendingCount: sql<number>`count(*) filter (where ${transactions.status} = 'pending')::int`,
+      })
+      .from(transactions)
+      .where(
+        sql`${transactions.householdId} = ${dbUser.householdId} AND ${transactions.status} != 'ignored' AND ${transactions.occurredOn} >= ${monthStart.toISOString()} AND ${transactions.occurredOn} < ${monthEnd.toISOString()}`
+      )
+      .then((r) => r[0]),
+    db
+      .select({
+        categoryName: categories.name,
+        total: sql<string>`sum(${transactions.amount}::numeric)::text`,
+      })
+      .from(transactions)
+      .leftJoin(categories, eq(transactions.categoryId, categories.id))
+      .where(
+        sql`${transactions.householdId} = ${dbUser.householdId} AND ${transactions.kind} = 'debit' AND ${transactions.status} != 'ignored' AND ${transactions.occurredOn} >= ${monthStart.toISOString()} AND ${transactions.occurredOn} < ${monthEnd.toISOString()}`
+      )
+      .groupBy(categories.name),
+    db.query.bankAccounts.findMany({
+      where: eq(bankAccounts.householdId, dbUser.householdId),
+      limit: 10,
+    }),
+  ]);
 
   const totalDebit = parseFloat(monthAgg?.totalDebit ?? "0");
   const totalCredit = parseFloat(monthAgg?.totalCredit ?? "0");
   const txCount = monthAgg?.txCount ?? 0;
   const pendingCount = monthAgg?.pendingCount ?? 0;
   const saldo = totalCredit - totalDebit;
-
-  // Top categorias do mês (despesas)
-  const byCat = await db
-    .select({
-      categoryName: categories.name,
-      total: sql<string>`sum(${transactions.amount}::numeric)::text`,
-    })
-    .from(transactions)
-    .leftJoin(categories, eq(transactions.categoryId, categories.id))
-    .where(
-      sql`${transactions.householdId} = ${dbUser.householdId} AND ${transactions.kind} = 'debit' AND ${transactions.status} != 'ignored' AND ${transactions.occurredOn} >= ${monthStart.toISOString()} AND ${transactions.occurredOn} < ${monthEnd.toISOString()}`
-    )
-    .groupBy(categories.name);
 
   const named = byCat
     .filter((c) => c.categoryName)
@@ -85,11 +89,6 @@ export default async function FinanceiroPage() {
       color: "var(--card2)",
     },
   ];
-
-  const accounts = await db.query.bankAccounts.findMany({
-    where: eq(bankAccounts.householdId, dbUser.householdId),
-    limit: 10,
-  });
 
   return (
     <ScreenShell
