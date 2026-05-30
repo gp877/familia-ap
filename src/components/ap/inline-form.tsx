@@ -1,6 +1,8 @@
 "use client";
 
 import { X } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useRef, useTransition } from "react";
 import { useFormStatus } from "react-dom";
 
@@ -266,35 +268,60 @@ export function DeleteBtn({
 /**
  * Botão de voltar — usa router.back() do Next.js.
  */
+/**
+ * Botão de voltar — usa `<Link>` do Next.js quando tem href (navegação
+ * client-side, sem full reload, com prefetch). Quando NÃO tem href usa
+ * `router.back()` (history API).
+ *
+ * Antes usava `window.location.href = href` que era um full reload —
+ * causava 404 transitório em dev e reset de estado.
+ */
+const BACK_BUTTON_STYLE: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+  padding: "6px 12px",
+  borderRadius: 999,
+  background: "var(--card)",
+  color: "var(--ink-d)",
+  border: "1px solid var(--line-d)",
+  fontSize: 12,
+  fontWeight: 600,
+  cursor: "pointer",
+  textDecoration: "none",
+};
+
+function BackArrow() {
+  return (
+    <svg
+      width={12}
+      height={12}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <polyline points="15 18 9 12 15 6" />
+    </svg>
+  );
+}
+
 export function BackButton({ label = "Voltar", href }: { label?: string; href?: string }) {
-  function handleClick() {
-    if (href) {
-      window.location.href = href;
-    } else {
-      window.history.back();
-    }
+  const router = useRouter();
+  if (href) {
+    return (
+      <Link href={href} style={BACK_BUTTON_STYLE}>
+        <BackArrow />
+        {label}
+      </Link>
+    );
   }
   return (
-    <button
-      type="button"
-      onClick={handleClick}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 6,
-        padding: "6px 12px",
-        borderRadius: 999,
-        background: "var(--card)",
-        color: "var(--ink-d)",
-        border: "1px solid var(--line-d)",
-        fontSize: 12,
-        fontWeight: 600,
-        cursor: "pointer",
-      }}
-    >
-      <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-        <polyline points="15 18 9 12 15 6" />
-      </svg>
+    <button type="button" onClick={() => router.back()} style={BACK_BUTTON_STYLE}>
+      <BackArrow />
       {label}
     </button>
   );
