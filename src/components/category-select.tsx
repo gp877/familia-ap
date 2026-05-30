@@ -22,15 +22,12 @@ type Props = {
 };
 
 /**
- * Dropdown custom de categoria — chip colorido + popover com DRILL-DOWN.
+ * Categoria — botão pastel sem borda + popover com drill-down (mãe → subs).
  *
- * - Estágio raiz: lista mães (Despesas, Receitas), cada uma com indicador
- *   "→ N subs" se tem filhas.
- * - Click numa mãe sem subs: seleciona direto.
- * - Click numa mãe com subs: desce pra mostrar só as subs daquela mãe +
- *   opção "atribuir só a {mãe}" no topo.
- * - Busca textual sempre atravessa tudo (mães + subs em qualquer estágio).
- * - Teclado: ↑↓ navega, Enter seleciona, ← volta ao raiz, Esc fecha.
+ * Design: fundo pastel da cor da categoria (~15% alpha sobre superfície),
+ * texto em tom suave, ponto pequeno como indicador, sem chevron, sem
+ * uppercase. Estilo moderno (Linear/Notion). Click abre painel translúcido
+ * com sombra suave e cantos generosos.
  */
 export function CategorySelect({ transactionId, currentCategoryId, options }: Props) {
   const [open, setOpen] = useState(false);
@@ -44,7 +41,6 @@ export function CategorySelect({ transactionId, currentCategoryId, options }: Pr
   const current = options.find((o) => o.id === currentCategoryId) ?? null;
   const currentColor = current?.color || (current ? defaultColor(current.kind) : null);
 
-  // Pré-computa parents e childMap
   const { parents, childrenOf, parentById } = useMemo(() => {
     const parentList = options.filter((o) => !o.parentId);
     const cMap = new Map<string, CategoryOption[]>();
@@ -60,27 +56,21 @@ export function CategorySelect({ transactionId, currentCategoryId, options }: Pr
     return { parents: parentList, childrenOf: cMap, parentById: pMap };
   }, [options]);
 
-  // Quem é a mãe drilled (se houver)
   const drilledParent = drilledParentId ? parentById.get(drilledParentId) ?? null : null;
   const drilledSubs = drilledParent ? childrenOf.get(drilledParent.id) ?? [] : [];
 
-  // Lista achatada pra busca textual
   const searchResults = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return [];
-    return options
-      .filter((o) => o.label.toLowerCase().includes(q))
-      .slice(0, 30);
+    return options.filter((o) => o.label.toLowerCase().includes(q)).slice(0, 30);
   }, [query, options]);
 
-  // Lista efetiva renderizada (pra navegação por teclado)
   const flatVisible: CategoryOption[] = useMemo(() => {
     if (query.trim()) return searchResults;
     if (drilledParent) return [drilledParent, ...drilledSubs];
     return parents;
   }, [query, searchResults, drilledParent, drilledSubs, parents]);
 
-  // Fecha ao clicar fora
   useEffect(() => {
     if (!open) return;
     function onClick(e: MouseEvent) {
@@ -106,7 +96,6 @@ export function CategorySelect({ transactionId, currentCategoryId, options }: Pr
     }
   }, [open]);
 
-  // Reset highlight quando muda o conteúdo visível
   useEffect(() => {
     setHighlightIdx(0);
   }, [query, drilledParentId]);
@@ -119,7 +108,6 @@ export function CategorySelect({ transactionId, currentCategoryId, options }: Pr
   }
 
   function pickOption(opt: CategoryOption) {
-    // Se é uma mãe COM subs e não estamos drilled, desce
     const hasSubs = !opt.parentId && (childrenOf.get(opt.id) ?? []).length > 0;
     if (hasSubs && drilledParentId !== opt.id) {
       setDrilledParentId(opt.id);
@@ -155,49 +143,38 @@ export function CategorySelect({ transactionId, currentCategoryId, options }: Pr
         style={{
           display: "inline-flex",
           alignItems: "center",
-          gap: 7,
-          padding: "5px 12px 5px 8px",
+          gap: 6,
+          padding: "5px 11px",
           borderRadius: 999,
-          border: "0.5px solid var(--line-d)",
+          border: "none",
           background: current
-            ? `color-mix(in oklab, ${currentColor} 22%, var(--card))`
-            : "var(--card2)",
-          color: current ? "var(--ink)" : "var(--muted-d)",
-          fontSize: 11.5,
-          fontWeight: 700,
+            ? `color-mix(in oklab, ${currentColor} 16%, transparent)`
+            : "color-mix(in oklab, var(--muted) 10%, transparent)",
+          color: current ? softTone(currentColor!) : "var(--muted)",
+          fontSize: 12,
+          fontWeight: 600,
+          letterSpacing: "-0.005em",
           cursor: isPending ? "wait" : "pointer",
           maxWidth: 220,
           overflow: "hidden",
           textOverflow: "ellipsis",
           whiteSpace: "nowrap",
-          transition: "background-color 0.15s, border-color 0.15s",
+          transition: "background-color 0.15s, transform 0.08s",
+          opacity: isPending ? 0.7 : 1,
         }}
       >
         <span
           aria-hidden
           style={{
-            width: 10,
-            height: 10,
-            borderRadius: 5,
+            width: 6,
+            height: 6,
+            borderRadius: 3,
             background: currentColor ?? "var(--muted)",
             flexShrink: 0,
-            boxShadow: current ? `0 0 0 1.5px var(--card)` : "none",
           }}
         />
         <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
           {current ? current.label : "categorizar"}
-        </span>
-        <span
-          aria-hidden
-          style={{
-            fontSize: 9,
-            color: "var(--muted)",
-            marginLeft: 2,
-            transform: open ? "rotate(180deg)" : "none",
-            transition: "transform 0.15s",
-          }}
-        >
-          ▾
         </span>
       </button>
 
@@ -205,73 +182,80 @@ export function CategorySelect({ transactionId, currentCategoryId, options }: Pr
         <div
           style={{
             position: "absolute",
-            top: "calc(100% + 6px)",
+            top: "calc(100% + 8px)",
             left: 0,
             zIndex: 30,
             minWidth: 280,
             maxWidth: 340,
             background: "var(--card)",
-            border: "0.5px solid var(--line-d)",
-            borderRadius: 14,
-            boxShadow: "0 8px 30px rgba(0,0,0,0.35)",
+            borderRadius: 18,
+            boxShadow:
+              "0 1px 2px rgba(0,0,0,0.2), 0 12px 40px rgba(0,0,0,0.45)",
             overflow: "hidden",
+            backdropFilter: "blur(8px)",
           }}
         >
           {/* Header com search + breadcrumb */}
-          <div style={{ padding: "8px 10px", borderBottom: "0.5px solid var(--line-d)" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              {drilledParent && !query && (
-                <button
-                  type="button"
-                  onClick={() => setDrilledParentId(null)}
-                  title="Voltar"
-                  aria-label="Voltar"
-                  style={{
-                    width: 26,
-                    height: 26,
-                    borderRadius: 13,
-                    border: "0.5px solid var(--line-d)",
-                    background: "var(--card2)",
-                    color: "var(--muted-d)",
-                    cursor: "pointer",
-                    fontSize: 14,
-                    fontWeight: 800,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    flexShrink: 0,
-                  }}
-                >
-                  ‹
-                </button>
-              )}
-              <input
-                ref={inputRef}
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={handleKey}
-                placeholder={drilledParent ? `Subcategorias de ${drilledParent.name}…` : "buscar…"}
+          <div
+            style={{
+              padding: "10px 10px 8px",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+            {drilledParent && !query && (
+              <button
+                type="button"
+                onClick={() => setDrilledParentId(null)}
+                title="Voltar"
+                aria-label="Voltar"
                 style={{
-                  flex: 1,
-                  padding: "8px 10px",
+                  width: 28,
+                  height: 28,
+                  borderRadius: 14,
                   border: "none",
-                  background: "var(--card2)",
-                  color: "var(--ink)",
-                  fontSize: 13,
-                  outline: "none",
-                  fontFamily: "inherit",
-                  borderRadius: 8,
+                  background: "color-mix(in oklab, var(--muted) 10%, transparent)",
+                  color: "var(--ink-d)",
+                  cursor: "pointer",
+                  fontSize: 14,
+                  fontWeight: 700,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                  transition: "background-color 0.12s",
                 }}
-              />
-            </div>
+              >
+                ‹
+              </button>
+            )}
+            <input
+              ref={inputRef}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={handleKey}
+              placeholder={drilledParent ? `subs de ${drilledParent.name}…` : "buscar…"}
+              style={{
+                flex: 1,
+                padding: "8px 12px",
+                border: "none",
+                background: "color-mix(in oklab, var(--muted) 8%, transparent)",
+                color: "var(--ink)",
+                fontSize: 13,
+                outline: "none",
+                fontFamily: "inherit",
+                borderRadius: 10,
+              }}
+            />
           </div>
 
-          <div style={{ maxHeight: 320, overflowY: "auto", padding: "6px 0" }}>
+          <div style={{ maxHeight: 320, overflowY: "auto", padding: "2px 6px 8px" }}>
             {/* Modo busca */}
             {query.trim() && (
               <>
                 {searchResults.length === 0 && (
-                  <EmptyState text="nenhuma categoria encontrada" />
+                  <EmptyState text="nada encontrado" />
                 )}
                 {searchResults.map((opt, idx) => (
                   <CategoryRow
@@ -286,7 +270,7 @@ export function CategorySelect({ transactionId, currentCategoryId, options }: Pr
               </>
             )}
 
-            {/* Modo drilled — subcategorias de uma mãe específica */}
+            {/* Modo drilled */}
             {!query.trim() && drilledParent && (
               <>
                 <CategoryRow
@@ -294,12 +278,12 @@ export function CategorySelect({ transactionId, currentCategoryId, options }: Pr
                   isCurrent={drilledParent.id === currentCategoryId}
                   highlighted={highlightIdx === 0}
                   onSelect={() => selectCategory(drilledParent.id)}
-                  overrideLabel={`Atribuir só a "${drilledParent.name}"`}
+                  overrideLabel={`atribuir só a "${drilledParent.name}"`}
                   emphasize
                 />
                 {drilledSubs.length > 0 ? (
                   <>
-                    <GroupLabel label="subcategorias" tone={drilledParent.kind} />
+                    <GroupLabel label="subcategorias" />
                     {drilledSubs.map((sub, idx) => (
                       <CategoryRow
                         key={sub.id}
@@ -311,12 +295,12 @@ export function CategorySelect({ transactionId, currentCategoryId, options }: Pr
                     ))}
                   </>
                 ) : (
-                  <EmptyState text="essa mãe não tem subcategorias" />
+                  <EmptyState text="sem subcategorias" />
                 )}
               </>
             )}
 
-            {/* Modo raiz — só mães agrupadas por kind */}
+            {/* Modo raiz */}
             {!query.trim() && !drilledParent && (
               <>
                 <button
@@ -330,10 +314,11 @@ export function CategorySelect({ transactionId, currentCategoryId, options }: Pr
                 >
                   <span
                     style={{
-                      width: 10,
-                      height: 10,
-                      borderRadius: 5,
-                      border: "1px dashed var(--muted)",
+                      width: 6,
+                      height: 6,
+                      borderRadius: 3,
+                      background: "transparent",
+                      boxShadow: "inset 0 0 0 1px var(--muted)",
                     }}
                   />
                   sem categoria
@@ -346,7 +331,6 @@ export function CategorySelect({ transactionId, currentCategoryId, options }: Pr
                     <div key={kind}>
                       <GroupLabel
                         label={kind === "expense" ? "despesas" : "receitas"}
-                        tone={kind}
                       />
                       {list.map((p) => {
                         const subs = childrenOf.get(p.id) ?? [];
@@ -374,17 +358,15 @@ export function CategorySelect({ transactionId, currentCategoryId, options }: Pr
   );
 }
 
-function GroupLabel({ label, tone }: { label: string; tone: "expense" | "income" }) {
-  const color = tone === "expense" ? "var(--alert)" : "var(--ok)";
+function GroupLabel({ label }: { label: string }) {
   return (
     <div
       style={{
-        padding: "8px 14px 4px",
-        fontSize: 9.5,
-        fontWeight: 800,
-        letterSpacing: "0.14em",
-        textTransform: "uppercase",
-        color,
+        padding: "10px 12px 4px",
+        fontSize: 10.5,
+        fontWeight: 600,
+        color: "var(--muted)",
+        letterSpacing: "0.02em",
       }}
     >
       {label}
@@ -406,13 +388,9 @@ function CategoryRow({
   highlighted: boolean;
   isCurrent: boolean;
   onSelect: () => void;
-  /** Mostra "Parent › Sub" em vez do nome curto. */
   fullLabel?: boolean;
-  /** Sobrescreve o texto exibido. */
   overrideLabel?: string;
-  /** Mostra "→ N subs" no canto direito (estágio raiz). */
   subCount?: number;
-  /** Visual destacado pra opção "atribuir só a mãe" no estágio drilled. */
   emphasize?: boolean;
 }) {
   const color = opt.color || defaultColor(opt.kind);
@@ -424,19 +402,20 @@ function CategoryRow({
       onClick={onSelect}
       style={{
         ...rowBaseStyle,
-        background: highlighted
-          ? "var(--card2)"
-          : emphasize
-            ? `color-mix(in oklab, ${color} 12%, transparent)`
+        background: emphasize
+          ? `color-mix(in oklab, ${color} 14%, transparent)`
+          : highlighted
+            ? "color-mix(in oklab, var(--muted) 10%, transparent)"
             : "transparent",
-        fontWeight: isCurrent || emphasize ? 800 : 600,
+        color: emphasize ? softTone(color) : "var(--ink-d)",
+        fontWeight: isCurrent || emphasize ? 700 : 500,
       }}
     >
       <span
         style={{
-          width: 10,
-          height: 10,
-          borderRadius: 5,
+          width: 8,
+          height: 8,
+          borderRadius: 4,
           background: color,
           flexShrink: 0,
         }}
@@ -454,20 +433,17 @@ function CategoryRow({
       {subCount !== undefined && subCount > 0 && (
         <span
           style={{
-            fontSize: 10,
+            fontSize: 10.5,
             color: "var(--muted)",
-            fontWeight: 700,
-            letterSpacing: "0.04em",
-            padding: "2px 8px",
-            borderRadius: 999,
-            background: "var(--card2)",
+            fontWeight: 500,
+            letterSpacing: "0.01em",
           }}
         >
-          {subCount} sub{subCount === 1 ? "" : "s"} ›
+          {subCount} sub{subCount === 1 ? "" : "s"} →
         </span>
       )}
       {isCurrent && !subCount && (
-        <span style={{ fontSize: 11, color: "var(--accent)" }}>✓</span>
+        <span style={{ fontSize: 11, color: softTone(color) }}>•</span>
       )}
     </button>
   );
@@ -481,6 +457,7 @@ function EmptyState({ text }: { text: string }) {
         textAlign: "center",
         color: "var(--muted)",
         fontSize: 12,
+        fontStyle: "italic",
       }}
     >
       {text}
@@ -492,17 +469,28 @@ const rowBaseStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
   gap: 10,
-  padding: "8px 14px",
+  padding: "8px 12px",
+  margin: "1px 0",
   width: "100%",
   border: "none",
+  borderRadius: 10,
   background: "transparent",
   color: "var(--ink)",
-  fontSize: 12.5,
+  fontSize: 13,
   cursor: "pointer",
   textAlign: "left",
   fontFamily: "inherit",
+  transition: "background-color 0.12s",
 };
 
+/**
+ * Versão "suave" da cor da categoria pra usar como texto sobre fundo
+ * pastel. Mistura a cor com branco/ink pra evitar contraste exagerado.
+ */
+function softTone(color: string): string {
+  return `color-mix(in oklab, ${color} 78%, var(--ink-d))`;
+}
+
 function defaultColor(kind: "expense" | "income"): string {
-  return kind === "income" ? "#7BD86F" : "#FF7A35";
+  return kind === "income" ? "#7BD86F" : "#FF8B66";
 }

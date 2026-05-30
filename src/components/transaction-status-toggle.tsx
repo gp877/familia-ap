@@ -16,31 +16,16 @@ type Props = {
 
 const STATUS_META: Record<
   Status,
-  { label: string; icon: string; color: string; bg: (color: string) => string }
+  { label: string; color: string }
 > = {
-  confirmed: {
-    label: "ok",
-    icon: "✓",
-    color: "var(--ok)",
-    bg: (c) => `color-mix(in oklab, ${c} 22%, var(--card))`,
-  },
-  pending: {
-    label: "pendente",
-    icon: "•",
-    color: "#FFB85C",
-    bg: (c) => `color-mix(in oklab, ${c} 18%, var(--card))`,
-  },
-  ignored: {
-    label: "ignorada",
-    icon: "⊘",
-    color: "var(--muted)",
-    bg: () => "var(--card2)",
-  },
+  confirmed: { label: "confirmada", color: "#7BD86F" },
+  pending: { label: "pendente", color: "#F5C16C" },
+  ignored: { label: "ignorada", color: "#8E8E8E" },
 };
 
 /**
- * Status da transação como chip único colorido + ações de mudança no popover.
- * Trash separado fica num botão pequeno no final, com confirmação.
+ * Status como chip pastel sem borda. Click abre lista flutuante com as 3
+ * opções. Trash é separado, ícone-only suave, fica vermelho no hover.
  */
 export function TransactionStatusToggle({ transactionId, status }: Props) {
   const [open, setOpen] = useState(false);
@@ -84,7 +69,7 @@ export function TransactionStatusToggle({ transactionId, status }: Props) {
       ref={containerRef}
       style={{ position: "relative", display: "inline-flex", alignItems: "center", gap: 4 }}
     >
-      {/* Chip do status atual — click abre menu */}
+      {/* Chip do status — pastel sem borda */}
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -93,23 +78,30 @@ export function TransactionStatusToggle({ transactionId, status }: Props) {
         style={{
           display: "inline-flex",
           alignItems: "center",
-          gap: 5,
-          padding: "4px 10px",
+          gap: 6,
+          padding: "5px 11px",
           borderRadius: 999,
-          border: `0.5px solid ${meta.color}`,
-          background: meta.bg(meta.color),
-          color: meta.color,
-          fontSize: 11,
-          fontWeight: 800,
-          letterSpacing: "0.04em",
+          border: "none",
+          background: `color-mix(in oklab, ${meta.color} 16%, transparent)`,
+          color: `color-mix(in oklab, ${meta.color} 78%, var(--ink-d))`,
+          fontSize: 12,
+          fontWeight: 600,
+          letterSpacing: "-0.005em",
           cursor: isPending ? "wait" : "pointer",
-          textTransform: "uppercase",
-          transition: "background-color 0.15s, border-color 0.15s",
+          opacity: isPending ? 0.7 : 1,
+          transition: "background-color 0.15s",
         }}
       >
-        <span aria-hidden style={{ fontSize: 11, lineHeight: 1 }}>
-          {meta.icon}
-        </span>
+        <span
+          aria-hidden
+          style={{
+            width: 6,
+            height: 6,
+            borderRadius: 3,
+            background: meta.color,
+            flexShrink: 0,
+          }}
+        />
         <span>{meta.label}</span>
       </button>
 
@@ -126,21 +118,21 @@ export function TransactionStatusToggle({ transactionId, status }: Props) {
           borderRadius: 13,
           background: "transparent",
           color: "var(--muted)",
-          border: "0.5px solid var(--line-d)",
+          border: "none",
           cursor: "pointer",
           fontSize: 13,
           display: "inline-flex",
           alignItems: "center",
           justifyContent: "center",
-          transition: "background-color 0.12s, color 0.12s, border-color 0.12s",
+          transition: "background-color 0.12s, color 0.12s",
         }}
         onMouseEnter={(e) => {
           e.currentTarget.style.color = "var(--alert)";
-          e.currentTarget.style.borderColor = "var(--alert)";
+          e.currentTarget.style.background = "color-mix(in oklab, var(--alert) 12%, transparent)";
         }}
         onMouseLeave={(e) => {
           e.currentTarget.style.color = "var(--muted)";
-          e.currentTarget.style.borderColor = "var(--line-d)";
+          e.currentTarget.style.background = "transparent";
         }}
       >
         <TrashIcon />
@@ -151,18 +143,18 @@ export function TransactionStatusToggle({ transactionId, status }: Props) {
         <div
           style={{
             position: "absolute",
-            top: "calc(100% + 6px)",
+            top: "calc(100% + 8px)",
             right: 0,
             zIndex: 30,
             minWidth: 180,
             background: "var(--card)",
-            border: "0.5px solid var(--line-d)",
-            borderRadius: 12,
-            boxShadow: "0 8px 30px rgba(0,0,0,0.35)",
-            padding: 4,
+            borderRadius: 16,
+            boxShadow:
+              "0 1px 2px rgba(0,0,0,0.2), 0 12px 40px rgba(0,0,0,0.45)",
+            padding: 6,
             display: "flex",
             flexDirection: "column",
-            gap: 2,
+            gap: 1,
           }}
         >
           {(["confirmed", "pending", "ignored"] as Status[]).map((s) => {
@@ -179,40 +171,44 @@ export function TransactionStatusToggle({ transactionId, status }: Props) {
                   alignItems: "center",
                   gap: 10,
                   padding: "8px 10px",
-                  borderRadius: 8,
-                  background: isCurrent ? "var(--card2)" : "transparent",
+                  borderRadius: 10,
+                  background: isCurrent
+                    ? `color-mix(in oklab, ${m.color} 14%, transparent)`
+                    : "transparent",
                   border: "none",
-                  color: m.color,
-                  fontSize: 12.5,
-                  fontWeight: isCurrent ? 800 : 600,
+                  color: isCurrent
+                    ? `color-mix(in oklab, ${m.color} 78%, var(--ink-d))`
+                    : "var(--ink-d)",
+                  fontSize: 13,
+                  fontWeight: isCurrent ? 700 : 500,
                   textAlign: "left",
                   cursor: isCurrent ? "default" : "pointer",
                   fontFamily: "inherit",
-                  opacity: isCurrent ? 0.85 : 1,
+                  transition: "background-color 0.12s",
+                }}
+                onMouseEnter={(e) => {
+                  if (!isCurrent && !isPending) {
+                    e.currentTarget.style.background =
+                      "color-mix(in oklab, var(--muted) 10%, transparent)";
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isCurrent) e.currentTarget.style.background = "transparent";
                 }}
               >
                 <span
                   aria-hidden
                   style={{
-                    width: 18,
-                    height: 18,
-                    borderRadius: 9,
-                    background: m.bg(m.color),
-                    border: `0.5px solid ${m.color}`,
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: 10,
-                    fontWeight: 800,
-                    color: m.color,
+                    width: 8,
+                    height: 8,
+                    borderRadius: 4,
+                    background: m.color,
                   }}
-                >
-                  {m.icon}
-                </span>
-                <span style={{ flex: 1, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                  {m.label}
-                </span>
-                {isCurrent && <span style={{ fontSize: 11 }}>✓</span>}
+                />
+                <span style={{ flex: 1 }}>{m.label}</span>
+                {isCurrent && (
+                  <span style={{ fontSize: 11, color: m.color }}>•</span>
+                )}
               </button>
             );
           })}
@@ -230,7 +226,7 @@ function TrashIcon() {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth={2}
+      strokeWidth={1.8}
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden
