@@ -77,7 +77,9 @@ export default async function FaturaDetailPage({
   });
   const categoryOptions: CategoryOption[] = allCategories.map((c) => ({
     id: c.id,
-    label: c.parent ? `${c.parent.name} > ${c.name}` : c.name,
+    label: c.parent ? `${c.parent.name} › ${c.name}` : c.name,
+    color: c.color ?? c.parent?.color ?? null,
+    kind: c.kind,
   }));
 
   // Candidatos a pagamento: transações do extrato (não desta fatura)

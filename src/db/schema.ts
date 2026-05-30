@@ -173,6 +173,8 @@ export const categories = pgTable(
     kind: categoryKindEnum("kind").notNull().default("expense"),
     color: text("color"),
     icon: text("icon"),
+    /** Posição entre irmãs (mesmo kind+parent). Mais baixo = primeiro. */
+    sortOrder: integer("sort_order").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (c) => [index("category_household_idx").on(c.householdId)]

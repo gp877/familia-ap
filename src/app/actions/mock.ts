@@ -1,5 +1,6 @@
 "use server";
 
+import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
 import { db } from "@/db";
@@ -77,10 +78,99 @@ export async function seedDemoData() {
         type: "credit_card",
         institution: "UNICRED",
         lastFour: "6234",
+        parentAccountId: cc.id,
       })
       .returning();
     card = created;
+  } else if (!card.parentAccountId) {
+    // garante o vínculo conta-mãe pra cartão antigo
+    await db.update(bankAccounts).set({ parentAccountId: cc.id }).where(eq(bankAccounts.id, card.id));
   }
+
+  // ── BANCOS EXTRAS pra estressar layout (idempotente: skip se já tem demo) ──
+  const seedExtraBanks = async () => {
+    // Helper que insere se não existe + retorna sempre o registro
+    const upsertAccount = async (
+      values: typeof bankAccounts.$inferInsert,
+      matcher: (a: typeof existingAccounts[number]) => boolean
+    ) => {
+      const found = existingAccounts.find(matcher);
+      if (found) return found;
+      const [created] = await db.insert(bankAccounts).values(values).returning();
+      existingAccounts.push(created);
+      return created;
+    };
+
+    // Nubank — conta-corrente + 2 cartões (un casal, un adicional)
+    const nubankCC = await upsertAccount(
+      {
+        householdId,
+        name: "Nubank · CC (demo)",
+        type: "checking",
+        institution: "Nubank",
+        lastFour: "4471",
+      },
+      (a) => a.name.includes("Nubank") && a.type === "checking"
+    );
+    await upsertAccount(
+      {
+        householdId,
+        name: "Nubank Roxinho (demo)",
+        type: "credit_card",
+        institution: "Nubank",
+        lastFour: "1208",
+        parentAccountId: nubankCC.id,
+      },
+      (a) => a.name === "Nubank Roxinho (demo)"
+    );
+    await upsertAccount(
+      {
+        householdId,
+        name: "Nubank Ultravioleta (demo)",
+        type: "credit_card",
+        institution: "Nubank",
+        lastFour: "8855",
+        parentAccountId: nubankCC.id,
+      },
+      (a) => a.name === "Nubank Ultravioleta (demo)"
+    );
+
+    // Itaú — só conta corrente
+    await upsertAccount(
+      {
+        householdId,
+        name: "Itaú · CC (demo)",
+        type: "checking",
+        institution: "Itaú",
+        lastFour: "0042",
+      },
+      (a) => a.name === "Itaú · CC (demo)"
+    );
+
+    // Inter — conta + 1 cartão
+    const interCC = await upsertAccount(
+      {
+        householdId,
+        name: "Inter · CC (demo)",
+        type: "checking",
+        institution: "Inter",
+        lastFour: "7711",
+      },
+      (a) => a.name === "Inter · CC (demo)"
+    );
+    await upsertAccount(
+      {
+        householdId,
+        name: "Inter Black (demo)",
+        type: "credit_card",
+        institution: "Inter",
+        lastFour: "2266",
+        parentAccountId: interCC.id,
+      },
+      (a) => a.name === "Inter Black (demo)"
+    );
+  };
+  await seedExtraBanks();
 
   // ── CATEGORIAS auxiliares (assumindo seed inicial já criou as principais) ──
   const cats = await db.query.categories.findMany({

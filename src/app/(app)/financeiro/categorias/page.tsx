@@ -1,17 +1,23 @@
-import { eq, sql } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 
-import { BigNumber, Card, SectionRow } from "@/components/ap/atoms";
-import { BackButton, DeleteBtn, FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
-import { InlineEditInput } from "@/components/ap/inline-edit-input";
+import { BigNumber, SectionRow } from "@/components/ap/atoms";
+import {
+  BackButton,
+  FormField,
+  InlineForm,
+  SubmitButton,
+  fieldStyle,
+} from "@/components/ap/inline-form";
 import { ScreenShell } from "@/components/ap/screen-shell";
+import { SortableList } from "@/components/ap/sortable-list";
 import {
   createCategoria,
-  deleteCategoria,
-  patchCategoria,
+  reorderCategoriasForm,
 } from "@/app/actions/categorias";
 import { auth } from "@/auth";
 import { db } from "@/db";
 import { categories, transactions, users } from "@/db/schema";
+import { CategoryCard } from "./category-card";
 
 export default async function CategoriasPage() {
   const session = await auth();
@@ -24,7 +30,7 @@ export default async function CategoriasPage() {
 
   const all = await db.query.categories.findMany({
     where: eq(categories.householdId, dbUser.householdId),
-    orderBy: (c, { asc }) => [asc(c.kind), asc(c.name)],
+    orderBy: [asc(categories.kind), asc(categories.sortOrder), asc(categories.name)],
   });
 
   const counts = await db
@@ -47,18 +53,40 @@ export default async function CategoriasPage() {
   function childrenOf(parentId: string) {
     return all.filter((c) => c.parentId === parentId);
   }
-  function tree(id: string): number {
+  function totalCount(id: string): number {
     let t = countByCategory.get(id) ?? 0;
     for (const c of childrenOf(id)) t += countByCategory.get(c.id) ?? 0;
     return t;
   }
 
+  function toCardLite(c: typeof all[number]) {
+    return {
+      id: c.id,
+      name: c.name,
+      kind: c.kind,
+      color: c.color,
+      parentId: c.parentId,
+      txCount: countByCategory.get(c.id) ?? 0,
+    };
+  }
+
+  // Opções pra "merge into" no delete: categorias do mesmo kind, exceto a própria
+  function mergeOptionsFor(currentId: string, kind: "expense" | "income") {
+    return all
+      .filter((c) => c.kind === kind && c.id !== currentId)
+      .map((c) => ({
+        id: c.id,
+        label: c.parentId
+          ? `${all.find((p) => p.id === c.parentId)?.name ?? "?"} › ${c.name}`
+          : c.name,
+      }));
+  }
+
   return (
     <ScreenShell
-      userQ="Quero gerenciar nossas categorias"
       insight={
         <>
-          <b>{all.length}</b> categorias no total. Quando você edita uma transação, a categoria escolhida vira regra automática pra próximas iguais.
+          <b>{all.length}</b> categorias. Arraste pelo handle <span style={{ color: "var(--muted)" }}>⋮⋮</span> pra reordenar. Cores definem o visual em Transações, DRE e Orçamento.
         </>
       }
     >
@@ -69,156 +97,142 @@ export default async function CategoriasPage() {
       <SectionRow icon="bag" label="Categorias" action={`${all.length}`} />
       <BigNumber
         value={String(all.length)}
-        sub={`${expenseParents.length} despesas (categoria mãe) · ${incomeParents.length} receitas`}
+        sub={`${expenseParents.length} despesas · ${incomeParents.length} receitas`}
       />
 
       <div style={{ padding: "14px 0 0" }}>
         <InlineForm buttonLabel="Criar categoria">
           <form action={createCategoria}>
-              <FormField label="Nome *">
-                <input name="name" required placeholder="Ex: Combustível" style={fieldStyle} />
-              </FormField>
+            <FormField label="Nome *">
+              <input name="name" required placeholder="Ex: Combustível" style={fieldStyle} />
+            </FormField>
+            <div style={{ display: "grid", gap: 8, gridTemplateColumns: "1fr 1fr" }}>
               <FormField label="Tipo *">
                 <select name="kind" defaultValue="expense" style={fieldStyle}>
                   <option value="expense">Despesa</option>
                   <option value="income">Receita</option>
                 </select>
               </FormField>
-              <FormField label="Subcategoria de…" hint="opcional · deixe vazio pra categoria principal">
-                <select name="parentId" defaultValue="" style={fieldStyle}>
-                  <option value="">— principal —</option>
-                  {[...expenseParents, ...incomeParents].map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
+              <FormField label="Cor">
+                <input type="color" name="color" defaultValue="#B8FF5C" style={{ ...fieldStyle, height: 40, padding: 4 }} />
               </FormField>
-              <FormField label="Cor (hex)">
-                <input name="color" placeholder="#B8FF5C" style={fieldStyle} />
-              </FormField>
+            </div>
+            <FormField label="Subcategoria de…" hint="opcional · deixe vazio pra categoria principal">
+              <select name="parentId" defaultValue="" style={fieldStyle}>
+                <option value="">— principal —</option>
+                {[...expenseParents, ...incomeParents].map((p) => (
+                  <option key={p.id} value={p.id}>
+                    [{p.kind === "income" ? "rec" : "des"}] {p.name}
+                  </option>
+                ))}
+              </select>
+            </FormField>
             <SubmitButton>Criar categoria</SubmitButton>
           </form>
         </InlineForm>
       </div>
 
-      <SectionRow icon="bag" label="Despesas" action={`${expenseParents.length}`} />
-      <div style={{ padding: "0 20px", display: "flex", flexDirection: "column", gap: 8 }}>
-        {expenseParents.map((parent) => {
-          const subs = childrenOf(parent.id);
-          const t = tree(parent.id);
-          return (
-            <Card key={parent.id} pad={12} raised={t > 0}>
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  gap: 8,
-                }}
-              >
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <InlineEditInput
-                    initialValue={parent.name}
-                    action={patchCategoria}
-                    hiddenFields={{ id: parent.id }}
-                    fieldName="name"
-                    fontSize={13.5}
-                    fontWeight={600}
-                  />
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  {t > 0 && (
-                    <span
-                      className="ap-num"
-                      style={{ fontSize: 13, color: "var(--accent)" }}
-                    >
-                      {t}
-                    </span>
-                  )}
-                  <DeleteBtn
-                    action={deleteCategoria.bind(null, parent.id)}
-                    confirmMsg={null}
-                  />
-                </div>
-              </div>
-              {subs.length > 0 && (
-                <div
-                  style={{
-                    marginTop: 8,
-                    display: "flex",
-                    gap: 6,
-                    flexWrap: "wrap",
-                  }}
-                >
-                  {subs.map((sub) => {
-                    const sc = countByCategory.get(sub.id) ?? 0;
-                    return (
-                      <span
-                        key={sub.id}
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 6,
-                          padding: "3px 9px",
-                          borderRadius: 999,
-                          fontSize: 11,
-                          background: "var(--card2)",
-                          color: sc > 0 ? "var(--ink-d)" : "var(--muted)",
-                        }}
-                      >
-                        {sub.name}
-                        {sc > 0 && <span style={{ opacity: 0.6 }}>· {sc}</span>}
-                      </span>
-                    );
-                  })}
-                </div>
-              )}
-            </Card>
-          );
-        })}
+      {/* DESPESAS */}
+      <SectionRow
+        icon="bag"
+        label="Despesas"
+        action={
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              color: "var(--alert)",
+              padding: "2px 8px",
+              borderRadius: 999,
+              background: "color-mix(in oklab, var(--alert) 18%, transparent)",
+            }}
+          >
+            {expenseParents.length}
+          </span>
+        }
+      />
+      <div style={{ padding: "0 20px" }}>
+        {expenseParents.length > 0 ? (
+          <SortableList
+            items={expenseParents.map((c) => ({ id: c.id }))}
+            renderItem={(id) => {
+              const cat = expenseParents.find((c) => c.id === id);
+              if (!cat) return null;
+              return (
+                <CategoryCard
+                  cat={toCardLite(cat)}
+                  subs={childrenOf(cat.id).map(toCardLite)}
+                  totalCount={totalCount(cat.id)}
+                  mergeOptions={mergeOptionsFor(cat.id, "expense")}
+                />
+              );
+            }}
+            action={reorderCategoriasForm}
+          />
+        ) : (
+          <EmptyHint text="Sem categorias de despesa ainda." />
+        )}
       </div>
 
-      <SectionRow icon="bag" label="Receitas" action={`${incomeParents.length}`} />
-      <div style={{ padding: "0 20px", display: "flex", flexDirection: "column", gap: 8 }}>
-        {incomeParents.map((parent) => {
-          const t = tree(parent.id);
-          return (
-            <Card key={parent.id} pad={12} raised={t > 0}>
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  gap: 8,
-                }}
-              >
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <InlineEditInput
-                    initialValue={parent.name}
-                    action={patchCategoria}
-                    hiddenFields={{ id: parent.id }}
-                    fieldName="name"
-                    fontSize={13.5}
-                    fontWeight={600}
-                  />
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  {t > 0 && (
-                    <span className="ap-num" style={{ fontSize: 13, color: "var(--ok)" }}>
-                      {t}
-                    </span>
-                  )}
-                  <DeleteBtn
-                    action={deleteCategoria.bind(null, parent.id)}
-                    confirmMsg={null}
-                  />
-                </div>
-              </div>
-            </Card>
-          );
-        })}
+      {/* RECEITAS */}
+      <SectionRow
+        icon="bag"
+        label="Receitas"
+        action={
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              color: "var(--ok)",
+              padding: "2px 8px",
+              borderRadius: 999,
+              background: "color-mix(in oklab, var(--ok) 18%, transparent)",
+            }}
+          >
+            {incomeParents.length}
+          </span>
+        }
+      />
+      <div style={{ padding: "0 20px 20px" }}>
+        {incomeParents.length > 0 ? (
+          <SortableList
+            items={incomeParents.map((c) => ({ id: c.id }))}
+            renderItem={(id) => {
+              const cat = incomeParents.find((c) => c.id === id);
+              if (!cat) return null;
+              return (
+                <CategoryCard
+                  cat={toCardLite(cat)}
+                  subs={childrenOf(cat.id).map(toCardLite)}
+                  totalCount={totalCount(cat.id)}
+                  mergeOptions={mergeOptionsFor(cat.id, "income")}
+                />
+              );
+            }}
+            action={reorderCategoriasForm}
+          />
+        ) : (
+          <EmptyHint text="Sem categorias de receita ainda." />
+        )}
       </div>
     </ScreenShell>
+  );
+}
+
+function EmptyHint({ text }: { text: string }) {
+  return (
+    <div
+      style={{
+        padding: "16px",
+        fontSize: 12.5,
+        color: "var(--muted)",
+        textAlign: "center",
+        background: "var(--card)",
+        borderRadius: 12,
+        border: "0.5px dashed var(--line-d)",
+      }}
+    >
+      {text}
+    </div>
   );
 }

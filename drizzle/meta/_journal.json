@@ -99,6 +99,13 @@
       "when": 1779900000000,
       "tag": "0013_cardapio_atemporal",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1779950000000,
+      "tag": "0014_category_sortorder",
+      "breakpoints": true
     }
   ]
 }

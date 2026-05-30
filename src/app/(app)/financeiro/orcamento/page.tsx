@@ -16,6 +16,14 @@ function formatBRL(n: number) {
   });
 }
 
+/** Cor determinística pra categorias sem cor definida. */
+function fallbackCategoryColor(id: string): string {
+  const palette = ["#FF7A35", "#FF4FA3", "#B57FFF", "#FFB85C", "#5DA9FF", "#FF8866"];
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return palette[h % palette.length];
+}
+
 type SearchParams = Promise<{ year?: string }>;
 
 export default async function OrcamentoPage({
@@ -246,12 +254,19 @@ export default async function OrcamentoPage({
           const pct = yearPlanned > 0 ? Math.min(100, (realizedTotal / yearPlanned) * 100) : 0;
           const irregular = !yearly && monthly.length > 1;
 
+          const catColor = cat.color || fallbackCategoryColor(cat.id);
+
           return (
             <div
               key={cat.id}
               style={{
-                padding: "12px 0",
-                borderBottom: i < expenseCats.length - 1 ? "0.5px solid var(--line-d)" : "none",
+                padding: "12px 12px",
+                marginBottom: 8,
+                borderRadius: 12,
+                borderLeft: `4px solid ${catColor}`,
+                background: "var(--card)",
+                border: "0.5px solid var(--line-d)",
+                borderLeftWidth: 4,
               }}
             >
               <div
@@ -264,21 +279,38 @@ export default async function OrcamentoPage({
                 }}
               >
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 600 }}>{cat.name}</div>
-                  {/* Linha editável: planejado mensal */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span
+                      style={{
+                        width: 10,
+                        height: 10,
+                        borderRadius: 5,
+                        background: catColor,
+                        flexShrink: 0,
+                      }}
+                    />
+                    <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--ink)" }}>
+                      {cat.name}
+                    </div>
+                  </div>
+                  {/* Linha editável: planejado mensal — agora num chip que GRITA "editável" */}
                   {!irregular ? (
                     <div
                       style={{
-                        display: "flex",
+                        display: "inline-flex",
                         alignItems: "baseline",
                         gap: 4,
-                        marginTop: 4,
+                        marginTop: 6,
+                        padding: "4px 10px",
+                        background: "var(--card2)",
+                        borderRadius: 8,
+                        border: "0.5px solid var(--line-d)",
                         fontSize: 12,
                         color: "var(--muted)",
                       }}
                     >
                       <span>R$</span>
-                      <div style={{ width: 70 }}>
+                      <div style={{ minWidth: 60 }}>
                         <InlineEditInput
                           initialValue={monthlyPlanned > 0 ? monthlyPlanned.toFixed(2) : ""}
                           action={upsertBudget}
@@ -288,21 +320,21 @@ export default async function OrcamentoPage({
                             month: String(editMonth),
                           }}
                           fieldName="plannedAmount"
-                          placeholder="0"
+                          placeholder="clique pra editar"
                           fontSize={13}
                           fontWeight={700}
-                          color="var(--ink)"
+                          color="var(--accent)"
                         />
                       </div>
                       <span>/mês</span>
                       {yearPlanned > 0 && (
-                        <span style={{ marginLeft: 6 }}>
+                        <span style={{ marginLeft: 6, color: "var(--ink-d)" }}>
                           · R$ {formatBRL(yearPlanned)}/ano
                         </span>
                       )}
                     </div>
                   ) : (
-                    <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                    <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
                       orçamentos mensais irregulares — use o form abaixo pra ajustar mês a mês
                     </div>
                   )}

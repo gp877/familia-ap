@@ -142,74 +142,86 @@ export function TransactionsMultiSelect({ transactions, categoryOptions }: Props
                   style={{
                     display: "flex",
                     flexDirection: "column",
-                    gap: 6,
-                    padding: "10px 0",
+                    gap: 4,
+                    padding: "10px 8px",
                     borderBottom:
                       i < transactions.length - 1 ? "0.5px solid var(--line-d)" : "none",
-                    opacity: tx.status === "ignored" ? 0.4 : 1,
+                    opacity: tx.status === "ignored" ? 0.5 : 1,
                     background: isSelected ? "var(--card2)" : "transparent",
                     margin: "0 -8px",
-                    paddingLeft: 8,
-                    paddingRight: 8,
-                    borderRadius: 8,
+                    borderRadius: 10,
+                    transition: "background-color 0.12s",
                   }}
                 >
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  {/* Linha 1: checkbox + descrição + categoria + status + valor */}
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      flexWrap: "wrap",
+                    }}
+                  >
                     <input
                       type="checkbox"
                       checked={isSelected}
                       onChange={() => toggle(tx.id)}
                       style={{ accentColor: "var(--accent)", flexShrink: 0 }}
                     />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div
-                        style={{
-                          fontSize: 13.5,
-                          fontWeight: 600,
-                          color: "var(--ink)",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {tx.description}
-                      </div>
-                      <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
-                        {formatDate(tx.occurredOn)} ·{" "}
-                        {tx.rawDescription.slice(0, 56)}
-                        {tx.rawDescription.length > 56 ? "…" : ""}
-                      </div>
-                    </div>
                     <div
-                      className="ap-num"
                       style={{
-                        fontSize: 14,
-                        color: tx.kind === "debit" ? "var(--ink)" : "var(--ok)",
-                        flexShrink: 0,
+                        flex: 1,
+                        minWidth: 160,
+                        fontSize: 13.5,
+                        fontWeight: 600,
+                        color: "var(--ink)",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
                       }}
                     >
-                      {tx.kind === "debit" ? "−" : "+"} R$ {formatBRL(amount)}
+                      {tx.description}
                     </div>
-                  </div>
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      paddingLeft: 24,
-                    }}
-                  >
                     <CategorySelect
                       transactionId={tx.id}
                       currentCategoryId={tx.categoryId}
                       options={categoryOptions}
                     />
-                    <div style={{ marginLeft: "auto" }}>
+                    <div style={{ flexShrink: 0 }}>
                       <TransactionStatusToggle
                         transactionId={tx.id}
                         status={tx.status}
                       />
                     </div>
+                    <div
+                      className="ap-num"
+                      style={{
+                        fontSize: 14.5,
+                        fontWeight: 700,
+                        color: tx.kind === "debit" ? "var(--ink)" : "var(--ok)",
+                        flexShrink: 0,
+                        minWidth: 96,
+                        textAlign: "right",
+                      }}
+                    >
+                      {tx.kind === "debit" ? "−" : "+"}R$ {formatBRL(amount)}
+                    </div>
+                  </div>
+
+                  {/* Linha 2: data · raw (contexto secundário) */}
+                  <div
+                    style={{
+                      fontSize: 10.5,
+                      color: "var(--muted)",
+                      paddingLeft: 28,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {formatDate(tx.occurredOn)} ·{" "}
+                    <span style={{ opacity: 0.85 }}>{tx.rawDescription.slice(0, 96)}</span>
+                    {tx.rawDescription.length > 96 ? "…" : ""}
                   </div>
                 </div>
               );
