@@ -78,6 +78,8 @@ export default async function FaturaDetailPage({
   const categoryOptions: CategoryOption[] = allCategories.map((c) => ({
     id: c.id,
     label: c.parent ? `${c.parent.name} › ${c.name}` : c.name,
+    name: c.name,
+    parentId: c.parentId,
     color: c.color ?? c.parent?.color ?? null,
     kind: c.kind,
   }));
