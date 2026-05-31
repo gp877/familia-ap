@@ -115,7 +115,9 @@ export function Conversation({
           flexDirection: "column",
           gap: 10,
           overflowY: "auto",
-          minHeight: 200,
+          // minHeight: 0 é OBRIGATÓRIO pra flex-child + overflow-auto
+          // funcionar — sem isso o scroller cresce além do pai.
+          minHeight: 0,
         }}
       >
         {!hasContent ? (
