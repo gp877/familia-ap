@@ -957,7 +957,7 @@ async function executeToolCall(
           })
           .from(transactions)
           .where(
-            sql`${transactions.householdId} = ${householdId} AND ${transactions.status} != 'ignored' AND ${transactions.occurredOn} >= ${start.toISOString()} AND ${transactions.occurredOn} < ${end.toISOString()}`
+            sql`${transactions.householdId} = ${householdId} AND ${transactions.status} != 'ignored' AND ${transactions.isInternalTransfer} = false AND ${transactions.occurredOn} >= ${start.toISOString()} AND ${transactions.occurredOn} < ${end.toISOString()}`
           )
           .then((rows) => rows[0]);
         const debit = parseFloat(r?.debit ?? "0");

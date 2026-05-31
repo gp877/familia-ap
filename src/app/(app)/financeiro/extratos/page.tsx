@@ -156,7 +156,9 @@ export default async function ExtratosPage({
   const totalPending = enriched.filter((e) =>
     e.upload.status === "pending" || e.upload.status === "processing"
   ).length;
-  const totalErrored = enriched.filter((e) => e.upload.status === "failed").length;
+  const totalErrored = enriched.filter(
+    (e) => e.upload.status === "failed" || e.upload.status === "needs_review"
+  ).length;
 
   const activeAccount = sp.account ? accountsById.get(sp.account) : null;
 
@@ -429,7 +431,7 @@ function ExtratoCard({
                 tone={
                   status === "completed"
                     ? "ok"
-                    : status === "failed"
+                    : status === "failed" || status === "needs_review"
                       ? "alert"
                       : "accent"
                 }
@@ -438,9 +440,11 @@ function ExtratoCard({
                   ? "processado"
                   : status === "failed"
                     ? "erro"
-                    : status === "processing"
-                      ? "processando"
-                      : "pendente"}
+                    : status === "needs_review"
+                      ? "revisar"
+                      : status === "processing"
+                        ? "processando"
+                        : "pendente"}
               </Pill>
             </div>
           </div>

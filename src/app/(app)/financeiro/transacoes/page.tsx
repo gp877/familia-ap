@@ -116,11 +116,14 @@ export default async function TransacoesPage({
     kind: c.kind,
   }));
 
+  // Totais excluem transferências internas (pagamento de fatura, "Pagamento
+  // Recebido", estornos, bonificações) — elas só fecham saldo, não são
+  // despesa/receita real.
   const totalDebit = txs
-    .filter((t) => t.kind === "debit" && t.status !== "ignored")
+    .filter((t) => t.kind === "debit" && t.status !== "ignored" && !t.isInternalTransfer)
     .reduce((s, t) => s + parseFloat(t.amount), 0);
   const totalCredit = txs
-    .filter((t) => t.kind === "credit" && t.status !== "ignored")
+    .filter((t) => t.kind === "credit" && t.status !== "ignored" && !t.isInternalTransfer)
     .reduce((s, t) => s + parseFloat(t.amount), 0);
 
   const activeAccount = sp.account
@@ -168,6 +171,8 @@ export default async function TransacoesPage({
     categoryId: tx.categoryId,
     status: tx.status,
     bankAccountId: tx.bankAccountId,
+    isInternalTransfer: tx.isInternalTransfer,
+    internalTransferType: tx.internalTransferType,
   }));
 
   // Preserva params na navegação

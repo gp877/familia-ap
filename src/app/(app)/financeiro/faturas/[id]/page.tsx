@@ -161,7 +161,20 @@ export default async function FaturaDetailPage({
     categoryId: tx.categoryId,
     status: tx.status,
     bankAccountId: tx.bankAccountId,
+    isInternalTransfer: tx.isInternalTransfer,
+    internalTransferType: tx.internalTransferType,
   }));
+
+  // Total REAL da fatura: débitos - créditos, ambos excluindo internas.
+  // Bate com o "TOTAL DESTA FATURA" do PDF (que ignora "Pagamento Recebido"
+  // e bonificações).
+  const realDebit = items
+    .filter((t) => t.kind === "debit" && !t.isInternalTransfer)
+    .reduce((s, t) => s + parseFloat(t.amount), 0);
+  const realCredit = items
+    .filter((t) => t.kind === "credit" && !t.isInternalTransfer)
+    .reduce((s, t) => s + parseFloat(t.amount), 0);
+  const realTotal = realDebit - realCredit;
 
   return (
     <ScreenShell
@@ -203,8 +216,8 @@ export default async function FaturaDetailPage({
       />
 
       <BigNumber
-        value={`R$ ${formatBRL(total)}`}
-        sub={`${items.length} lançamentos${inv.dueDate ? ` · vence ${formatDate(inv.dueDate)}` : ""}`}
+        value={`R$ ${formatBRL(realTotal)}`}
+        sub={`${items.filter((t) => !t.isInternalTransfer).length} lançamentos reais${inv.dueDate ? ` · vence ${formatDate(inv.dueDate)}` : ""}`}
         accent={inv.status !== "paid"}
       />
 

@@ -18,28 +18,72 @@ export type ExtractedTransaction = {
 
 export type ExtractionResult = {
   documentType: "bank_statement" | "credit_card_invoice" | "unknown";
-  bankSlug: string; // unicred, sicredi, santander, nubank, other
+  bankSlug: string;
   referenceMonth: string | null; // YYYY-MM
+  // Total escrito no PDF (ex: "TOTAL DESTA FATURA: R$ 4.231,56"). Null se não achou.
+  documentTotal: string | null;
+  // Páginas que a IA acha que processou (pra detectar truncamento)
+  pagesReported: number | null;
+  // Avisos sobre o documento (linhas ilegíveis, suspeita de corte, etc)
+  warnings: string[];
   transactions: ExtractedTransaction[];
 };
 
 const SCHEMA = {
   type: Type.OBJECT,
-  required: ["documentType", "bankSlug", "transactions"],
+  required: [
+    "documentType",
+    "bankSlug",
+    "documentTotal",
+    "pagesReported",
+    "warnings",
+    "transactions",
+  ],
   properties: {
     documentType: {
       type: Type.STRING,
       enum: ["bank_statement", "credit_card_invoice", "unknown"],
-      description: "bank_statement = extrato bancário. credit_card_invoice = fatura de cartão.",
+      description:
+        "bank_statement = extrato bancário. credit_card_invoice = fatura de cartão.",
     },
     bankSlug: {
       type: Type.STRING,
-      enum: ["unicred", "sicredi", "santander", "nubank", "itau", "bradesco", "bb", "caixa", "inter", "c6", "other"],
+      enum: [
+        "unicred",
+        "sicredi",
+        "santander",
+        "nubank",
+        "itau",
+        "bradesco",
+        "bb",
+        "caixa",
+        "inter",
+        "c6",
+        "other",
+      ],
     },
     referenceMonth: {
       type: Type.STRING,
       nullable: true,
       description: "Mês de referência do documento no formato YYYY-MM. Null se não detectado.",
+    },
+    documentTotal: {
+      type: Type.STRING,
+      nullable: true,
+      description:
+        "Valor total ESCRITO NO PDF. Para fatura: 'TOTAL DESTA FATURA' ou equivalente. Para extrato: null (extrato não tem total único). Formato decimal com ponto, ex: '4231.56'. Null se não encontrar.",
+    },
+    pagesReported: {
+      type: Type.INTEGER,
+      nullable: true,
+      description:
+        "Número de páginas que você processou. Use isso pra detectar se o PDF parece cortado (ex: 'página 1 de 3' visível mas só uma página enviada).",
+    },
+    warnings: {
+      type: Type.ARRAY,
+      description:
+        "Lista de avisos sobre o documento. Inclua aqui: páginas que pareciam cortadas, linhas com data ilegível, valores ambíguos, suspeitas de truncamento, qualquer coisa que MERECE revisão humana. Array vazio se tudo OK.",
+      items: { type: Type.STRING },
     },
     transactions: {
       type: Type.ARRAY,
@@ -124,11 +168,32 @@ Regras críticas:
    - IOF rotativo se aparecer como linha de encargo sem data específica (mas IOF de compra específica COM data, sim)
    - Cabeçalhos de página
 
+8.b. **INCLUA SIM** (mesmo parecendo "ajuste"):
+   - Extrato: "DEBITO FATURA- CARTAO VISA" → INCLUA como debit. O sistema marca como transferência interna depois — não é tua tarefa decidir.
+   - Fatura: "Pagamento Recebido" (-R$ valor grande) → INCLUA como credit. Idem.
+   - Fatura: "Anuidade - bonificação" (-R$ pequeno) → INCLUA como credit.
+   - Extrato: "ESTORNO PIX" → INCLUA como credit.
+   - Tua regra é simples: se a linha tem data + descrição + valor, EXTRAIA. Quem decide se é "real" vs "neutro" é o código que roda depois.
+
 9. **documentType**:
    - Se vê linhas com "Saldo" + valores e tabela com débito/crédito separados → bank_statement
    - Se vê "FATURA", "VENCIMENTO", "PAGAMENTO MÍNIMO" e LANÇAMENTOS de cartão → credit_card_invoice
 
 10. **bankSlug**: identifique pelo logo/cabeçalho. "UNICRED" → unicred. Se não conseguir → "other".
+
+11. **documentTotal**: Procure o total ESCRITO no PDF.
+    - Fatura: linhas como "TOTAL DESTA FATURA", "VALOR TOTAL", "TOTAL A PAGAR" — pegue esse valor.
+    - Extrato: extrato não tem "total" único (tem saldo). Retorne null.
+    - Formato decimal com ponto. Sem este campo, perdemos a chance de cross-check.
+
+12. **pagesReported**: Conte quantas páginas você efetivamente analisou. Se o PDF tem indicação "página X de Y" e Y > pages que você viu, AVISE em warnings.
+
+13. **warnings**: Liste tudo que merece revisão humana:
+    - "PDF parece cortado: indica 'página 1 de 3' mas só vi 1 página"
+    - "Linha sem data legível na página 2 — pulada"
+    - "Valor R$ 1.5_3,00 ambíguo na linha 'IFOOD' — usei 1.503,00"
+    - "Encontrei 2 linhas idênticas (data+valor+desc) — incluí ambas"
+    Array vazio se tudo OK.
 
 Retorne APENAS o JSON. Sem markdown, sem prefácio.`;
 
@@ -163,9 +228,11 @@ export async function extractFromPdf(pdfBuffer: Buffer): Promise<ExtractionResul
 
   const parsed = JSON.parse(text) as ExtractionResult;
 
-  // Sanity check + normalização
   if (!Array.isArray(parsed.transactions)) {
     throw new Error("Resposta do Gemini não tem array de transactions");
+  }
+  if (!Array.isArray(parsed.warnings)) {
+    parsed.warnings = [];
   }
 
   return parsed;

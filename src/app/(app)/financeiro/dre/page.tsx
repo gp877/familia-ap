@@ -74,7 +74,7 @@ export default async function DREPage({
       .from(transactions)
       .leftJoin(categories, eq(transactions.categoryId, categories.id))
       .where(
-        sql`${transactions.householdId} = ${dbUser.householdId} AND ${transactions.status} != 'ignored' AND ${transactions.occurredOn} >= ${yearStart.toISOString()} AND ${transactions.occurredOn} < ${yearEnd.toISOString()}`
+        sql`${transactions.householdId} = ${dbUser.householdId} AND ${transactions.status} != 'ignored' AND ${transactions.isInternalTransfer} = false AND ${transactions.occurredOn} >= ${yearStart.toISOString()} AND ${transactions.occurredOn} < ${yearEnd.toISOString()}`
       )
       .groupBy(
         transactions.categoryId,
@@ -489,7 +489,7 @@ async function MonthlyDRE({ householdId, monthStr }: { householdId: string; mont
       .from(transactions)
       .leftJoin(categories, eq(transactions.categoryId, categories.id))
       .where(
-        sql`${transactions.householdId} = ${householdId} AND ${transactions.status} != 'ignored' AND ${transactions.occurredOn} >= ${start.toISOString()} AND ${transactions.occurredOn} < ${end.toISOString()}`
+        sql`${transactions.householdId} = ${householdId} AND ${transactions.status} != 'ignored' AND ${transactions.isInternalTransfer} = false AND ${transactions.occurredOn} >= ${start.toISOString()} AND ${transactions.occurredOn} < ${end.toISOString()}`
       )
       .groupBy(transactions.categoryId, categories.name, categories.parentId, transactions.kind),
     db.query.categories.findMany({

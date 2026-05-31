@@ -8,6 +8,10 @@ import { db } from "@/db";
 import { bankAccounts, invoices, transactions, uploads, users } from "@/db/schema";
 import { extractFromPdf } from "@/lib/extraction";
 import { applyAutoCategorization } from "@/lib/categorization";
+import {
+  detectInternalTransfer,
+  linkCardPaymentsToInvoices,
+} from "@/lib/internal-transfer";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -97,6 +101,13 @@ export async function POST(req: Request) {
   try {
     const extracted = await extractFromPdf(buf);
 
+    // Persiste IMEDIATAMENTE o raw da IA + warnings + totals reportados.
+    // Mesmo que o resto da pipeline falhe depois, temos o output da IA gravado
+    // pra debug. Sem isso a resposta original era caixa preta.
+    const warnings: string[] = Array.isArray(extracted.warnings)
+      ? [...extracted.warnings]
+      : [];
+
     let invoiceId: string | null = null;
     if (
       extracted.documentType === "credit_card_invoice" &&
@@ -162,6 +173,15 @@ export async function POST(req: Request) {
       const toInsert: Array<typeof transactions.$inferInsert> = [];
       let skipped = 0;
 
+      const docSourceForDetector =
+        extracted.documentType === "credit_card_invoice"
+          ? "credit_card_invoice"
+          : extracted.documentType === "bank_statement"
+            ? "bank_statement"
+            : "other";
+
+      let internalCount = 0;
+
       for (const t of extracted.transactions) {
         const key = makeKey(bankAccountId, t.occurredOn, t.amount, t.rawDescription);
         if (existingKeys.has(key)) {
@@ -170,10 +190,20 @@ export async function POST(req: Request) {
         }
         existingKeys.add(key); // pra não duplicar dentro do mesmo upload
 
-        const categoryId = await applyAutoCategorization(
-          dbUser.householdId!,
-          t.description
+        // Detector determinístico: a regex tem palavra final. Pagamento de
+        // fatura, estorno PIX, bonificação anuidade → marca como interno,
+        // SEM categoria (categorização não faz sentido pra transação neutra).
+        const internal = detectInternalTransfer(
+          t.rawDescription,
+          t.kind,
+          docSourceForDetector
         );
+
+        const categoryId = internal.isInternal
+          ? null
+          : await applyAutoCategorization(dbUser.householdId!, t.description);
+
+        if (internal.isInternal) internalCount++;
 
         toInsert.push({
           householdId: dbUser.householdId,
@@ -190,6 +220,8 @@ export async function POST(req: Request) {
           installmentCurrent: t.installmentCurrent ?? null,
           installmentTotal: t.installmentTotal ?? null,
           status: "pending" as const,
+          isInternalTransfer: internal.isInternal,
+          internalTransferType: internal.type,
         });
       }
 
@@ -197,27 +229,78 @@ export async function POST(req: Request) {
         await db.insert(transactions).values(toInsert);
       }
 
-      // Update invoice totalAmount with sum of debits (incluindo as que já estavam)
+      // Total local = sum de débitos extraídos NÃO-INTERNOS. Inclui só o que é
+      // despesa real. Comparamos com o documentTotal lido pela IA.
+      const computedTotalFromExtracted = extracted.transactions.reduce(
+        (sum, t) => {
+          const internal = detectInternalTransfer(
+            t.rawDescription,
+            t.kind,
+            docSourceForDetector
+          );
+          if (internal.isInternal) return sum;
+          if (t.kind === "debit") return sum + parseFloat(t.amount);
+          return sum;
+        },
+        0
+      );
+
+      // Update invoice totalAmount com sum dos débitos NÃO-internos. Pagamento
+      // recebido (interno) é excluído → bate com "TOTAL DESTA FATURA" do PDF.
       if (invoiceId) {
         const allInvoiceTxs = await db.query.transactions.findMany({
           where: eq(transactions.invoiceId, invoiceId),
         });
         const total = allInvoiceTxs
-          .filter((t) => t.kind === "debit")
+          .filter((t) => t.kind === "debit" && !t.isInternalTransfer)
+          .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+        // Créditos NÃO-internos (ex: bonificação real, se houver) abatem do total
+        const credits = allInvoiceTxs
+          .filter((t) => t.kind === "credit" && !t.isInternalTransfer)
           .reduce((sum, t) => sum + parseFloat(t.amount), 0);
         await db
           .update(invoices)
-          .set({ totalAmount: String(total), updatedAt: new Date() })
+          .set({ totalAmount: String(total - credits), updatedAt: new Date() })
           .where(eq(invoices.id, invoiceId));
       }
+
+      // Tenta vincular pagamentos no extrato à fatura correspondente — funciona
+      // nos dois sentidos: subiu extrato (acha invoice antiga) OU subiu fatura
+      // (acha pagamento órfão no extrato).
+      const linkedCount = await linkCardPaymentsToInvoices(dbUser.householdId);
+
+      // Cross-check: documentTotal (IA leu do PDF) vs computedTotalFromExtracted
+      // (sum local dos débitos extraídos). Divergência > 1% ou > R$ 1 → revisar.
+      const docTotalNum = extracted.documentTotal
+        ? parseFloat(extracted.documentTotal)
+        : null;
+      let totalsMatch = true;
+      if (docTotalNum !== null && extracted.documentType === "credit_card_invoice") {
+        const diff = Math.abs(docTotalNum - computedTotalFromExtracted);
+        const pct = docTotalNum > 0 ? diff / docTotalNum : 0;
+        if (diff > 1 && pct > 0.01) {
+          totalsMatch = false;
+          warnings.push(
+            `Total do PDF (R$ ${docTotalNum.toFixed(2)}) diverge do somatório das transações (R$ ${computedTotalFromExtracted.toFixed(2)}). Diferença: R$ ${diff.toFixed(2)}.`
+          );
+        }
+      }
+
+      const finalStatus =
+        warnings.length > 0 || !totalsMatch ? "needs_review" : "completed";
 
       await db
         .update(uploads)
         .set({
-          status: "completed",
+          status: finalStatus,
           bankSlug: extracted.bankSlug,
           sourceType:
             extracted.documentType === "unknown" ? "other" : extracted.documentType,
+          extractedJson: extracted as unknown as Record<string, unknown>,
+          documentTotal: docTotalNum !== null ? docTotalNum.toFixed(2) : null,
+          computedTotal: computedTotalFromExtracted.toFixed(2),
+          extractionWarnings: warnings,
+          pagesReported: extracted.pagesReported ?? null,
           processedAt: new Date(),
         })
         .where(eq(uploads.id, upload.id));
@@ -225,22 +308,33 @@ export async function POST(req: Request) {
       return NextResponse.json({
         ok: true,
         uploadId: upload.id,
+        status: finalStatus,
         extractedCount: extracted.transactions.length,
         savedCount: toInsert.length,
         skippedCount: skipped,
+        internalCount,
+        linkedCount,
         bankSlug: extracted.bankSlug,
         documentType: extracted.documentType,
+        documentTotal: docTotalNum,
+        computedTotal: computedTotalFromExtracted,
+        warnings,
         invoiceId,
       });
     }
 
+    // Caminho sem transações (PDF não tinha nada extraível)
+    const noTxStatus = warnings.length > 0 ? "needs_review" : "completed";
     await db
       .update(uploads)
       .set({
-        status: "completed",
+        status: noTxStatus,
         bankSlug: extracted.bankSlug,
         sourceType:
           extracted.documentType === "unknown" ? "other" : extracted.documentType,
+        extractedJson: extracted as unknown as Record<string, unknown>,
+        extractionWarnings: warnings,
+        pagesReported: extracted.pagesReported ?? null,
         processedAt: new Date(),
       })
       .where(eq(uploads.id, upload.id));
@@ -248,11 +342,13 @@ export async function POST(req: Request) {
     return NextResponse.json({
       ok: true,
       uploadId: upload.id,
+      status: noTxStatus,
       extractedCount: 0,
       savedCount: 0,
       skippedCount: 0,
       bankSlug: extracted.bankSlug,
       documentType: extracted.documentType,
+      warnings,
       invoiceId,
     });
   } catch (err) {

@@ -20,6 +20,8 @@ type TxRow = {
   categoryId: string | null;
   status: "pending" | "confirmed" | "ignored";
   bankAccountId: string | null;
+  isInternalTransfer?: boolean;
+  internalTransferType?: string | null;
 };
 
 type Props = {
@@ -39,6 +41,23 @@ function formatDate(d: string) {
     day: "2-digit",
     month: "short",
   });
+}
+
+function internalLabel(type: string | null | undefined) {
+  switch (type) {
+    case "card_payment":
+      return "Pagamento de fatura (sai da conta)";
+    case "card_payment_received":
+      return "Pagamento recebido (quita a fatura)";
+    case "pix_refund":
+      return "Estorno PIX";
+    case "annuity_bonus":
+      return "Bonificação anuidade";
+    case "manual":
+      return "Marcada manualmente como interna";
+    default:
+      return "Transferência interna — não entra em DRE/balanço";
+  }
 }
 
 export function TransactionsMultiSelect({ transactions, categoryOptions }: Props) {
@@ -73,6 +92,26 @@ export function TransactionsMultiSelect({ transactions, categoryOptions }: Props
     }
     return { debit, credit, net: credit - debit };
   }, [selected, transactions]);
+
+  // Totais GLOBAIS pra footer fixo: ignoram transferências internas
+  // (pagamento de fatura, "Pagamento Recebido", estornos, bonificações).
+  const globalTotals = useMemo(() => {
+    let debit = 0;
+    let credit = 0;
+    let countReal = 0;
+    let countInternal = 0;
+    for (const tx of transactions) {
+      if (tx.isInternalTransfer) {
+        countInternal++;
+        continue;
+      }
+      countReal++;
+      const amt = parseFloat(tx.amount);
+      if (tx.kind === "debit") debit += amt;
+      else credit += amt;
+    }
+    return { debit, credit, countReal, countInternal };
+  }, [transactions]);
 
   function handleBulkCategory(createRules: boolean) {
     if (!bulkCategoryId) return;
@@ -136,6 +175,7 @@ export function TransactionsMultiSelect({ transactions, categoryOptions }: Props
             {transactions.map((tx, i) => {
               const amount = parseFloat(tx.amount);
               const isSelected = selected.has(tx.id);
+              const isInternal = !!tx.isInternalTransfer;
               return (
                 <div
                   key={tx.id}
@@ -146,8 +186,12 @@ export function TransactionsMultiSelect({ transactions, categoryOptions }: Props
                     padding: "10px 8px",
                     borderBottom:
                       i < transactions.length - 1 ? "0.5px solid var(--line-d)" : "none",
-                    opacity: tx.status === "ignored" ? 0.5 : 1,
-                    background: isSelected ? "var(--card2)" : "transparent",
+                    opacity: tx.status === "ignored" ? 0.5 : isInternal ? 0.7 : 1,
+                    background: isSelected
+                      ? "var(--card2)"
+                      : isInternal
+                        ? "color-mix(in oklab, var(--muted) 6%, transparent)"
+                        : "transparent",
                     margin: "0 -8px",
                     borderRadius: 10,
                     transition: "background-color 0.12s",
@@ -174,19 +218,58 @@ export function TransactionsMultiSelect({ transactions, categoryOptions }: Props
                         minWidth: 160,
                         fontSize: 13.5,
                         fontWeight: 600,
-                        color: "var(--ink)",
+                        color: isInternal ? "var(--muted-d)" : "var(--ink)",
                         overflow: "hidden",
                         textOverflow: "ellipsis",
                         whiteSpace: "nowrap",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
                       }}
                     >
-                      {tx.description}
+                      {isInternal && (
+                        <span
+                          title={internalLabel(tx.internalTransferType)}
+                          style={{
+                            fontSize: 9.5,
+                            fontWeight: 800,
+                            letterSpacing: "0.06em",
+                            textTransform: "uppercase",
+                            color: "var(--muted)",
+                            border: "0.5px solid var(--line-d)",
+                            padding: "2px 6px",
+                            borderRadius: 999,
+                            flexShrink: 0,
+                          }}
+                        >
+                          ↔ interna
+                        </span>
+                      )}
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {tx.description}
+                      </span>
                     </div>
-                    <CategorySelect
-                      transactionId={tx.id}
-                      currentCategoryId={tx.categoryId}
-                      options={categoryOptions}
-                    />
+                    {isInternal ? (
+                      <span
+                        title="Transações internas não recebem categoria — não entram em DRE/balanço"
+                        style={{
+                          fontSize: 11,
+                          color: "var(--muted)",
+                          padding: "4px 10px",
+                          border: "0.5px dashed var(--line-d)",
+                          borderRadius: 999,
+                          flexShrink: 0,
+                        }}
+                      >
+                        sem categoria
+                      </span>
+                    ) : (
+                      <CategorySelect
+                        transactionId={tx.id}
+                        currentCategoryId={tx.categoryId}
+                        options={categoryOptions}
+                      />
+                    )}
                     <div style={{ flexShrink: 0 }}>
                       <TransactionStatusToggle
                         transactionId={tx.id}
@@ -198,7 +281,11 @@ export function TransactionsMultiSelect({ transactions, categoryOptions }: Props
                       style={{
                         fontSize: 14.5,
                         fontWeight: 700,
-                        color: tx.kind === "debit" ? "var(--ink)" : "var(--ok)",
+                        color: isInternal
+                          ? "var(--muted-d)"
+                          : tx.kind === "debit"
+                            ? "var(--ink)"
+                            : "var(--ok)",
                         flexShrink: 0,
                         minWidth: 96,
                         textAlign: "right",
@@ -226,6 +313,43 @@ export function TransactionsMultiSelect({ transactions, categoryOptions }: Props
                 </div>
               );
             })}
+
+            {/* Footer global — totais REAIS (excluindo internas) */}
+            <div
+              style={{
+                marginTop: 12,
+                padding: "12px 14px",
+                background: "var(--card)",
+                border: "0.5px solid var(--line-d)",
+                borderRadius: 14,
+                display: "flex",
+                alignItems: "center",
+                gap: 16,
+                flexWrap: "wrap",
+                fontSize: 12,
+                color: "var(--muted-d)",
+              }}
+            >
+              <span style={{ fontWeight: 700 }}>
+                {globalTotals.countReal}{" "}
+                {globalTotals.countReal === 1 ? "lançamento real" : "lançamentos reais"}
+              </span>
+              {globalTotals.countInternal > 0 && (
+                <span style={{ fontSize: 10.5, color: "var(--muted)" }}>
+                  + {globalTotals.countInternal}{" "}
+                  {globalTotals.countInternal === 1 ? "interna" : "internas"}
+                </span>
+              )}
+              <span
+                className="ap-num"
+                style={{ color: "var(--ink-d)", fontWeight: 700, marginLeft: "auto" }}
+              >
+                ↓ R$ {formatBRL(globalTotals.debit)}
+              </span>
+              <span className="ap-num" style={{ color: "var(--ok)", fontWeight: 700 }}>
+                ↑ R$ {formatBRL(globalTotals.credit)}
+              </span>
+            </div>
           </>
         )}
       </div>

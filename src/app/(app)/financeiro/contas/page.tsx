@@ -50,7 +50,7 @@ export default async function ContasPage() {
       })
       .from(transactions)
       .where(
-        sql`${transactions.householdId} = ${dbUser.householdId} AND ${transactions.status} != 'ignored' AND ${transactions.occurredOn} >= ${monthStart} AND ${transactions.occurredOn} < ${monthEnd}`
+        sql`${transactions.householdId} = ${dbUser.householdId} AND ${transactions.status} != 'ignored' AND ${transactions.isInternalTransfer} = false AND ${transactions.occurredOn} >= ${monthStart} AND ${transactions.occurredOn} < ${monthEnd}`
       )
       .groupBy(transactions.bankAccountId),
   ]);

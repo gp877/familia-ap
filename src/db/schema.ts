@@ -31,6 +31,7 @@ export const uploadStatusEnum = pgEnum("upload_status", [
   "pending",
   "processing",
   "completed",
+  "needs_review",
   "failed",
 ]);
 export const uploadSourceEnum = pgEnum("upload_source", [
@@ -270,6 +271,16 @@ export const uploads = pgTable(
     bankSlug: text("bank_slug"),
     status: uploadStatusEnum("status").notNull().default("pending"),
     errorMessage: text("error_message"),
+    // Raw JSON exato que a IA devolveu — debug/auditoria, nunca perdemos a resposta original
+    extractedJson: jsonb("extracted_json"),
+    // Total reportado pela IA (ex: campo "TOTAL DESTA FATURA" no PDF)
+    documentTotal: numeric("document_total", { precision: 14, scale: 2 }),
+    // Total recalculado em código (sum de débitos) — pra cross-check
+    computedTotal: numeric("computed_total", { precision: 14, scale: 2 }),
+    // Avisos da IA (ex: ["páginas pareciam cortadas", "linha com data ilegível"])
+    extractionWarnings: jsonb("extraction_warnings"),
+    // Páginas que a IA diz ter processado, pra detectar truncamento silencioso
+    pagesReported: integer("pages_reported"),
     processedAt: timestamp("processed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -314,6 +325,17 @@ export const transactions = pgTable(
     installmentCurrent: integer("installment_current"),
     installmentTotal: integer("installment_total"),
     status: transactionStatusEnum("status").notNull().default("confirmed"),
+    // Transferência interna: pagamento de fatura no extrato, "Pagamento Recebido"
+    // dentro da fatura, estornos PIX, bonificações de anuidade. NÃO entram no
+    // DRE/balanço — só servem pra fechar o saldo da conta/cartão.
+    isInternalTransfer: boolean("is_internal_transfer").notNull().default(false),
+    // Sub-tipo da transferência interna pra auditoria:
+    // card_payment      = "DEBITO FATURA" no extrato (saída pagando fatura)
+    // card_payment_received = "Pagamento Recebido" dentro da fatura
+    // pix_refund        = estorno PIX
+    // annuity_bonus     = bonificação/desconto de anuidade
+    // manual            = marcado manualmente pelo usuário
+    internalTransferType: text("internal_transfer_type"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
