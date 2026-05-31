@@ -203,6 +203,9 @@ export function ChatBar() {
               {error}
             </div>
           )}
+
+          {/* Barra discreta de tempo enquanto a AP processa */}
+          {pending && <DelayBar />}
         </div>
       )}
 
@@ -358,6 +361,47 @@ function TypingBubble() {
         @keyframes ap-typing {
           0%, 80%, 100% { opacity: 0.3; transform: translateY(0); }
           40% { opacity: 1; transform: translateY(-2px); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+/**
+ * Barra discreta que esvazia (direita→esquerda) enquanto AP processa.
+ * Após ~12s, vira pulse infinito pra continuar dando feedback.
+ */
+function DelayBar() {
+  return (
+    <div
+      aria-hidden
+      style={{
+        height: 2,
+        margin: "0 12px 0",
+        borderRadius: 1,
+        background: "color-mix(in oklab, var(--accent) 12%, transparent)",
+        overflow: "hidden",
+        position: "relative",
+      }}
+    >
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          background: "var(--accent)",
+          transformOrigin: "right",
+          animation:
+            "ap-bar-deplete 12s cubic-bezier(0.22, 1, 0.36, 1) forwards, ap-bar-pulse 1.6s ease-in-out 12s infinite",
+        }}
+      />
+      <style>{`
+        @keyframes ap-bar-deplete {
+          from { transform: scaleX(1); }
+          to { transform: scaleX(0); }
+        }
+        @keyframes ap-bar-pulse {
+          0%, 100% { transform: scaleX(0); opacity: 0.3; }
+          50% { transform: scaleX(0.18); opacity: 0.8; }
         }
       `}</style>
     </div>
