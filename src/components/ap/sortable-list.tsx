@@ -1,18 +1,23 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 /**
- * Lista de cartões com drag-and-drop nativo HTML5. Não dependência extra.
- * Chama `action` com FormData contendo `order` = JSON.stringify(ids) ao soltar.
+ * Lista de cartões com drag-and-drop nativo HTML5. Sem dependência extra.
+ *
+ * IMPORTANTE: Em Next App Router (Server Components), você NÃO pode passar
+ * uma função render como prop pra Client Component — isso quebra com
+ * "Functions cannot be passed directly to Client Components" em prod.
+ *
+ * Por isso a API recebe `items: { id, content: ReactNode }[]` — o Server
+ * Component já renderiza o JSX dos cards e nós só reordenamos os nodes
+ * pelo ID. Server actions (action prop) são OK porque ganham `__react_server_action`.
  */
 export function SortableList({
   items,
-  renderItem,
   action,
 }: {
-  items: { id: string; key?: string }[];
-  renderItem: (id: string, isDragging: boolean) => React.ReactNode;
+  items: { id: string; content: React.ReactNode }[];
   action: (fd: FormData) => Promise<void> | void;
 }) {
   const [order, setOrder] = useState<string[]>(items.map((i) => i.id));
@@ -20,7 +25,14 @@ export function SortableList({
   const dragOverIdRef = useRef<string | null>(null);
   const [, startTransition] = useTransition();
 
-  // Sincroniza com servidor se a lista do servidor mudar
+  // Indexa o conteúdo por id pra reordenar sem perder os nodes.
+  const byId = useMemo(() => {
+    const m = new Map<string, React.ReactNode>();
+    for (const it of items) m.set(it.id, it.content);
+    return m;
+  }, [items]);
+
+  // Sincroniza com servidor se a lista mudar
   useEffect(() => {
     setOrder(items.map((i) => i.id));
   }, [items.map((i) => i.id).join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -65,23 +77,27 @@ export function SortableList({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      {order.map((id) => (
-        <div
-          key={id}
-          draggable
-          onDragStart={() => handleDragStart(id)}
-          onDragOver={(e) => handleDragOver(e, id)}
-          onDrop={(e) => handleDrop(e, id)}
-          onDragEnd={handleDragEnd}
-          style={{
-            cursor: "grab",
-            opacity: draggingId === id ? 0.4 : 1,
-            transition: "opacity 0.15s",
-          }}
-        >
-          {renderItem(id, draggingId === id)}
-        </div>
-      ))}
+      {order.map((id) => {
+        const content = byId.get(id);
+        if (!content) return null;
+        return (
+          <div
+            key={id}
+            draggable
+            onDragStart={() => handleDragStart(id)}
+            onDragOver={(e) => handleDragOver(e, id)}
+            onDrop={(e) => handleDrop(e, id)}
+            onDragEnd={handleDragEnd}
+            style={{
+              cursor: "grab",
+              opacity: draggingId === id ? 0.4 : 1,
+              transition: "opacity 0.15s",
+            }}
+          >
+            {content}
+          </div>
+        );
+      })}
     </div>
   );
 }

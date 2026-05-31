@@ -174,20 +174,18 @@ export default async function CategoriasPage() {
       <div style={{ padding: "0 20px" }}>
         {expenseParents.length > 0 ? (
           <SortableList
-            items={expenseParents.map((c) => ({ id: c.id }))}
-            renderItem={(id) => {
-              const cat = expenseParents.find((c) => c.id === id);
-              if (!cat) return null;
-              return (
+            action={reorderCategoriasForm}
+            items={expenseParents.map((cat) => ({
+              id: cat.id,
+              content: (
                 <CategoryCard
                   cat={toCardLite(cat)}
                   subs={childrenOf(cat.id).map(toCardLite)}
                   totalCount={totalCount(cat.id)}
                   mergeOptions={mergeOptionsFor(cat.id, "expense")}
                 />
-              );
-            }}
-            action={reorderCategoriasForm}
+              ),
+            }))}
           />
         ) : (
           <EmptyHint text="Sem categorias de despesa ainda." />
@@ -216,20 +214,18 @@ export default async function CategoriasPage() {
       <div style={{ padding: "0 20px 20px" }}>
         {incomeParents.length > 0 ? (
           <SortableList
-            items={incomeParents.map((c) => ({ id: c.id }))}
-            renderItem={(id) => {
-              const cat = incomeParents.find((c) => c.id === id);
-              if (!cat) return null;
-              return (
+            action={reorderCategoriasForm}
+            items={incomeParents.map((cat) => ({
+              id: cat.id,
+              content: (
                 <CategoryCard
                   cat={toCardLite(cat)}
                   subs={childrenOf(cat.id).map(toCardLite)}
                   totalCount={totalCount(cat.id)}
                   mergeOptions={mergeOptionsFor(cat.id, "income")}
                 />
-              );
-            }}
-            action={reorderCategoriasForm}
+              ),
+            }))}
           />
         ) : (
           <EmptyHint text="Sem categorias de receita ainda." />

@@ -17,19 +17,16 @@ type ProductRow = {
 };
 
 export function SortableProductsList({ items }: { items: ProductRow[] }) {
-  const byId = new Map(items.map((i) => [i.id, i]));
-
   return (
     <SortableList
-      items={items.map((i) => ({ id: i.id }))}
       action={reorderItems}
-      renderItem={(id, isDragging) => {
-        const item = byId.get(id);
-        if (!item) return null;
+      items={items.map((item) => {
         const min = item.minStock ? parseFloat(item.minStock) : null;
         const cur = item.currentStock ? parseFloat(item.currentStock) : 0;
         const low = min !== null && cur < min;
-        return (
+        return {
+          id: item.id,
+          content: (
           <div
             style={{
               display: "grid",
@@ -38,7 +35,7 @@ export function SortableProductsList({ items }: { items: ProductRow[] }) {
               gap: 8,
               padding: "10px 12px",
               borderRadius: 12,
-              background: isDragging ? "var(--card2)" : "var(--card)",
+              background: "var(--card)",
               border: `0.5px solid ${low ? "var(--alert)" : "var(--line-d)"}`,
             }}
           >
@@ -180,8 +177,9 @@ export function SortableProductsList({ items }: { items: ProductRow[] }) {
               </div>
             </div>
           </div>
-        );
-      }}
+          ),
+        };
+      })}
     />
   );
 }
