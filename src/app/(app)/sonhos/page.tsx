@@ -8,12 +8,12 @@ import { ScreenShell } from "@/components/ap/screen-shell";
 import {
   createSonho,
   deleteSonho,
-  patchSonho,
   toggleSonhoStatus,
 } from "@/app/actions/sonhos";
 import { auth } from "@/auth";
 import { db } from "@/db";
 import { sonhos, users } from "@/db/schema";
+import { SonhoEditDialog } from "./sonho-edit-dialog";
 
 export default async function SonhosPage() {
   const session = await auth();
@@ -117,13 +117,23 @@ export default async function SonhosPage() {
                   opacity: 0.75,
                 }}
               >
-                <CheckboxToggle
-                  checked={true}
-                  action={toggleSonhoStatus}
-                  hiddenFields={{ id: s.id }}
-                  size={18}
-                  ariaLabel="Reabrir sonho"
-                />
+                <div
+                  style={{
+                    width: 28,
+                    height: 28,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <CheckboxToggle
+                    checked={true}
+                    action={toggleSonhoStatus}
+                    hiddenFields={{ id: s.id }}
+                    size={20}
+                    ariaLabel="Reabrir sonho"
+                  />
+                </div>
                 <div style={{ minWidth: 0 }}>
                   <div
                     style={{
@@ -197,108 +207,115 @@ function SonhoCarouselCard({ s }: { s: typeof sonhos.$inferSelect }) {
           ★
         </div>
       )}
-      <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
-        <div style={{ display: "flex", alignItems: "start", gap: 8 }}>
-          <CheckboxToggle
-            checked={false}
-            action={toggleSonhoStatus}
-            hiddenFields={{ id: s.id }}
-            size={18}
-            ariaLabel="Marcar como realizado"
-          />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <InlineEditInput
-              initialValue={s.title}
-              action={patchSonho}
-              hiddenFields={{ id: s.id }}
-              fieldName="title"
-              fontSize={14}
-              fontWeight={700}
-            />
-          </div>
-          <DeleteBtn action={deleteSonho.bind(null, s.id)} confirmMsg={null} />
+      <div
+        style={{
+          padding: 12,
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
+          flex: 1,
+        }}
+      >
+        {/* Título — fonte grande, ocupa a largura */}
+        <div
+          style={{
+            fontSize: 14,
+            fontWeight: 700,
+            color: "var(--ink)",
+            lineHeight: 1.25,
+            // Acomoda até 2 linhas
+            display: "-webkit-box",
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+            minHeight: 36, // mantém altura consistente quando título tem 1 linha
+          }}
+        >
+          {s.title}
         </div>
 
-        {/* Descrição — campo OBVIAMENTE editável (bg + border) */}
-        <EditableField
-          icon="✎"
-          label="descrição"
-          value={s.description ?? ""}
-          fieldName="description"
-          id={s.id}
-        />
+        {/* Descrição (read-only no card; edição via lápis) */}
+        {s.description ? (
+          <div
+            style={{
+              fontSize: 11.5,
+              color: "var(--muted-d)",
+              lineHeight: 1.4,
+              display: "-webkit-box",
+              WebkitLineClamp: 3,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+            }}
+          >
+            {s.description}
+          </div>
+        ) : (
+          <div
+            style={{
+              fontSize: 11,
+              color: "var(--muted)",
+              fontStyle: "italic",
+            }}
+          >
+            sem descrição — clique no lápis pra adicionar
+          </div>
+        )}
 
-        {/* URL da imagem */}
-        <EditableField
-          icon="🖼"
-          label="url da imagem"
-          value={s.imageUrl ?? ""}
-          fieldName="imageUrl"
-          id={s.id}
-          monospace
-        />
+        {/* Spacer pra empurrar barra de ações pro fim */}
+        <div style={{ flex: 1 }} />
+
+        {/* Barra de ações ALINHADA — checkbox + lápis + delete, todos
+            mesmo tamanho 28x28, no mesmo line-height. */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 4,
+            paddingTop: 4,
+            borderTop: "0.5px solid var(--line-d)",
+            marginTop: 2,
+          }}
+        >
+          <ActionWrapper>
+            <CheckboxToggle
+              checked={false}
+              action={toggleSonhoStatus}
+              hiddenFields={{ id: s.id }}
+              size={20}
+              ariaLabel="Marcar como realizado"
+            />
+          </ActionWrapper>
+          <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+            <SonhoEditDialog
+              sonho={{
+                id: s.id,
+                title: s.title,
+                description: s.description,
+                imageUrl: s.imageUrl,
+              }}
+            />
+            <DeleteBtn action={deleteSonho.bind(null, s.id)} confirmMsg={null} />
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
-/**
- * Campo editável visivelmente sinalizado: ícone + label muted + valor
- * em chip com background/border. Estado vazio mostra "clique pra
- * adicionar {label}" — afordância de input clara.
- */
-function EditableField({
-  icon,
-  label,
-  value,
-  fieldName,
-  id,
-  monospace = false,
-}: {
-  icon: string;
-  label: string;
-  value: string;
-  fieldName: string;
-  id: string;
-  monospace?: boolean;
-}) {
+/** Wrapper de 28x28 que centraliza qualquer botão de ação. */
+function ActionWrapper({ children }: { children: React.ReactNode }) {
   return (
     <div
       style={{
-        background: "var(--card2)",
-        border: "0.5px dashed var(--line-d)",
-        borderRadius: 10,
-        padding: "8px 10px",
+        width: 28,
+        height: 28,
         display: "flex",
-        flexDirection: "column",
-        gap: 4,
+        alignItems: "center",
+        justifyContent: "center",
       }}
     >
-      <div
-        style={{
-          fontSize: 9.5,
-          fontWeight: 700,
-          letterSpacing: "0.1em",
-          textTransform: "uppercase",
-          color: "var(--muted)",
-          display: "flex",
-          alignItems: "center",
-          gap: 4,
-        }}
-      >
-        <span aria-hidden>{icon}</span>
-        {label}
-      </div>
-      <InlineEditInput
-        initialValue={value}
-        action={patchSonho}
-        hiddenFields={{ id }}
-        fieldName={fieldName}
-        placeholder={`clique pra adicionar ${label}`}
-        fontSize={12.5}
-        fontWeight={500}
-        color={monospace ? "var(--muted-d)" : "var(--ink-d)"}
-      />
+      {children}
     </div>
   );
 }
