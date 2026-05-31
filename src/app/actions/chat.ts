@@ -32,16 +32,20 @@ export async function sendChatMessage(formData: FormData) {
   const content = (formData.get("content") as string)?.trim();
   if (!content) return;
 
+  // Guard anti-duplicata fica DENTRO de processChatTurnWithTools pra
+  // proteger todos os callers (chat page, ChatBar, WhatsApp webhook).
+
   try {
     await processChatTurnWithTools(content, householdId, userId);
   } catch (err) {
     const thread = await getOrCreateMainThread(householdId, userId);
     const errMsg = err instanceof Error ? err.message : String(err);
+    console.error("[chat] processChatTurnWithTools failed:", err);
     await db.insert(messages).values({
       threadId: thread.id,
       householdId,
       role: "assistant",
-      content: `(erro ao chamar a IA: ${errMsg})`,
+      content: `(erro ao chamar a IA: ${errMsg.slice(0, 300)})`,
     });
     revalidatePath("/chat");
   }

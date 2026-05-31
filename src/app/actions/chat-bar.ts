@@ -1167,6 +1167,46 @@ export async function processChatTurnWithTools(
 }> {
   const thread = await getOrCreateMainThread(householdId, userId);
 
+  // Guard anti-duplicata: se a última mensagem do user no thread tem
+  // mesmo conteúdo e foi gravada nos últimos 12s, retorna o par
+  // (userMsg, assistantMsg) já existente em vez de processar de novo.
+  // Cobre double-click no botão, refresh durante request, double-submit
+  // por bug no client.
+  const recent = await db.query.messages.findMany({
+    where: eq(messages.threadId, thread.id),
+    orderBy: [desc(messages.createdAt)],
+    limit: 4,
+  });
+  const lastUser = recent.find((m) => m.role === "user");
+  if (lastUser && lastUser.content.trim() === content.trim()) {
+    const ageMs = Date.now() - new Date(lastUser.createdAt).getTime();
+    if (ageMs < 12_000) {
+      console.warn(
+        `[chat] duplicate user message ignored (${ageMs}ms apart): "${content.slice(0, 60)}"`
+      );
+      // Tenta retornar par existente
+      const lastAssistant = recent.find(
+        (m) =>
+          m.role === "assistant" &&
+          new Date(m.createdAt).getTime() > new Date(lastUser.createdAt).getTime()
+      );
+      if (lastAssistant) {
+        return { userMsg: lastUser, assistantMsg: lastAssistant };
+      }
+      // Assistente ainda não respondeu — outra invocação está rodando.
+      // Retorna placeholder pra não duplicar.
+      return {
+        userMsg: lastUser,
+        assistantMsg: {
+          ...lastUser,
+          id: `dedup-${Date.now()}`,
+          role: "assistant" as const,
+          content: "(processando…)",
+        },
+      };
+    }
+  }
+
   const [userMsg] = await db
     .insert(messages)
     .values({
