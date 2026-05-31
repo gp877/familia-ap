@@ -2,7 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 
-import { setTransactionCategory } from "@/app/actions/transactions";
+import {
+  markAsInternalManually,
+  setTransactionCategory,
+  unmarkAsInternalManually,
+} from "@/app/actions/transactions";
 
 export type CategoryOption = {
   id: string;
@@ -19,6 +23,9 @@ type Props = {
   transactionId: string;
   currentCategoryId: string | null;
   options: CategoryOption[];
+  /** Se a transação está marcada como interna. Muda o trigger pra mostrar
+   * o estado e adiciona "tornar real" como opção no popover. */
+  isInternal?: boolean;
 };
 
 /**
@@ -29,7 +36,12 @@ type Props = {
  * uppercase. Estilo moderno (Linear/Notion). Click abre painel translúcido
  * com sombra suave e cantos generosos.
  */
-export function CategorySelect({ transactionId, currentCategoryId, options }: Props) {
+export function CategorySelect({
+  transactionId,
+  currentCategoryId,
+  options,
+  isInternal = false,
+}: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [drilledParentId, setDrilledParentId] = useState<string | null>(null);
@@ -102,7 +114,26 @@ export function CategorySelect({ transactionId, currentCategoryId, options }: Pr
 
   function selectCategory(id: string | null, createRule = true) {
     startTransition(async () => {
+      // Se estava interna e o usuário escolheu uma categoria real,
+      // automaticamente desfaz a marcação de interna primeiro.
+      if (isInternal && id) {
+        await unmarkAsInternalManually(transactionId);
+      }
       await setTransactionCategory(transactionId, id, createRule);
+      setOpen(false);
+    });
+  }
+
+  function markInternal() {
+    startTransition(async () => {
+      await markAsInternalManually(transactionId, null);
+      setOpen(false);
+    });
+  }
+
+  function unmarkInternal() {
+    startTransition(async () => {
+      await unmarkAsInternalManually(transactionId);
       setOpen(false);
     });
   }
@@ -146,11 +177,17 @@ export function CategorySelect({ transactionId, currentCategoryId, options }: Pr
           gap: 6,
           padding: "5px 11px",
           borderRadius: 999,
-          border: "none",
-          background: current
-            ? `color-mix(in oklab, ${currentColor} 16%, transparent)`
-            : "color-mix(in oklab, var(--muted) 10%, transparent)",
-          color: current ? softTone(currentColor!) : "var(--muted)",
+          border: isInternal ? "0.5px dashed var(--line-d)" : "none",
+          background: isInternal
+            ? "transparent"
+            : current
+              ? `color-mix(in oklab, ${currentColor} 16%, transparent)`
+              : "color-mix(in oklab, var(--muted) 10%, transparent)",
+          color: isInternal
+            ? "var(--muted)"
+            : current
+              ? softTone(currentColor!)
+              : "var(--muted)",
           fontSize: 12,
           fontWeight: 600,
           letterSpacing: "-0.005em",
@@ -169,12 +206,15 @@ export function CategorySelect({ transactionId, currentCategoryId, options }: Pr
             width: 6,
             height: 6,
             borderRadius: 3,
-            background: currentColor ?? "var(--muted)",
+            background: isInternal
+              ? "transparent"
+              : currentColor ?? "var(--muted)",
+            boxShadow: isInternal ? "inset 0 0 0 1px var(--muted)" : "none",
             flexShrink: 0,
           }}
         />
         <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-          {current ? current.label : "categorizar"}
+          {isInternal ? "↔ interna" : current ? current.label : "categorizar"}
         </span>
       </button>
 
@@ -303,6 +343,52 @@ export function CategorySelect({ transactionId, currentCategoryId, options }: Pr
             {/* Modo raiz */}
             {!query.trim() && !drilledParent && (
               <>
+                {/* Interna: alternar ↔ real. Fica no topo do menu pra ficar
+                    junto da categorização (decisão de natureza da transação). */}
+                {isInternal ? (
+                  <button
+                    type="button"
+                    onClick={unmarkInternal}
+                    style={{
+                      ...rowBaseStyle,
+                      color: "var(--accent)",
+                      fontWeight: 700,
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 6,
+                        height: 6,
+                        borderRadius: 3,
+                        background: "var(--accent)",
+                      }}
+                    />
+                    Tornar real (e categorizar abaixo)
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={markInternal}
+                    style={{
+                      ...rowBaseStyle,
+                      color: "var(--muted-d)",
+                      fontWeight: 600,
+                    }}
+                    title="Não entra em DRE/balanço — só fecha saldo da conta"
+                  >
+                    <span
+                      style={{
+                        width: 6,
+                        height: 6,
+                        borderRadius: 3,
+                        background: "transparent",
+                        boxShadow: "inset 0 0 0 1px var(--muted-d)",
+                      }}
+                    />
+                    ↔ Marcar como transferência interna
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={() => selectCategory(null, false)}

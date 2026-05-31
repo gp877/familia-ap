@@ -317,27 +317,12 @@ export function TransactionsMultiSelect({ transactions, categoryOptions }: Props
                         {tx.description}
                       </span>
                     </div>
-                    {isInternal ? (
-                      <span
-                        title="Transações internas não recebem categoria — não entram em DRE/balanço"
-                        style={{
-                          fontSize: 11,
-                          color: "var(--muted)",
-                          padding: "4px 10px",
-                          border: "0.5px dashed var(--line-d)",
-                          borderRadius: 999,
-                          flexShrink: 0,
-                        }}
-                      >
-                        sem categoria
-                      </span>
-                    ) : (
-                      <CategorySelect
-                        transactionId={tx.id}
-                        currentCategoryId={tx.categoryId}
-                        options={categoryOptions}
-                      />
-                    )}
+                    <CategorySelect
+                      transactionId={tx.id}
+                      currentCategoryId={tx.categoryId}
+                      options={categoryOptions}
+                      isInternal={isInternal}
+                    />
                     <div style={{ flexShrink: 0 }}>
                       <TransactionStatusToggle
                         transactionId={tx.id}
