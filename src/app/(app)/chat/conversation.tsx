@@ -104,20 +104,29 @@ export function Conversation({
   const hasContent = initialMessages.length > 0 || optimistic || pending;
 
   return (
-    <>
+    // Wrapper auto-contido — ocupa todo o espaço restante do shell
+    // (flex:1 + min-h:0) e organiza scroller + input em coluna própria.
+    // Antes era um Fragment, mas isso deixava a posição do input à mercê
+    // do flex-layout do pai, e em produção o input acabava clipado.
+    <div
+      style={{
+        flex: 1,
+        minHeight: 0,
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
       {/* Scroller das mensagens */}
       <div
         ref={scrollerRef}
         style={{
           flex: 1,
+          minHeight: 0,
           padding: "8px 20px 20px",
           display: "flex",
           flexDirection: "column",
           gap: 10,
           overflowY: "auto",
-          // minHeight: 0 é OBRIGATÓRIO pra flex-child + overflow-auto
-          // funcionar — sem isso o scroller cresce além do pai.
-          minHeight: 0,
         }}
       >
         {!hasContent ? (
@@ -157,8 +166,8 @@ export function Conversation({
       {/* Barra discreta de tempo — esvazia enquanto AP processa */}
       {pending && <DelayBar />}
 
-      {/* Input */}
-      <div style={{ padding: "8px 20px 16px" }}>
+      {/* Input — flexShrink:0 garante que NUNCA seja comprimido a zero */}
+      <div style={{ padding: "8px 20px 16px", flexShrink: 0 }}>
         <form
           onSubmit={handleSubmit}
           style={{ display: "flex", alignItems: "center", gap: 8 }}
@@ -219,7 +228,7 @@ export function Conversation({
           </button>
         </form>
       </div>
-    </>
+    </div>
   );
 }
 

@@ -81,12 +81,14 @@ function ScreenShellChat({ children }: { children: React.ReactNode }) {
     <div
       className="mx-auto flex w-full flex-col max-w-[480px] lg:max-w-4xl"
       style={{
-        // 100dvh respeita a UI dinâmica do browser (URL bar em mobile);
+        // 100dvh respeita a UI dinâmica do browser (URL bar em mobile).
+        // maxHeight redundante blinda contra growth do parent.
         // overflow hidden trava o scroll do body — só o scroller interno
-        // do Conversation rola. Sem isso, o input afundava abaixo da fold
-        // em desktop.
+        // do Conversation rola.
         height: "100dvh",
+        maxHeight: "100dvh",
         overflow: "hidden",
+        minHeight: 0,
       }}
     >
       {children}
