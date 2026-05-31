@@ -15,6 +15,13 @@ type Props = {
   accounts: AccountOption[];
 };
 
+function isCard(type: string) {
+  return type === "credit_card";
+}
+function isCheckingLike(type: string) {
+  return type === "checking" || type === "savings" || type === "investment" || type === "other";
+}
+
 export function UploadClient({ accounts }: Props) {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
@@ -212,7 +219,7 @@ export function UploadClient({ accounts }: Props) {
           />
         </label>
 
-        {/* Seleção de conta */}
+        {/* Tipo de documento — escolha primeiro pra filtrar contas relevantes */}
         <div style={{ marginTop: 14 }}>
           <label
             style={{
@@ -225,32 +232,72 @@ export function UploadClient({ accounts }: Props) {
               marginBottom: 6,
             }}
           >
-            Conta / cartão *
+            Tipo de documento *
           </label>
-          {accounts.length > 0 ? (
-            <select
-              value={bankAccountId}
-              onChange={(e) => setBankAccountId(e.target.value)}
-              required
-              style={{
-                width: "100%",
-                padding: "10px 14px",
-                borderRadius: 12,
-                background: "var(--card2)",
-                color: "var(--ink)",
-                border: bankAccountId ? "1px solid transparent" : "1px solid var(--alert)",
-                fontSize: 13.5,
-                fontFamily: "inherit",
-              }}
-            >
-              <option value="">Selecione...</option>
-              {accounts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name} ({typeLabel(a.type)})
-                </option>
-              ))}
-            </select>
-          ) : (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {(
+              [
+                { v: "bank_statement", label: "Extrato bancário" },
+                { v: "credit_card_invoice", label: "Fatura de cartão" },
+                { v: "auto", label: "Detectar" },
+              ] as const
+            ).map((opt) => (
+              <button
+                key={opt.v}
+                type="button"
+                onClick={() => {
+                  setSourceType(opt.v);
+                  // Limpa seleção de conta se mudou o tipo e a atual não bate
+                  if (bankAccountId) {
+                    const sel = accounts.find((a) => a.id === bankAccountId);
+                    if (sel) {
+                      const ok =
+                        opt.v === "auto" ||
+                        (opt.v === "bank_statement" && isCheckingLike(sel.type)) ||
+                        (opt.v === "credit_card_invoice" && isCard(sel.type));
+                      if (!ok) setBankAccountId("");
+                    }
+                  }
+                }}
+                disabled={submitting}
+                style={{
+                  padding: "8px 16px",
+                  borderRadius: 999,
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  background: sourceType === opt.v ? "var(--accent)" : "transparent",
+                  color: sourceType === opt.v ? "var(--accent-on)" : "var(--muted-d)",
+                  border:
+                    sourceType === opt.v ? "1px solid var(--accent)" : "1px solid var(--line-d)",
+                  cursor: "pointer",
+                }}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Seleção de conta agrupada — cards visuais filtrados pelo tipo */}
+        <div style={{ marginTop: 18 }}>
+          <label
+            style={{
+              display: "block",
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              color: "var(--muted)",
+              marginBottom: 6,
+            }}
+          >
+            {sourceType === "credit_card_invoice"
+              ? "Cartão *"
+              : sourceType === "bank_statement"
+                ? "Conta *"
+                : "Conta ou cartão *"}
+          </label>
+          {accounts.length === 0 ? (
             <div
               style={{
                 padding: "12px 14px",
@@ -266,31 +313,15 @@ export function UploadClient({ accounts }: Props) {
               </a>{" "}
               primeiro.
             </div>
-          )}
-        </div>
-
-        {/* Tipo de documento */}
-        <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {(["auto", "bank_statement", "credit_card_invoice"] as const).map((opt) => (
-            <button
-              key={opt}
-              type="button"
-              onClick={() => setSourceType(opt)}
+          ) : (
+            <AccountPicker
+              accounts={accounts}
+              sourceType={sourceType}
+              value={bankAccountId}
+              onChange={setBankAccountId}
               disabled={submitting}
-              style={{
-                padding: "6px 14px",
-                borderRadius: 999,
-                fontSize: 12,
-                fontWeight: 600,
-                background: sourceType === opt ? "var(--card)" : "transparent",
-                color: sourceType === opt ? "var(--ink)" : "var(--muted-d)",
-                border: "1px solid var(--line-d)",
-                cursor: "pointer",
-              }}
-            >
-              {opt === "auto" ? "Detectar" : opt === "bank_statement" ? "Extrato" : "Fatura"}
-            </button>
-          ))}
+            />
+          )}
         </div>
 
         {error && (
@@ -345,6 +376,157 @@ export function UploadClient({ accounts }: Props) {
         )}
       </form>
     </ScreenShell>
+  );
+}
+
+/**
+ * Picker visual de conta/cartão agrupado por categoria. Filtra pela
+ * sourceType selecionada (extrato → contas; fatura → cartões; auto → ambos).
+ * Substitui o `<select>` HTML que misturava tudo em lista flat.
+ */
+function AccountPicker({
+  accounts,
+  sourceType,
+  value,
+  onChange,
+  disabled,
+}: {
+  accounts: AccountOption[];
+  sourceType: SourceType;
+  value: string;
+  onChange: (id: string) => void;
+  disabled: boolean;
+}) {
+  const cards = accounts.filter((a) => isCard(a.type));
+  const checking = accounts.filter((a) => isCheckingLike(a.type));
+
+  const showCards = sourceType !== "bank_statement";
+  const showChecking = sourceType !== "credit_card_invoice";
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {showChecking && checking.length > 0 && (
+        <AccountGroup
+          label="Contas"
+          accounts={checking}
+          value={value}
+          onChange={onChange}
+          disabled={disabled}
+        />
+      )}
+      {showCards && cards.length > 0 && (
+        <AccountGroup
+          label="Cartões"
+          accounts={cards}
+          value={value}
+          onChange={onChange}
+          disabled={disabled}
+        />
+      )}
+      {showCards && cards.length === 0 && sourceType === "credit_card_invoice" && (
+        <div style={{ fontSize: 12, color: "var(--muted)" }}>
+          Nenhum cartão cadastrado.{" "}
+          <a href="/financeiro/contas" style={{ color: "var(--accent)" }}>
+            Cadastrar
+          </a>
+          .
+        </div>
+      )}
+      {showChecking && checking.length === 0 && sourceType === "bank_statement" && (
+        <div style={{ fontSize: 12, color: "var(--muted)" }}>
+          Nenhuma conta cadastrada.{" "}
+          <a href="/financeiro/contas" style={{ color: "var(--accent)" }}>
+            Cadastrar
+          </a>
+          .
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AccountGroup({
+  label,
+  accounts,
+  value,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  accounts: AccountOption[];
+  value: string;
+  onChange: (id: string) => void;
+  disabled: boolean;
+}) {
+  return (
+    <div>
+      <div
+        style={{
+          fontSize: 10.5,
+          fontWeight: 600,
+          letterSpacing: "0.04em",
+          color: "var(--muted)",
+          marginBottom: 6,
+        }}
+      >
+        {label}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {accounts.map((a) => {
+          const selected = value === a.id;
+          return (
+            <button
+              key={a.id}
+              type="button"
+              onClick={() => onChange(a.id)}
+              disabled={disabled}
+              style={{
+                width: "100%",
+                padding: "10px 14px",
+                borderRadius: 12,
+                background: selected
+                  ? "color-mix(in oklab, var(--accent) 14%, var(--card))"
+                  : "var(--card)",
+                border: selected
+                  ? "1px solid var(--accent)"
+                  : "0.5px solid var(--line-d)",
+                color: "var(--ink)",
+                fontSize: 13.5,
+                fontWeight: selected ? 700 : 500,
+                cursor: "pointer",
+                textAlign: "left",
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                fontFamily: "inherit",
+              }}
+            >
+              <span
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: 4,
+                  background: selected ? "var(--accent)" : "var(--muted)",
+                  flexShrink: 0,
+                }}
+              />
+              <span style={{ flex: 1 }}>{a.name}</span>
+              <span
+                style={{
+                  fontSize: 10.5,
+                  fontWeight: 600,
+                  letterSpacing: "0.04em",
+                  textTransform: "uppercase",
+                  color: "var(--muted)",
+                }}
+              >
+                {typeLabel(a.type)}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

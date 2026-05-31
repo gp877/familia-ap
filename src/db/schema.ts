@@ -326,16 +326,29 @@ export const transactions = pgTable(
     installmentTotal: integer("installment_total"),
     status: transactionStatusEnum("status").notNull().default("confirmed"),
     // Transferência interna: pagamento de fatura no extrato, "Pagamento Recebido"
-    // dentro da fatura, estornos PIX, bonificações de anuidade. NÃO entram no
-    // DRE/balanço — só servem pra fechar o saldo da conta/cartão.
+    // dentro da fatura, estornos PIX pareados, bonificações de anuidade pareadas.
+    // NÃO entram no DRE/balanço — só servem pra fechar o saldo da conta/cartão.
     isInternalTransfer: boolean("is_internal_transfer").notNull().default(false),
     // Sub-tipo da transferência interna pra auditoria:
     // card_payment      = "DEBITO FATURA" no extrato (saída pagando fatura)
     // card_payment_received = "Pagamento Recebido" dentro da fatura
-    // pix_refund        = estorno PIX
-    // annuity_bonus     = bonificação/desconto de anuidade
-    // manual            = marcado manualmente pelo usuário
+    // pix_refund        = estorno PIX (PAREADO com débito original)
+    // annuity_bonus     = bonificação/desconto de anuidade (PAREADA com cobrança)
+    // manual            = marcado manualmente pelo usuário (override)
     internalTransferType: text("internal_transfer_type"),
+    // FK auto-referente: aponta pro PAR (estorno → débito original, bonificação
+    // → anuidade cobrada). Usado pra exibir "↔ par desta linha: X" e pra
+    // desfazer ambos juntos. NÃO usado em card_payment (par é a invoice, vai
+    // em invoices.paidByTransactionId).
+    internalPairId: uuid("internal_pair_id"),
+    // Marca quando o usuário sobrescreveu o detector automático. Roda do
+    // matcher automático ignora linhas com markedManuallyAt setado.
+    markedManuallyAt: timestamp("marked_manually_at", { withTimezone: true }),
+    // Splits de categoria — quando uma transação cobre múltiplas categorias.
+    // Array [{categoryId, amount, note?}]. Sum dos amounts deve = transaction.amount.
+    // Quando splits é null/[], a categoria principal (categoryId) é a única.
+    // Caso raro — UI minimalista. Relatórios podem expandir via lib/splits.
+    splits: jsonb("splits"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

@@ -7,7 +7,13 @@ import {
   bulkSetCategory,
   bulkSetStatus,
 } from "@/app/actions/transactions-bulk";
+import {
+  markAsInternalManually,
+  unmarkAsInternalManually,
+} from "@/app/actions/transactions";
+import { CategoryBulkPicker } from "@/components/category-bulk-picker";
 import { CategorySelect, type CategoryOption } from "@/components/category-select";
+import { SplitDialog } from "@/components/split-dialog";
 import { TransactionStatusToggle } from "@/components/transaction-status-toggle";
 
 type TxRow = {
@@ -22,6 +28,7 @@ type TxRow = {
   bankAccountId: string | null;
   isInternalTransfer?: boolean;
   internalTransferType?: string | null;
+  splits?: Array<{ categoryId: string; amount: string; note?: string }> | null;
 };
 
 type Props = {
@@ -41,6 +48,62 @@ function formatDate(d: string) {
     day: "2-digit",
     month: "short",
   });
+}
+
+/**
+ * Botão discreto pra alternar manualmente o status interno. Visual minúsculo
+ * (linha 2 da transação), só aparece quando você passa o mouse. Honra o
+ * princípio: toda automação tem override manual.
+ */
+function InternalOverrideButton({
+  transactionId,
+  isInternal,
+}: {
+  transactionId: string;
+  isInternal: boolean;
+}) {
+  const [isPending, startTransition] = useTransition();
+  function handle() {
+    if (
+      isInternal &&
+      !confirm("Tornar essa transação real novamente? Vai voltar a contar em DRE/balanço.")
+    ) {
+      return;
+    }
+    startTransition(async () => {
+      if (isInternal) {
+        await unmarkAsInternalManually(transactionId);
+      } else {
+        await markAsInternalManually(transactionId, null);
+      }
+    });
+  }
+  return (
+    <button
+      type="button"
+      onClick={handle}
+      disabled={isPending}
+      title={
+        isInternal
+          ? "Tornar real (contar em DRE)"
+          : "Marcar como interna (não contar em DRE)"
+      }
+      style={{
+        flexShrink: 0,
+        background: "transparent",
+        border: "0.5px solid var(--line-d)",
+        color: "var(--muted)",
+        fontSize: 9.5,
+        fontWeight: 600,
+        padding: "2px 8px",
+        borderRadius: 999,
+        cursor: isPending ? "wait" : "pointer",
+        opacity: isPending ? 0.5 : 1,
+      }}
+    >
+      {isInternal ? "tornar real" : "marcar interna"}
+    </button>
+  );
 }
 
 function internalLabel(type: string | null | undefined) {
@@ -63,7 +126,12 @@ function internalLabel(type: string | null | undefined) {
 export function TransactionsMultiSelect({ transactions, categoryOptions }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkCategoryId, setBulkCategoryId] = useState<string>("");
+  const [splittingTxId, setSplittingTxId] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  const splittingTx = splittingTxId
+    ? transactions.find((t) => t.id === splittingTxId)
+    : null;
 
   function toggle(id: string) {
     const next = new Set(selected);
@@ -295,20 +363,62 @@ export function TransactionsMultiSelect({ transactions, categoryOptions }: Props
                     </div>
                   </div>
 
-                  {/* Linha 2: data · raw (contexto secundário) */}
+                  {/* Linha 2: data · raw + override manual (canto direito) */}
                   <div
                     style={{
                       fontSize: 10.5,
                       color: "var(--muted)",
                       paddingLeft: 28,
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
                     }}
                   >
-                    {formatDate(tx.occurredOn)} ·{" "}
-                    <span style={{ opacity: 0.85 }}>{tx.rawDescription.slice(0, 96)}</span>
-                    {tx.rawDescription.length > 96 ? "…" : ""}
+                    <span
+                      style={{
+                        flex: 1,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {formatDate(tx.occurredOn)} ·{" "}
+                      <span style={{ opacity: 0.85 }}>{tx.rawDescription.slice(0, 96)}</span>
+                      {tx.rawDescription.length > 96 ? "…" : ""}
+                    </span>
+                    {!isInternal && (
+                      <button
+                        type="button"
+                        onClick={() => setSplittingTxId(tx.id)}
+                        title={
+                          tx.splits && tx.splits.length > 0
+                            ? `Splitada em ${tx.splits.length} partes — clique pra editar`
+                            : "Dividir em múltiplas categorias"
+                        }
+                        style={{
+                          flexShrink: 0,
+                          background: "transparent",
+                          border: "0.5px solid var(--line-d)",
+                          color:
+                            tx.splits && tx.splits.length > 0
+                              ? "var(--accent)"
+                              : "var(--muted)",
+                          fontSize: 9.5,
+                          fontWeight: 600,
+                          padding: "2px 8px",
+                          borderRadius: 999,
+                          cursor: "pointer",
+                        }}
+                      >
+                        {tx.splits && tx.splits.length > 0
+                          ? `⇎ ${tx.splits.length} cats`
+                          : "dividir"}
+                      </button>
+                    )}
+                    <InternalOverrideButton
+                      transactionId={tx.id}
+                      isInternal={isInternal}
+                    />
                   </div>
                 </div>
               );
@@ -405,29 +515,12 @@ export function TransactionsMultiSelect({ transactions, categoryOptions }: Props
           </div>
 
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-            <select
+            <CategoryBulkPicker
+              options={categoryOptions}
               value={bulkCategoryId}
-              onChange={(e) => setBulkCategoryId(e.target.value)}
+              onChange={setBulkCategoryId}
               disabled={isPending}
-              style={{
-                padding: "5px 10px",
-                borderRadius: 8,
-                background: "rgba(0,0,0,0.15)",
-                color: "var(--accent-on)",
-                border: "none",
-                fontSize: 11.5,
-                fontWeight: 600,
-                cursor: "pointer",
-                maxWidth: 220,
-              }}
-            >
-              <option value="">Aplicar categoria...</option>
-              {categoryOptions.map((opt) => (
-                <option key={opt.id} value={opt.id}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
+            />
             <button
               type="button"
               onClick={() => handleBulkCategory(true)}
@@ -481,6 +574,17 @@ export function TransactionsMultiSelect({ transactions, categoryOptions }: Props
             </button>
           </div>
         </div>
+      )}
+
+      {splittingTx && (
+        <SplitDialog
+          transactionId={splittingTx.id}
+          totalAmount={splittingTx.amount}
+          description={splittingTx.description}
+          categoryOptions={categoryOptions}
+          initialSplits={splittingTx.splits ?? undefined}
+          onClose={() => setSplittingTxId(null)}
+        />
       )}
     </>
   );

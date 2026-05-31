@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, gte, isNull, lte, ne, sql } from "drizzle-orm";
 
 import { db } from "@/db";
 import { invoices, transactions } from "@/db/schema";
@@ -11,74 +11,265 @@ export type InternalTransferType =
   | "manual";
 
 /**
- * Detecta — de forma DETERMINÍSTICA, sem chamar IA — se uma linha extraída é
- * uma "transferência interna". Internas existem pra fechar saldo da conta/cartão
- * mas não representam despesa/receita real, então não entram em DRE/balanço.
- *
- * Casos cobertos:
- * 1. Extrato: "DEBITO FATURA-CARTAO VISA"        → card_payment
- * 2. Fatura:  "Pagamento Recebido"               → card_payment_received
- * 3. Extrato: "ESTORNO PIX"                      → pix_refund
- * 4. Fatura:  "Anuidade - bonificação"           → annuity_bonus
- *
- * Roda DEPOIS da extração da IA — atua como reforço (a IA pode marcar errado,
- * a regex prevalece). Match case-insensitive.
+ * Resultado da detecção da linha:
+ * - `solo`: marca como interno SEM exigir par (pagamento de fatura — o "par"
+ *   é a fatura inteira, tratada pelo linker `linkCardPaymentsToInvoices`).
+ * - `pair_candidate`: marca como candidato. SÓ vira interno se o pair-matcher
+ *   achar o débito correspondente. Sem par = lançamento real (não interno).
+ * - `none`: lançamento normal.
+ */
+export type DetectionResult =
+  | { kind: "solo"; type: InternalTransferType }
+  | { kind: "pair_candidate"; type: InternalTransferType }
+  | { kind: "none" };
+
+/**
+ * Detecta — determinístico — o tipo de tratamento de uma linha. Note que
+ * estornos e bonificações vêm como `pair_candidate` (NÃO marca como interno
+ * automaticamente). O pair-matcher decide depois se vira interno.
  */
 export function detectInternalTransfer(
   rawDescription: string,
   kind: "debit" | "credit",
   source: "bank_statement" | "credit_card_invoice" | "other"
-): { isInternal: boolean; type: InternalTransferType | null } {
+): DetectionResult {
   const raw = rawDescription.toLowerCase();
 
-  // 1. Pagamento de fatura no extrato (saída de dinheiro pagando o cartão)
-  // Padrão Unicred: "DEBITO FATURA- CARTAO VISA ( Doc.: VISA / Fatura Cartão Visa )"
-  // Genéricos: "PAGAMENTO FATURA", "DEB FATURA", "DEBITO FATURA"
+  // 1. Pagamento de fatura no extrato → SOLO (par é a invoice inteira)
   if (
     source === "bank_statement" &&
     kind === "debit" &&
     /\b(debito|deb|pagamento|pgto)\s*fatura\b/i.test(raw) &&
     /\bcartao|cartão\b/i.test(raw)
   ) {
-    return { isInternal: true, type: "card_payment" };
+    return { kind: "solo", type: "card_payment" };
   }
 
-  // 2. Pagamento da fatura ANTERIOR dentro da fatura atual
-  // Padrão Unicred: "Pagamento Recebido" (kind=credit, valor grande)
+  // 2. "Pagamento Recebido" na fatura → SOLO (par é a invoice inteira)
   if (
     source === "credit_card_invoice" &&
     kind === "credit" &&
     /\bpagamento\s+recebido\b/i.test(raw)
   ) {
-    return { isInternal: true, type: "card_payment_received" };
+    return { kind: "solo", type: "card_payment_received" };
   }
 
-  // 3. Estorno PIX (no extrato): devolução do mesmo PIX que saiu antes
-  // Padrão Unicred: "ESTORNO PIX PAGO ( ... )"
+  // 3. Estorno PIX → CANDIDATO (precisa achar débito PIX par)
   if (
     source === "bank_statement" &&
     kind === "credit" &&
     /\bestorno\s+pix\b/i.test(raw)
   ) {
-    return { isInternal: true, type: "pix_refund" };
+    return { kind: "pair_candidate", type: "pix_refund" };
   }
 
-  // 4. Bonificação de anuidade (na fatura): desconto que zera a anuidade cobrada
+  // 4. Anuidade bonificação na fatura → CANDIDATO (precisa achar parcela par)
   if (
     source === "credit_card_invoice" &&
     kind === "credit" &&
     /\banuidade\b.*\bbonifica/i.test(raw)
   ) {
-    return { isInternal: true, type: "annuity_bonus" };
+    return { kind: "pair_candidate", type: "annuity_bonus" };
   }
 
-  return { isInternal: false, type: null };
+  return { kind: "none" };
+}
+
+/**
+ * Extrai o "nome do par" do rawDescription pra matching de estornos PIX.
+ * Padrão Unicred: "ESTORNO PIX PAGO ( Doc.: DEB PIX / CARLOS EDUARDO ALVES )"
+ *                "DEBITO TRANSFERENCIA PIX ( Doc.: DEB PIX / CARLOS EDUARDO ALVES )"
+ * Ambas mencionam o mesmo nome. Captura o que vem depois de "/ ".
+ */
+function extractCounterparty(rawDescription: string): string | null {
+  const m = /\/\s*([^)/]+?)\s*\)/.exec(rawDescription);
+  if (!m) return null;
+  return m[1].trim().toLowerCase();
+}
+
+/**
+ * Pair-matcher: pra cada transação `pair_candidate` que ainda não está pareada,
+ * busca o débito par no mesmo household. Se achar par, marca AMBOS como
+ * `isInternalTransfer=true` + `internalPairId` cruzado.
+ *
+ * Critério do par (decidido pelo usuário):
+ * - Valor exato (até 1 centavo)
+ * - Data ±10 dias da candidate
+ * - Mesmo "counterparty" (nome após "/" no rawDescription) quando aplicável
+ * - kind oposto (candidate é credit → par é debit)
+ *
+ * IGNORA transações `markedManuallyAt` — usuário no controle vence o auto.
+ *
+ * Retorna número de pares formados.
+ */
+export async function pairInternalCandidates(
+  householdId: string
+): Promise<number> {
+  // Candidatos: têm internalTransferType setado (de detect), mas isInternalTransfer
+  // ainda false (não foi pareado ainda) e não foram tocados manualmente.
+  const candidates = await db.query.transactions.findMany({
+    where: and(
+      eq(transactions.householdId, householdId),
+      eq(transactions.isInternalTransfer, false),
+      isNull(transactions.markedManuallyAt),
+      sql`${transactions.internalTransferType} in ('pix_refund', 'annuity_bonus')`,
+      isNull(transactions.internalPairId)
+    ),
+  });
+
+  if (candidates.length === 0) return 0;
+
+  let paired = 0;
+  for (const cand of candidates) {
+    const candAmount = parseFloat(cand.amount);
+    const candDate = new Date(cand.occurredOn);
+    const dayMs = 24 * 60 * 60 * 1000;
+    const windowStart = new Date(candDate.getTime() - 10 * dayMs);
+    const windowEnd = new Date(candDate.getTime() + 10 * dayMs);
+    const candCounterparty = extractCounterparty(cand.rawDescription);
+
+    // Busca débitos do household no período, mesmo valor exato, ainda não
+    // pareados (livres pra serem par).
+    const candidatePartners = await db.query.transactions.findMany({
+      where: and(
+        eq(transactions.householdId, householdId),
+        eq(transactions.kind, "debit"),
+        eq(transactions.amount, cand.amount),
+        eq(transactions.isInternalTransfer, false),
+        isNull(transactions.internalPairId),
+        gte(transactions.occurredOn, windowStart),
+        lte(transactions.occurredOn, windowEnd),
+        ne(transactions.id, cand.id)
+      ),
+    });
+
+    let partner: typeof candidatePartners[number] | null = null;
+
+    if (cand.internalTransferType === "pix_refund") {
+      // Estorno PIX: precisa do mesmo nome (counterparty) no rawDescription
+      if (!candCounterparty) continue;
+      partner =
+        candidatePartners.find((p) => {
+          const pc = extractCounterparty(p.rawDescription);
+          return pc && pc === candCounterparty;
+        }) ?? null;
+    } else if (cand.internalTransferType === "annuity_bonus") {
+      // Anuidade: o par é "Anuidade - parcela" do mesmo valor
+      partner =
+        candidatePartners.find((p) =>
+          /\banuidade\b/i.test(p.rawDescription) &&
+          !/\bbonifica/i.test(p.rawDescription)
+        ) ?? null;
+    }
+
+    if (partner) {
+      // Marca ambos como internos + pair cruzado em uma transação
+      await db.transaction(async (tx) => {
+        await tx
+          .update(transactions)
+          .set({
+            isInternalTransfer: true,
+            internalPairId: partner!.id,
+            updatedAt: new Date(),
+          })
+          .where(eq(transactions.id, cand.id));
+        await tx
+          .update(transactions)
+          .set({
+            isInternalTransfer: true,
+            internalPairId: cand.id,
+            // Se o par não tinha tipo, herda. Se já tinha (ex: foi candidate
+            // também), preserva.
+            internalTransferType: partner!.internalTransferType ?? cand.internalTransferType,
+            updatedAt: new Date(),
+          })
+          .where(eq(transactions.id, partner!.id));
+      });
+      paired++;
+    }
+  }
+
+  return paired;
+}
+
+/**
+ * Override manual: marca uma transação como interna (sem auto-detecção).
+ * Opcionalmente vincula a um par. Usado pelo botão "marcar como interna" na UI.
+ */
+export async function manuallyMarkInternal(
+  transactionId: string,
+  pairId: string | null
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx
+      .update(transactions)
+      .set({
+        isInternalTransfer: true,
+        internalTransferType: "manual",
+        internalPairId: pairId,
+        markedManuallyAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(transactions.id, transactionId));
+
+    // Se vinculou um par, atualiza o par também (recíproco)
+    if (pairId) {
+      await tx
+        .update(transactions)
+        .set({
+          isInternalTransfer: true,
+          internalTransferType: "manual",
+          internalPairId: transactionId,
+          markedManuallyAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(transactions.id, pairId));
+    }
+  });
+}
+
+/**
+ * Override manual reverso: desfaz a marcação de interna. Se havia par,
+ * desfaz o par também (libera ambas as transações). Marca como tocada
+ * manualmente pro auto-detector não re-marcar.
+ */
+export async function manuallyUnmarkInternal(transactionId: string): Promise<void> {
+  const target = await db.query.transactions.findFirst({
+    where: eq(transactions.id, transactionId),
+  });
+  if (!target) return;
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(transactions)
+      .set({
+        isInternalTransfer: false,
+        internalTransferType: null,
+        internalPairId: null,
+        markedManuallyAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(transactions.id, transactionId));
+
+    if (target.internalPairId) {
+      await tx
+        .update(transactions)
+        .set({
+          isInternalTransfer: false,
+          internalTransferType: null,
+          internalPairId: null,
+          markedManuallyAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(transactions.id, target.internalPairId));
+    }
+  });
 }
 
 /**
  * Tenta vincular pagamentos de fatura (no extrato) com a fatura correspondente
- * (já cadastrada). Usa o campo existente `invoices.paidByTransactionId` — NÃO
- * mexe em `transactions.invoiceId` (que é semanticamente "item desta fatura").
+ * (já cadastrada). Usa `invoices.paidByTransactionId` — NÃO mexe em
+ * `transactions.invoiceId` (que é semanticamente "item desta fatura").
  *
  * Funciona nos dois sentidos:
  *
@@ -100,11 +291,11 @@ export function detectInternalTransfer(
 export async function linkCardPaymentsToInvoices(
   householdId: string
 ): Promise<number> {
-  // Transações internas tipo card_payment do household inteiro
+  // Transações tipo card_payment do household. Aceita também as não-internas
+  // se forem candidates já marcadas via detectInternalTransfer (solo).
   const allCardPayments = await db.query.transactions.findMany({
     where: and(
       eq(transactions.householdId, householdId),
-      eq(transactions.isInternalTransfer, true),
       eq(transactions.internalTransferType, "card_payment")
     ),
   });
@@ -121,9 +312,6 @@ export async function linkCardPaymentsToInvoices(
 
   if (openInvoices.length === 0) return 0;
 
-  // Set de IDs de transações JÁ usadas em alguma invoice (mesmo de outro
-  // household? não — escopo do household já filtra). Evita usar a mesma
-  // transação pra 2 faturas diferentes.
   const usedTxIds = new Set<string>();
   const allInvoicesWithPayment = await db.query.invoices.findMany({
     where: eq(invoices.householdId, householdId),
@@ -137,7 +325,6 @@ export async function linkCardPaymentsToInvoices(
     if (!inv.totalAmount) continue;
     const invAmount = parseFloat(inv.totalAmount);
 
-    // Acha um pagamento que bate
     const match = allCardPayments.find((tx) => {
       if (usedTxIds.has(tx.id)) return false;
       const txAmount = parseFloat(tx.amount);
@@ -163,6 +350,13 @@ export async function linkCardPaymentsToInvoices(
           updatedAt: new Date(),
         })
         .where(eq(invoices.id, inv.id));
+      // Marca como interna se ainda não está
+      if (!match.isInternalTransfer) {
+        await db
+          .update(transactions)
+          .set({ isInternalTransfer: true, updatedAt: new Date() })
+          .where(eq(transactions.id, match.id));
+      }
       usedTxIds.add(match.id);
       linked++;
     }
@@ -170,8 +364,3 @@ export async function linkCardPaymentsToInvoices(
 
   return linked;
 }
-
-/**
- * Filtro SQL pra excluir internas de relatórios (DRE/balanço/footer).
- */
-export const notInternalFilter = sql`is_internal_transfer = false`;

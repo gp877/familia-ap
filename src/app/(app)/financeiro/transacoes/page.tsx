@@ -173,6 +173,7 @@ export default async function TransacoesPage({
     bankAccountId: tx.bankAccountId,
     isInternalTransfer: tx.isInternalTransfer,
     internalTransferType: tx.internalTransferType,
+    splits: (tx.splits as Array<{ categoryId: string; amount: string; note?: string }> | null) ?? null,
   }));
 
   // Preserva params na navegação
@@ -209,7 +210,27 @@ export default async function TransacoesPage({
       <SectionRow
         icon="bag"
         label={activeAccount ? activeAccount.name : "Transações"}
-        action={`${txs.length} de ${totalAll}`}
+        action={
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ fontSize: 11, color: "var(--muted)" }}>
+              {txs.length} de {totalAll}
+            </span>
+            <Link
+              href="/financeiro/transacoes/nova"
+              style={{
+                fontSize: 11,
+                fontWeight: 700,
+                padding: "4px 10px",
+                borderRadius: 999,
+                background: "color-mix(in oklab, var(--accent) 16%, transparent)",
+                color: "var(--accent)",
+                textDecoration: "none",
+              }}
+            >
+              + nova
+            </Link>
+          </div>
+        }
       />
 
       {/* Conta = PRIMEIRA ação. Cartões são nível 2, dentro da conta-mãe. */}

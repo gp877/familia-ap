@@ -11,6 +11,7 @@ import { applyAutoCategorization } from "@/lib/categorization";
 import {
   detectInternalTransfer,
   linkCardPaymentsToInvoices,
+  pairInternalCandidates,
 } from "@/lib/internal-transfer";
 
 export const runtime = "nodejs";
@@ -180,7 +181,8 @@ export async function POST(req: Request) {
             ? "bank_statement"
             : "other";
 
-      let internalCount = 0;
+      let soloInternalCount = 0;
+      let candidateCount = 0;
 
       for (const t of extracted.transactions) {
         const key = makeKey(bankAccountId, t.occurredOn, t.amount, t.rawDescription);
@@ -188,22 +190,30 @@ export async function POST(req: Request) {
           skipped++;
           continue;
         }
-        existingKeys.add(key); // pra não duplicar dentro do mesmo upload
+        existingKeys.add(key);
 
-        // Detector determinístico: a regex tem palavra final. Pagamento de
-        // fatura, estorno PIX, bonificação anuidade → marca como interno,
-        // SEM categoria (categorização não faz sentido pra transação neutra).
-        const internal = detectInternalTransfer(
+        // Detector: `solo` marca como interno na hora (pagamento de fatura).
+        // `pair_candidate` deixa NÃO-interno mas com type setado — o
+        // pair-matcher depois decide se vira interno achando o par.
+        const det = detectInternalTransfer(
           t.rawDescription,
           t.kind,
           docSourceForDetector
         );
 
-        const categoryId = internal.isInternal
-          ? null
-          : await applyAutoCategorization(dbUser.householdId!, t.description);
+        const isSoloInternal = det.kind === "solo";
+        const detectedType = det.kind === "none" ? null : det.type;
 
-        if (internal.isInternal) internalCount++;
+        // Sem categoria pra solo interno OU pra candidate (a categorização
+        // espera o pair-matcher decidir; se virar interno, fica sem cat; se
+        // sobrar como real, o usuário categoriza manualmente).
+        const categoryId =
+          det.kind === "none"
+            ? await applyAutoCategorization(dbUser.householdId!, t.description)
+            : null;
+
+        if (isSoloInternal) soloInternalCount++;
+        if (det.kind === "pair_candidate") candidateCount++;
 
         toInsert.push({
           householdId: dbUser.householdId,
@@ -220,8 +230,8 @@ export async function POST(req: Request) {
           installmentCurrent: t.installmentCurrent ?? null,
           installmentTotal: t.installmentTotal ?? null,
           status: "pending" as const,
-          isInternalTransfer: internal.isInternal,
-          internalTransferType: internal.type,
+          isInternalTransfer: isSoloInternal,
+          internalTransferType: detectedType,
         });
       }
 
@@ -229,16 +239,25 @@ export async function POST(req: Request) {
         await db.insert(transactions).values(toInsert);
       }
 
-      // Total local = sum de débitos extraídos NÃO-INTERNOS. Inclui só o que é
-      // despesa real. Comparamos com o documentTotal lido pela IA.
+      // Pair-matcher: roda DEPOIS de inserir, pra que candidates do upload
+      // atual possam parear com débitos já no DB (e vice-versa).
+      const pairedCount = await pairInternalCandidates(dbUser.householdId);
+
+      // Total local pra cross-check: sum de débitos NÃO-internos extraídos
+      // do PDF. Não tem como saber agora quais candidates vão parear (já
+      // pareados pelo matcher), então usa estimativa: candidate count vira
+      // interno se par achado dentro do mesmo lote — pra cross-check
+      // conservador, exclui só os solo internos da soma.
       const computedTotalFromExtracted = extracted.transactions.reduce(
         (sum, t) => {
-          const internal = detectInternalTransfer(
+          const d = detectInternalTransfer(
             t.rawDescription,
             t.kind,
             docSourceForDetector
           );
-          if (internal.isInternal) return sum;
+          if (d.kind === "solo") return sum;
+          // pair_candidate de crédito: provavelmente vira interno; exclui
+          if (d.kind === "pair_candidate" && t.kind === "credit") return sum;
           if (t.kind === "debit") return sum + parseFloat(t.amount);
           return sum;
         },
@@ -312,7 +331,9 @@ export async function POST(req: Request) {
         extractedCount: extracted.transactions.length,
         savedCount: toInsert.length,
         skippedCount: skipped,
-        internalCount,
+        soloInternalCount,
+        candidateCount,
+        pairedCount,
         linkedCount,
         bankSlug: extracted.bankSlug,
         documentType: extracted.documentType,

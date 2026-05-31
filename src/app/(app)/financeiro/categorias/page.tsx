@@ -95,7 +95,26 @@ export default async function CategoriasPage() {
         <BackButton href="/financeiro" label="Financeiro" />
       </div>
 
-      <SectionRow icon="bag" label="Categorias" action={`${all.length}`} />
+      <SectionRow
+        icon="bag"
+        label="Categorias"
+        action={
+          <a
+            href="/financeiro/categorias/regras"
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              padding: "4px 10px",
+              borderRadius: 999,
+              border: "0.5px solid var(--line-d)",
+              color: "var(--muted-d)",
+              textDecoration: "none",
+            }}
+          >
+            regras →
+          </a>
+        }
+      />
       <BigNumber
         value={String(all.length)}
         sub={`${expenseParents.length} despesas · ${incomeParents.length} receitas`}

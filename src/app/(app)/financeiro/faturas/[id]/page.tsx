@@ -163,6 +163,7 @@ export default async function FaturaDetailPage({
     bankAccountId: tx.bankAccountId,
     isInternalTransfer: tx.isInternalTransfer,
     internalTransferType: tx.internalTransferType,
+    splits: (tx.splits as Array<{ categoryId: string; amount: string; note?: string }> | null) ?? null,
   }));
 
   // Total REAL da fatura: débitos - créditos, ambos excluindo internas.
