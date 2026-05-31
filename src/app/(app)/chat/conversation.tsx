@@ -104,23 +104,23 @@ export function Conversation({
   const hasContent = initialMessages.length > 0 || optimistic || pending;
 
   return (
-    // Wrapper auto-contido — ocupa todo o espaço restante do shell
-    // (flex:1 + min-h:0) e organiza scroller + input em coluna própria.
-    // Antes era um Fragment, mas isso deixava a posição do input à mercê
-    // do flex-layout do pai, e em produção o input acabava clipado.
+    // CSS GRID interno — replica o pai (chat/page ScreenShellChat usa grid).
+    // Rows: scroller (1fr — toma o espaço), error (auto), delay (auto), input (auto).
+    // height: 100% ocupa o row 3 (1fr) que o pai grid garante ter altura concreta.
+    // min-height: 0 + overflow: hidden contém os filhos sem expandir o container.
     <div
       style={{
-        flex: 1,
+        height: "100%",
         minHeight: 0,
-        display: "flex",
-        flexDirection: "column",
+        overflow: "hidden",
+        display: "grid",
+        gridTemplateRows: "minmax(0, 1fr) auto",
       }}
     >
-      {/* Scroller das mensagens */}
+      {/* Scroller das mensagens — row 1 (1fr) */}
       <div
         ref={scrollerRef}
         style={{
-          flex: 1,
           minHeight: 0,
           padding: "8px 20px 20px",
           display: "flex",
@@ -146,28 +146,38 @@ export function Conversation({
         )}
       </div>
 
-      {/* Erro inline */}
-      {error && (
-        <div
-          style={{
-            margin: "0 20px 8px",
-            padding: "10px 14px",
-            background: "color-mix(in oklab, var(--alert) 12%, var(--card))",
-            border: "0.5px solid var(--alert)",
-            borderRadius: 12,
-            fontSize: 12,
-            color: "var(--alert)",
-          }}
-        >
-          {error}
-        </div>
-      )}
+      {/* Row 2 (auto) — agrupa error + delaybar + input num único grid item.
+          Isso garante que o input nunca seja empurrado pra fora — ele faz parte
+          do row "auto" que sempre ocupa só o espaço necessário. */}
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          background: "var(--bg)",
+        }}
+      >
+        {/* Erro inline */}
+        {error && (
+          <div
+            style={{
+              margin: "0 20px 8px",
+              padding: "10px 14px",
+              background: "color-mix(in oklab, var(--alert) 12%, var(--card))",
+              border: "0.5px solid var(--alert)",
+              borderRadius: 12,
+              fontSize: 12,
+              color: "var(--alert)",
+            }}
+          >
+            {error}
+          </div>
+        )}
 
-      {/* Barra discreta de tempo — esvazia enquanto AP processa */}
-      {pending && <DelayBar />}
+        {/* Barra discreta de tempo — esvazia enquanto AP processa */}
+        {pending && <DelayBar />}
 
-      {/* Input — flexShrink:0 garante que NUNCA seja comprimido a zero */}
-      <div style={{ padding: "8px 20px 16px", flexShrink: 0 }}>
+        {/* Input — agora SEMPRE visível pq está em row auto do grid pai */}
+        <div style={{ padding: "8px 20px 16px" }}>
         <form
           onSubmit={handleSubmit}
           style={{ display: "flex", alignItems: "center", gap: 8 }}
@@ -227,6 +237,7 @@ export function Conversation({
             {pending ? <Spinner /> : <SendIcon />}
           </button>
         </form>
+        </div>
       </div>
     </div>
   );

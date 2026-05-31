@@ -76,22 +76,53 @@ export default async function ChatPage() {
   );
 }
 
+/**
+ * Shell do /chat — REFEITO COM CSS GRID em vez de flex column.
+ *
+ * Flex column com min-height:0 nos filhos tinha um bug crônico em produção
+ * onde o filho com flex:1 + overflow:auto não respeitava o shrink e o
+ * input acabava empurrado abaixo do viewport. Tentei 3 vezes corrigir
+ * com flex e não resolvia.
+ *
+ * CSS Grid resolve por contrato:
+ * - row 1 (auto): BackButton
+ * - row 2 (auto): SectionRow
+ * - row 3 (minmax 0 1fr): Conversation — altura concreta = viewport - rows 1 e 2
+ *
+ * O 1fr de grid é altura CALCULADA pelo browser antes do paint, não
+ * negociada como no flex. Filhos com height:100% dentro funcionam direto.
+ *
+ * position:fixed ancora no viewport — escapa de qualquer growth do main.
+ * Em desktop (lg+), fica à direita do sidebar de 240px. Em mobile, full.
+ */
 function ScreenShellChat({ children }: { children: React.ReactNode }) {
   return (
     <div
-      className="mx-auto flex w-full flex-col max-w-[480px] lg:max-w-4xl"
+      className="lg:!left-[240px]"
       style={{
-        // 100dvh respeita a UI dinâmica do browser (URL bar em mobile).
-        // maxHeight redundante blinda contra growth do parent.
-        // overflow hidden trava o scroll do body — só o scroller interno
-        // do Conversation rola.
-        height: "100dvh",
-        maxHeight: "100dvh",
+        position: "fixed",
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
+        background: "var(--bg)",
         overflow: "hidden",
-        minHeight: 0,
+        zIndex: 1,
+        display: "flex",
+        justifyContent: "center",
       }}
     >
-      {children}
+      <div
+        className="w-full max-w-[480px] lg:max-w-4xl"
+        style={{
+          display: "grid",
+          gridTemplateRows: "auto auto minmax(0, 1fr)",
+          height: "100%",
+          overflow: "hidden",
+        }}
+      >
+        {children}
+      </div>
     </div>
   );
 }
