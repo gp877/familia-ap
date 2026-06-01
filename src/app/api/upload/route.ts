@@ -8,6 +8,7 @@ import { db } from "@/db";
 import { bankAccounts, invoices, transactions, uploads, users } from "@/db/schema";
 import { extractFromPdf } from "@/lib/extraction";
 import { applyAutoCategorization } from "@/lib/categorization";
+import { computeContentHash, computeDedupeKey } from "@/lib/dedupe";
 import {
   detectInternalTransfer,
   linkCardPaymentsToInvoices,
@@ -61,23 +62,50 @@ export async function POST(req: Request) {
 
   const buf = Buffer.from(await file.arrayBuffer());
 
-  // ── Hash do PDF pra dedupe ─────────────────────────────────
+  // ── Dedupe camada 1: hash do BINÁRIO ───────────────────────
+  // Bloqueia re-upload do arquivo EXATO (byte por byte).
   const fileHash = createHash("sha256").update(buf).digest("hex");
 
-  const existingUpload = await db.query.uploads.findFirst({
+  const byFileHash = await db.query.uploads.findFirst({
     where: and(
       eq(uploads.householdId, dbUser.householdId),
       eq(uploads.fileHash, fileHash)
     ),
   });
-  if (existingUpload) {
+  if (byFileHash) {
     return NextResponse.json(
       {
-        error: `Esse PDF já foi enviado em ${new Date(existingUpload.createdAt).toLocaleDateString("pt-BR")} (arquivo "${existingUpload.filename}"). Se quiser reprocessar, exclua o upload anterior primeiro.`,
-        duplicateUploadId: existingUpload.id,
+        error: `Esse PDF já foi enviado em ${new Date(byFileHash.createdAt).toLocaleDateString("pt-BR")} (arquivo "${byFileHash.filename}"). Se quiser reprocessar, exclua o upload anterior primeiro.`,
+        duplicateUploadId: byFileHash.id,
+        duplicateMatchedOn: "file_hash",
       },
       { status: 409 }
     );
+  }
+
+  // ── Dedupe camada 2: hash do TEXTO normalizado ─────────────
+  // Bloqueia caso o banco gere arquivos diferentes (timestamps internos,
+  // IDs de sessão) mas com mesmo conteúdo. Roda ~50ms — só pra dedupe.
+  // Se pdf-parse falhar (PDF imagem, corrompido), contentHash = null e
+  // confiamos no fileHash + dedupeKey por tx.
+  const contentHash = await computeContentHash(buf);
+  if (contentHash) {
+    const byContentHash = await db.query.uploads.findFirst({
+      where: and(
+        eq(uploads.householdId, dbUser.householdId),
+        eq(uploads.contentHash, contentHash)
+      ),
+    });
+    if (byContentHash) {
+      return NextResponse.json(
+        {
+          error: `O conteúdo desse PDF é idêntico ao enviado em ${new Date(byContentHash.createdAt).toLocaleDateString("pt-BR")} (arquivo "${byContentHash.filename}"). O arquivo pode ter sido baixado de novo do banco, mas o conteúdo é o mesmo. Se quiser reprocessar, exclua o upload anterior primeiro.`,
+          duplicateUploadId: byContentHash.id,
+          duplicateMatchedOn: "content_hash",
+        },
+        { status: 409 }
+      );
+    }
   }
 
   // Registra upload como processing
@@ -90,6 +118,7 @@ export async function POST(req: Request) {
       blobUrl: "",
       filename: file.name,
       fileHash,
+      contentHash,
       fileSize: buf.length,
       sourceType: inferredSourceType as
         | "bank_statement"
@@ -232,11 +261,27 @@ export async function POST(req: Request) {
           status: "pending" as const,
           isInternalTransfer: isSoloInternal,
           internalTransferType: detectedType,
+          // Camada 3 de dedupe — UNIQUE constraint no banco vai bloquear
+          // duplicata mesmo se as camadas 1/2 falharem.
+          dedupeKey: computeDedupeKey({
+            bankAccountId,
+            occurredOn: t.occurredOn,
+            amount: t.amount,
+            rawDescription: t.rawDescription,
+          }),
         });
       }
 
       if (toInsert.length > 0) {
-        await db.insert(transactions).values(toInsert);
+        // onConflictDoNothing trata a UNIQUE violation graciosamente — se a
+        // mesma chave já existir (race condition entre 2 uploads simultâneos),
+        // a linha é silenciosamente ignorada em vez de explodir o request.
+        await db
+          .insert(transactions)
+          .values(toInsert)
+          .onConflictDoNothing({
+            target: [transactions.householdId, transactions.dedupeKey],
+          });
       }
 
       // Pair-matcher: roda DEPOIS de inserir, pra que candidates do upload

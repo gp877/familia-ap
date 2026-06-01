@@ -14,7 +14,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import type { AdapterAccountType } from "next-auth/adapters";
 
 // ============================================================
@@ -265,7 +265,12 @@ export const uploads = pgTable(
       .references(() => users.id, { onDelete: "restrict" }),
     blobUrl: text("blob_url").notNull(),
     filename: text("filename").notNull(),
-    fileHash: text("file_hash"), // SHA-256 do arquivo, pra detectar duplicatas
+    fileHash: text("file_hash"), // SHA-256 do BINÁRIO do arquivo
+    // SHA-256 do TEXTO normalizado extraído do PDF — pega caso de re-download
+    // do mesmo extrato pelo banco, que gera arquivo diferente (timestamp/IDs
+    // internos) mas conteúdo idêntico. Camada de dedupe mais robusta que o
+    // fileHash sozinho.
+    contentHash: text("content_hash"),
     fileSize: integer("file_size"),
     sourceType: uploadSourceEnum("source_type").notNull(),
     bankSlug: text("bank_slug"),
@@ -349,6 +354,12 @@ export const transactions = pgTable(
     // Quando splits é null/[], a categoria principal (categoryId) é a única.
     // Caso raro — UI minimalista. Relatórios podem expandir via lib/splits.
     splits: jsonb("splits"),
+    // Chave determinística pra dedupe: SHA-1 de
+    // `${bankAccount}|${date}|${amount}|${normalizedRawDesc}`. Garantida
+    // UNIQUE no banco — última linha de defesa contra duplicatas, vence
+    // até race conditions de uploads simultâneos. Calculada na lib
+    // computeDedupeKey (src/lib/dedupe.ts).
+    dedupeKey: text("dedupe_key"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -358,6 +369,12 @@ export const transactions = pgTable(
     index("transaction_household_status_idx").on(t.householdId, t.status),
     index("transaction_household_account_idx").on(t.householdId, t.bankAccountId),
     index("transaction_invoice_idx").on(t.invoiceId),
+    // UNIQUE parcial: bloqueia 2 tx com mesma chave no mesmo household.
+    // Tx lançadas manualmente podem ter dedupeKey null → ficam de fora
+    // do constraint (cada manual é única por design).
+    uniqueIndex("transaction_dedupe_key_unique")
+      .on(t.householdId, t.dedupeKey)
+      .where(sql`dedupe_key IS NOT NULL`),
   ]
 );
 
