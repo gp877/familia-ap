@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Caveat, Geist, Geist_Mono } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -36,23 +37,22 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} ${caveat.variable} h-full antialiased`}
       data-accent="lima"
     >
-      <head>
+      <body className="min-h-full flex flex-col bg-bg text-ink">
         {/* Roda ANTES do React hydratar: desabilita scroll restoration
             do browser e snapa pro topo. Resolve "página abre no meio"
             que acontecia porque o navegador restaurava posição antiga
-            antes do ScrollTopOnNav (cliente) mount. */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              try {
-                if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
-                if (!location.hash) window.scrollTo(0, 0);
-              } catch (e) {}
-            `,
-          }}
-        />
-      </head>
-      <body className="min-h-full flex flex-col bg-bg text-ink">
+            antes do ScrollTopOnNav (cliente) mount.
+
+            Next 16 + React 19 não aceitam <script> raw em componente —
+            tem que usar o componente Script de next/script. */}
+        <Script id="scroll-restoration-init" strategy="beforeInteractive">
+          {`
+            try {
+              if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+              if (!location.hash) window.scrollTo(0, 0);
+            } catch (e) {}
+          `}
+        </Script>
         <TooltipProvider>{children}</TooltipProvider>
       </body>
     </html>
