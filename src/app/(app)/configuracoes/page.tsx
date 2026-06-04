@@ -35,7 +35,7 @@ export default async function ConfiguracoesPage() {
       <SectionRow icon="home" label="Configurações" />
 
       {/* Atalho destacado pra config da IA */}
-      <div style={{ padding: "8px 20px 0" }}>
+      <div style={{ padding: "8px 20px 0", display: "flex", flexDirection: "column", gap: 8 }}>
         <Link
           href="/configuracoes/ia"
           style={{
@@ -53,6 +53,26 @@ export default async function ConfiguracoesPage() {
         >
           <span>Configurar a AP (alma, tom, memória, modelo)</span>
           <span style={{ fontSize: 18, fontWeight: 800 }}>→</span>
+        </Link>
+
+        <Link
+          href="/configuracoes/notificacoes"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "14px 16px",
+            borderRadius: 14,
+            background: "var(--card)",
+            color: "var(--ink-d)",
+            textDecoration: "none",
+            fontSize: 14,
+            fontWeight: 600,
+            border: "0.5px solid var(--line-d)",
+          }}
+        >
+          <span>Notificações por e-mail (lembretes da régua)</span>
+          <span style={{ fontSize: 18, color: "var(--muted)" }}>→</span>
         </Link>
       </div>
 

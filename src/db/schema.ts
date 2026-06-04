@@ -57,6 +57,24 @@ export const memoryKindEnum = pgEnum("memory_kind", [
   "goal",
   "event",
 ]);
+export const notificationRuleTypeEnum = pgEnum("notification_rule_type", [
+  "missing_statement", // extrato do mês não foi enviado
+  "missing_invoice", // fatura do mês não foi enviada
+  "pending_classifications", // tx pending demais
+  "weekly_digest", // resumo semanal
+]);
+export const notificationFrequencyEnum = pgEnum("notification_frequency", [
+  "daily",
+  "weekly_monday",
+  "weekly_friday",
+  "weekly_sunday",
+  "monthly_first",
+]);
+export const notificationLogStatusEnum = pgEnum("notification_log_status", [
+  "sent",
+  "skipped", // condição não bateu (ex: extrato já foi enviado)
+  "failed", // erro no provedor
+]);
 export const bankAccountTypeEnum = pgEnum("bank_account_type", [
   "checking", // conta corrente
   "savings", // poupança
@@ -513,6 +531,104 @@ export const aiSettings = pgTable("ai_settings", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ============================================================
+// Notificações por email — régua de lembretes pra manter o sistema ativo
+// ============================================================
+/**
+ * Destinatário de notificação. Pode ser um user do household (linked via
+ * userId) ou um e-mail externo livre (ex: contador). O nome é opcional —
+ * exibido no header do email.
+ */
+export const notificationRecipients = pgTable(
+  "notification_recipient",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    name: text("name"),
+    // Quando externo, fica null. Quando é o user do household, aponta.
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (r) => [
+    uniqueIndex("notification_recipient_household_email").on(r.householdId, r.email),
+  ]
+);
+
+/**
+ * Regra de notificação — qual evento dispara, em qual frequência, pra quem.
+ * `lastSentAt` é checado pra idempotência (não manda 2x no mesmo dia/semana).
+ */
+export const notificationRules = pgTable(
+  "notification_rule",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    type: notificationRuleTypeEnum("type").notNull(),
+    frequency: notificationFrequencyEnum("frequency").notNull(),
+    isActive: boolean("is_active").notNull().default(true),
+    // Última vez que disparou (sent) — pra idempotência
+    lastSentAt: timestamp("last_sent_at", { withTimezone: true }),
+    // Última vez que foi AVALIADA (sent OU skipped) — debug
+    lastEvaluatedAt: timestamp("last_evaluated_at", { withTimezone: true }),
+    // Config específica do tipo (ex: bankAccountId pra missing_statement,
+    // dias mínimos pra pending_classifications)
+    config: jsonb("config"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (r) => [
+    index("notification_rule_household_active").on(r.householdId, r.isActive),
+  ]
+);
+
+/**
+ * Liga regras a destinatários (N:N) — uma regra pode mandar pra 1+ pessoas,
+ * e uma pessoa pode ser destinatária de 1+ regras.
+ */
+export const notificationRuleRecipients = pgTable(
+  "notification_rule_recipient",
+  {
+    ruleId: uuid("rule_id")
+      .notNull()
+      .references(() => notificationRules.id, { onDelete: "cascade" }),
+    recipientId: uuid("recipient_id")
+      .notNull()
+      .references(() => notificationRecipients.id, { onDelete: "cascade" }),
+  },
+  (rr) => [primaryKey({ columns: [rr.ruleId, rr.recipientId] })]
+);
+
+/**
+ * Log de todas as avaliações — auditoria + idempotência. Cada vez que o
+ * cron roda, registra o que avaliou e o que aconteceu.
+ */
+export const notificationLog = pgTable(
+  "notification_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ruleId: uuid("rule_id")
+      .notNull()
+      .references(() => notificationRules.id, { onDelete: "cascade" }),
+    status: notificationLogStatusEnum("status").notNull(),
+    // Pra cada destinatário (logs separados se múltiplos), o email enviado.
+    recipientEmail: text("recipient_email"),
+    // ID do Resend (pra reconciliar bounces/deliveries depois se quiser)
+    providerId: text("provider_id"),
+    // Snapshot do que disparou (debug): "5 tx pending há >5 dias", etc
+    triggerSummary: text("trigger_summary"),
+    errorMessage: text("error_message"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (l) => [
+    index("notification_log_rule_date").on(l.ruleId, l.createdAt),
+  ]
+);
 
 // ============================================================
 // Compromissos (datas pontuais, curto/médio prazo)
