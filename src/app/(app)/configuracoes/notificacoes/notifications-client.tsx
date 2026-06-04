@@ -9,6 +9,7 @@ import {
   createRule,
   deleteRecipient,
   deleteRule,
+  sendTestEmail,
   setRuleRecipients,
   updateRuleActive,
   updateRuleFrequency,
@@ -67,9 +68,84 @@ export function NotificationsClient({
 }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18, padding: "14px 20px 24px" }}>
+      <TestSection recipients={recipients} />
       <RecipientsSection recipients={recipients} />
       <RulesSection rules={rules} recipients={recipients} />
     </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────
+// Botão de teste — manda um email simples sem esperar cron
+// ────────────────────────────────────────────────────────────
+function TestSection({ recipients }: { recipients: Recipient[] }) {
+  const [target, setTarget] = useState<string>("");
+  const [isPending, startTransition] = useTransition();
+  const [result, setResult] = useState<
+    | { ok: true; to: string; providerId?: string }
+    | { ok: false; error: string }
+    | null
+  >(null);
+
+  function fire() {
+    setResult(null);
+    startTransition(async () => {
+      try {
+        const r = await sendTestEmail(target || undefined);
+        setResult({ ok: true, to: r.to, providerId: r.providerId });
+      } catch (err) {
+        setResult({ ok: false, error: err instanceof Error ? err.message : String(err) });
+      }
+    });
+  }
+
+  return (
+    <Card pad={14}>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", color: "var(--accent)", marginBottom: 6 }}>
+        TESTE DE CONFIGURAÇÃO
+      </div>
+      <div style={{ fontSize: 12, color: "var(--muted-d)", lineHeight: 1.5, marginBottom: 10 }}>
+        Manda um e-mail simples agora pra confirmar que o Resend está
+        configurado. Default é seu e-mail logado; pode escolher outro
+        destinatário.
+      </div>
+      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+        <select
+          value={target}
+          onChange={(e) => setTarget(e.target.value)}
+          disabled={isPending}
+          style={selectStyle}
+        >
+          <option value="">(seu e-mail logado)</option>
+          {recipients.map((r) => (
+            <option key={r.id} value={r.email}>
+              {r.name ? `${r.name} (${r.email})` : r.email}
+            </option>
+          ))}
+        </select>
+        <button type="button" onClick={fire} disabled={isPending} style={primaryBtnStyle}>
+          {isPending ? "Enviando…" : "Enviar e-mail de teste"}
+        </button>
+      </div>
+      {result && (
+        <div
+          style={{
+            marginTop: 10,
+            padding: "8px 12px",
+            borderRadius: 8,
+            background: result.ok
+              ? "color-mix(in oklab, var(--ok) 14%, transparent)"
+              : "color-mix(in oklab, var(--alert) 14%, transparent)",
+            color: result.ok ? "var(--ok)" : "var(--alert)",
+            fontSize: 11.5,
+          }}
+        >
+          {result.ok
+            ? `✓ Enviado pra ${result.to}${result.providerId ? ` (id: ${result.providerId.slice(0, 8)}…)` : ""}`
+            : `✗ ${result.error}`}
+        </div>
+      )}
+    </Card>
   );
 }
 

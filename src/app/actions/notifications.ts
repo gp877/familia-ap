@@ -11,6 +11,8 @@ import {
   users,
 } from "@/db/schema";
 import { auth } from "@/auth";
+import { sendEmail } from "@/lib/email/send";
+import { TestEmail } from "@/lib/email/templates/test";
 
 async function requireUser() {
   const session = await auth();
@@ -139,6 +141,33 @@ export async function deleteRule(ruleId: string) {
       and(eq(notificationRules.id, ruleId), eq(notificationRules.householdId, householdId))
     );
   revalidatePath("/configuracoes/notificacoes");
+}
+
+/**
+ * Atalho pra validar que Resend está funcionando — envia um email simples
+ * pra um destinatário específico (default: o user logado). Útil pra
+ * confirmar config sem precisar esperar cron + bater condições.
+ */
+export async function sendTestEmail(toEmail?: string) {
+  const { email: myEmail } = await requireUser();
+  const target = toEmail?.trim() || myEmail;
+  if (!target) throw new Error("Sem email destino");
+
+  const res = await sendEmail({
+    to: target,
+    subject: "Teste de configuração — Família AP",
+    react: TestEmail(),
+    tag: "test",
+  });
+
+  if (!res.ok) {
+    if (res.skippedNoConfig) {
+      throw new Error("RESEND_API_KEY não configurada");
+    }
+    throw new Error(res.error ?? "Falha desconhecida ao enviar");
+  }
+
+  return { ok: true, to: target, providerId: res.providerId };
 }
 
 export async function setRuleRecipients(ruleId: string, recipientIds: string[]) {
