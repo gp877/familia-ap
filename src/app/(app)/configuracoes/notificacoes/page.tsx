@@ -9,6 +9,7 @@ import {
   notificationRecipients,
   notificationRuleRecipients,
   notificationRules,
+  notificationSettings,
   users,
 } from "@/db/schema";
 
@@ -38,7 +39,7 @@ export default async function NotificacoesPage() {
       });
   }
 
-  const [rules, recipients, ruleRecipients] = await Promise.all([
+  const [rules, recipients, ruleRecipients, settings] = await Promise.all([
     db.query.notificationRules.findMany({
       where: eq(notificationRules.householdId, dbUser.householdId),
       orderBy: [asc(notificationRules.type)],
@@ -58,7 +59,17 @@ export default async function NotificacoesPage() {
         eq(notificationRuleRecipients.ruleId, notificationRules.id)
       )
       .where(eq(notificationRules.householdId, dbUser.householdId)),
+    db.query.notificationSettings.findFirst({
+      where: eq(notificationSettings.householdId, dbUser.householdId),
+    }),
   ]);
+
+  const masterSettings = {
+    emailEnabled: settings?.emailEnabled ?? true,
+    inAppEnabled: settings?.inAppEnabled ?? true,
+    perTypeSettings:
+      (settings?.perTypeSettings as Record<string, { email?: boolean; inApp?: boolean }>) ?? {},
+  };
 
   // Mapa ruleId → recipientIds
   const recipsByRule = new Map<string, string[]>();
@@ -144,6 +155,7 @@ export default async function NotificacoesPage() {
       <NotificationsClient
         rules={rulesWithRecipients}
         recipients={recipientsList}
+        settings={masterSettings}
       />
     </ScreenShell>
   );

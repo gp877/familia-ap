@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
 import { MobileTop } from "@/components/ap/mobile-top";
+import { NotificationBellWrapper } from "@/components/ap/notification-bell-wrapper";
 import { ScrollTopOnNav } from "@/components/ap/scroll-top-on-nav";
 import { WebSidebar } from "@/components/ap/web-sidebar";
 import { auth } from "@/auth";
@@ -55,9 +56,14 @@ export default async function AppLayout({
       style={{ background: "var(--bg)", color: "var(--ink)" }}
     >
       <ScrollTopOnNav />
-      <WebSidebar userName={myFirstName} partnerName={partnerName} activeKey={activeKey} />
+      <WebSidebar
+        userName={myFirstName}
+        partnerName={partnerName}
+        activeKey={activeKey}
+        bell={<NotificationBellWrapper />}
+      />
       <div className="flex min-h-screen flex-1 flex-col" style={{ minWidth: 0 }}>
-        <MobileTop activeKey={activeKey} />
+        <MobileTop activeKey={activeKey} bell={<NotificationBellWrapper />} />
         <main className="flex-1" style={{ minWidth: 0 }}>
           {children}
         </main>

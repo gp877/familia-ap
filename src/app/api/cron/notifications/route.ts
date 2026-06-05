@@ -11,10 +11,12 @@ import { NextResponse } from "next/server";
 
 import { db } from "@/db";
 import {
+  appNotifications,
   notificationLog,
   notificationRecipients,
   notificationRuleRecipients,
   notificationRules,
+  notificationSettings,
 } from "@/db/schema";
 import { sendEmail } from "@/lib/email/send";
 import { MissingInvoiceEmail } from "@/lib/email/templates/missing-invoice";
@@ -152,6 +154,74 @@ export async function GET(req: Request) {
 }
 
 /**
+ * Cache settings por household pra evitar query repetida no loop.
+ */
+const settingsCache = new Map<
+  string,
+  { emailEnabled: boolean; inAppEnabled: boolean; perType: Record<string, { email?: boolean; inApp?: boolean }> }
+>();
+
+async function getSettings(householdId: string) {
+  if (settingsCache.has(householdId)) return settingsCache.get(householdId)!;
+  const row = await db.query.notificationSettings.findFirst({
+    where: eq(notificationSettings.householdId, householdId),
+  });
+  const result = {
+    emailEnabled: row?.emailEnabled ?? true,
+    inAppEnabled: row?.inAppEnabled ?? true,
+    perType: (row?.perTypeSettings as Record<string, { email?: boolean; inApp?: boolean }>) ?? {},
+  };
+  settingsCache.set(householdId, result);
+  return result;
+}
+
+/**
+ * Decide se email/in-app está habilitado pra um tipo. Master toggle vence;
+ * se ligado, checa per-type override.
+ */
+async function channelsFor(householdId: string, type: string) {
+  const s = await getSettings(householdId);
+  const perType = s.perType[type] ?? {};
+  return {
+    email: s.emailEnabled && (perType.email ?? true),
+    inApp: s.inAppEnabled && (perType.inApp ?? true),
+  };
+}
+
+/**
+ * Grava uma notificação in-app. Idempotente por dia: se já tem uma
+ * notificação do mesmo tipo+title hoje, ignora.
+ */
+async function recordInApp(
+  householdId: string,
+  type: typeof appNotifications.$inferInsert.type,
+  title: string,
+  body: string | null,
+  href: string | null,
+  now: Date
+) {
+  // dedupe simples: pega últimas 24h, ignora se mesma title+type
+  const since = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const existing = await db.query.appNotifications.findFirst({
+    where: (n, { and: a, eq: e, gte: g }) =>
+      a(
+        e(n.householdId, householdId),
+        e(n.type, type),
+        e(n.title, title),
+        g(n.createdAt, since)
+      ),
+  });
+  if (existing) return;
+  await db.insert(appNotifications).values({
+    householdId,
+    type,
+    title,
+    body,
+    href,
+  });
+}
+
+/**
  * Avalia o trigger da regra e, se bater, envia pra todos os destinatários.
  * Retorna se algum email foi enviado.
  */
@@ -162,6 +232,7 @@ async function evaluateAndSend(
 ): Promise<{ sent: boolean; reason: string }> {
   switch (rule.type) {
     case "missing_statement": {
+      const ch = await channelsFor(rule.householdId, rule.type);
       const triggers = await evaluateMissingStatement(rule.householdId, now);
       if (triggers.length === 0) {
         await db.insert(notificationLog).values({
@@ -174,6 +245,17 @@ async function evaluateAndSend(
       // Envia 1 email por conta faltando, pra cada destinatário
       let anySent = false;
       for (const t of triggers) {
+        if (ch.inApp) {
+          await recordInApp(
+            rule.householdId,
+            "missing_statement",
+            `Falta enviar o extrato de ${t.monthLabel} — ${t.accountName}`,
+            null,
+            "/financeiro/upload",
+            now
+          );
+        }
+        if (!ch.email) continue;
         for (const r of recipients) {
           const res = await sendEmail({
             to: r.email,
@@ -202,6 +284,7 @@ async function evaluateAndSend(
     }
 
     case "missing_invoice": {
+      const ch = await channelsFor(rule.householdId, rule.type);
       const triggers = await evaluateMissingInvoice(rule.householdId, now);
       if (triggers.length === 0) {
         await db.insert(notificationLog).values({
@@ -213,6 +296,17 @@ async function evaluateAndSend(
       }
       let anySent = false;
       for (const t of triggers) {
+        if (ch.inApp) {
+          await recordInApp(
+            rule.householdId,
+            "missing_invoice",
+            `Falta enviar a fatura de ${t.monthLabel} — ${t.cardName}`,
+            null,
+            "/financeiro/upload",
+            now
+          );
+        }
+        if (!ch.email) continue;
         for (const r of recipients) {
           const res = await sendEmail({
             to: r.email,
@@ -241,6 +335,7 @@ async function evaluateAndSend(
     }
 
     case "pending_classifications": {
+      const ch = await channelsFor(rule.householdId, rule.type);
       const config = (rule.config as { minCount?: number; minDaysOld?: number } | null) ?? {};
       const trigger = await evaluatePendingClassifications(rule.householdId, config, now);
       if (!trigger) {
@@ -250,6 +345,19 @@ async function evaluateAndSend(
           triggerSummary: "Pendentes abaixo do threshold",
         });
         return { sent: false, reason: "no-pending" };
+      }
+      if (ch.inApp) {
+        await recordInApp(
+          rule.householdId,
+          "pending_classifications",
+          `${trigger.pendingCount} lançamentos esperando classificação`,
+          `Mais antigo há ${trigger.oldestDays} dias`,
+          "/financeiro/transacoes?status=pending",
+          now
+        );
+      }
+      if (!ch.email) {
+        return { sent: false, reason: "in-app only" };
       }
       let anySent = false;
       for (const r of recipients) {
@@ -278,6 +386,7 @@ async function evaluateAndSend(
     }
 
     case "pending_recurring_payments": {
+      const ch = await channelsFor(rule.householdId, rule.type);
       const trigger = await evaluatePendingRecurringPayments(rule.householdId, now);
       if (!trigger) {
         await db.insert(notificationLog).values({
@@ -286,6 +395,23 @@ async function evaluateAndSend(
           triggerSummary: "Nenhum pagamento recorrente pendente",
         });
         return { sent: false, reason: "no-pending-recurring" };
+      }
+      if (ch.inApp) {
+        const subj =
+          trigger.overdueCount > 0
+            ? `${trigger.overdueCount} pagamento(s) atrasado(s)`
+            : `${trigger.items.length} pagamento(s) recorrente(s) pendente(s)`;
+        await recordInApp(
+          rule.householdId,
+          "pending_recurring_payments",
+          subj,
+          trigger.items.slice(0, 3).map((i) => i.name).join(" · "),
+          "/financeiro/recorrentes",
+          now
+        );
+      }
+      if (!ch.email) {
+        return { sent: false, reason: "in-app only" };
       }
       let anySent = false;
       for (const r of recipients) {
@@ -321,6 +447,7 @@ async function evaluateAndSend(
     }
 
     case "weekly_digest": {
+      const ch = await channelsFor(rule.householdId, rule.type);
       const trigger = await evaluateWeeklyDigest(rule.householdId, now);
       if (!trigger) {
         await db.insert(notificationLog).values({
@@ -329,6 +456,19 @@ async function evaluateAndSend(
           triggerSummary: "Semana sem movimentação",
         });
         return { sent: false, reason: "no-activity" };
+      }
+      if (ch.inApp) {
+        await recordInApp(
+          rule.householdId,
+          "weekly_digest",
+          `Resumo da semana ${trigger.weekRange}`,
+          `R$ ${trigger.totalDebit} em saídas, ${trigger.txCount} lançamentos`,
+          "/financeiro/dre",
+          now
+        );
+      }
+      if (!ch.email) {
+        return { sent: false, reason: "in-app only" };
       }
       let anySent = false;
       for (const r of recipients) {

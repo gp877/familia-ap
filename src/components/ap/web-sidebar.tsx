@@ -13,6 +13,7 @@ type Props = {
   userName?: string | null;
   partnerName?: string | null;
   activeKey?: "G" | "M" | null;
+  bell?: React.ReactNode;
 };
 
 function isActive(pathname: string, href: string) {
@@ -23,7 +24,7 @@ function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function WebSidebar({ userName, partnerName, activeKey = null }: Props) {
+export function WebSidebar({ userName, partnerName, activeKey = null, bell = null }: Props) {
   const pathname = usePathname();
   const display =
     userName && partnerName
@@ -92,6 +93,7 @@ export function WebSidebar({ userName, partnerName, activeKey = null }: Props) {
         }}
       >
         <MemberChips size={28} activeKey={activeKey} />
+        {bell}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div
             style={{

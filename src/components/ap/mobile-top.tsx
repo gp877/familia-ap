@@ -26,7 +26,13 @@ function moduleNameFor(pathname: string) {
   return sub?.module ?? "Família AP";
 }
 
-export function MobileTop({ activeKey = null }: { activeKey?: "G" | "M" | null }) {
+export function MobileTop({
+  activeKey = null,
+  bell = null,
+}: {
+  activeKey?: "G" | "M" | null;
+  bell?: React.ReactNode;
+}) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const moduleName = moduleNameFor(pathname);
@@ -70,7 +76,10 @@ export function MobileTop({ activeKey = null }: { activeKey?: "G" | "M" | null }
             <Icon name="chev" size={14} color="var(--muted)" stroke={2.2} />
           </div>
         </div>
-        <MemberChips size={30} activeKey={activeKey} />
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {bell}
+          <MemberChips size={30} activeKey={activeKey} />
+        </div>
       </header>
 
       {open && (

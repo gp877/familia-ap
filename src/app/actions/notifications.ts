@@ -1,13 +1,15 @@
 "use server";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
 import { db } from "@/db";
 import {
+  appNotifications,
   notificationRecipients,
   notificationRuleRecipients,
   notificationRules,
+  notificationSettings,
   users,
 } from "@/db/schema";
 import { auth } from "@/auth";
@@ -169,6 +171,78 @@ export async function sendTestEmail(toEmail?: string) {
   }
 
   return { ok: true, to: target, providerId: res.providerId };
+}
+
+// ────────────────────────────────────────────────────────────
+// In-app notifications + settings
+// ────────────────────────────────────────────────────────────
+
+export async function markNotificationRead(notificationId: string) {
+  const { householdId } = await requireUser();
+  await db
+    .update(appNotifications)
+    .set({ readAt: new Date() })
+    .where(
+      and(
+        eq(appNotifications.id, notificationId),
+        eq(appNotifications.householdId, householdId)
+      )
+    );
+  revalidatePath("/configuracoes/notificacoes");
+}
+
+export async function markAllNotificationsRead() {
+  const { householdId } = await requireUser();
+  await db
+    .update(appNotifications)
+    .set({ readAt: new Date() })
+    .where(
+      and(
+        eq(appNotifications.householdId, householdId),
+        sql`${appNotifications.readAt} IS NULL`
+      )
+    );
+  revalidatePath("/");
+}
+
+export async function deleteNotification(notificationId: string) {
+  const { householdId } = await requireUser();
+  await db
+    .delete(appNotifications)
+    .where(
+      and(
+        eq(appNotifications.id, notificationId),
+        eq(appNotifications.householdId, householdId)
+      )
+    );
+  revalidatePath("/");
+}
+
+export async function updateNotificationSettings(patch: {
+  emailEnabled?: boolean;
+  inAppEnabled?: boolean;
+  perTypeSettings?: Record<string, { email?: boolean; inApp?: boolean }>;
+}) {
+  const { householdId } = await requireUser();
+  await db
+    .insert(notificationSettings)
+    .values({
+      householdId,
+      emailEnabled: patch.emailEnabled ?? true,
+      inAppEnabled: patch.inAppEnabled ?? true,
+      perTypeSettings: patch.perTypeSettings ?? null,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: notificationSettings.householdId,
+      set: {
+        ...(patch.emailEnabled !== undefined && { emailEnabled: patch.emailEnabled }),
+        ...(patch.inAppEnabled !== undefined && { inAppEnabled: patch.inAppEnabled }),
+        ...(patch.perTypeSettings !== undefined && { perTypeSettings: patch.perTypeSettings }),
+        updatedAt: new Date(),
+      },
+    });
+  revalidatePath("/configuracoes/notificacoes");
 }
 
 export async function setRuleRecipients(ruleId: string, recipientIds: string[]) {

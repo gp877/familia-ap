@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 
+import { upload } from "@vercel/blob/client";
 import { useRouter } from "next/navigation";
 
 type Attachment = {
@@ -106,16 +107,32 @@ function AttachmentsDialog({
     setError(null);
     setUploading(true);
     try {
-      const fd = new FormData();
-      fd.set("file", file);
-      const res = await fetch(`${apiPath}/attachments`, {
-        method: "POST",
-        body: fd,
+      if (file.size > 10 * 1024 * 1024) {
+        throw new Error("Arquivo maior que 10MB");
+      }
+      // Upload DIRETO pro Vercel Blob via signed URL — bypass do limite
+      // de 4.5MB do body Serverless Function. handleUpload faz tudo:
+      // pede token ao nosso endpoint, upa pro blob, callback registra
+      // metadata no banco.
+      const safeName = file.name.replace(/[^\w.\-]+/g, "_").slice(0, 100);
+      const pathname = `compromissos/${crypto.randomUUID()}-${safeName}`;
+      const blob = await upload(pathname, file, {
+        access: "public",
+        handleUploadUrl: `${apiPath}/attachments/upload-url`,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Falha no upload");
-      setItems((arr) => [...arr, data]);
-      // Revalida o RSC pra próxima navegação ter o anexo
+      // Não recebemos o id do attachment do callback porque é assíncrono.
+      // Adiciona localmente um item provisório com a URL do blob — o
+      // router.refresh() abaixo trará o item canônico do server.
+      setItems((arr) => [
+        ...arr,
+        {
+          id: `pending-${Date.now()}`,
+          filename: file.name,
+          blobUrl: blob.url,
+          fileSize: file.size,
+          mimeType: file.type || null,
+        },
+      ]);
       startTransition(() => router.refresh());
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -133,8 +150,11 @@ function AttachmentsDialog({
         { method: "DELETE" }
       );
       if (!res.ok) {
+        // Parse seguro: se body não é JSON ou está vazio, mostra status
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Falha ao remover");
+        throw new Error(
+          data.error || `Falha ao remover (HTTP ${res.status})`
+        );
       }
       setItems((arr) => arr.filter((a) => a.id !== id));
       startTransition(() => router.refresh());

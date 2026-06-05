@@ -636,6 +636,51 @@ export const notificationLog = pgTable(
   ]
 );
 
+/**
+ * Notificações in-app — sino dentro do sistema. Persistente: o cron
+ * sempre grava aqui (mesmo quando manda email), e o user marca como
+ * lida quando vê. Permite desabilitar via household_setting.
+ *
+ * Diferente de notificationLog (que é o "histórico de envio do email"
+ * — auditoria), esta tabela é a CAIXA DE ENTRADA do usuário.
+ */
+export const appNotifications = pgTable(
+  "app_notification",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    // Tipo (mesmas categorias da régua de email; pode incluir "manual" no futuro)
+    type: notificationRuleTypeEnum("type").notNull(),
+    title: text("title").notNull(),
+    body: text("body"), // descrição mais longa, opcional
+    /** Link interno pra abrir ao clicar (ex: /financeiro/recorrentes) */
+    href: text("href"),
+    readAt: timestamp("read_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (n) => [
+    index("app_notification_household_unread").on(n.householdId, n.readAt),
+    index("app_notification_household_date").on(n.householdId, n.createdAt),
+  ]
+);
+
+/**
+ * Settings de notificações por household. Master toggles: liga/desliga
+ * email global, in-app global, e por tipo individual.
+ */
+export const notificationSettings = pgTable("notification_settings", {
+  householdId: uuid("household_id")
+    .primaryKey()
+    .references(() => households.id, { onDelete: "cascade" }),
+  emailEnabled: boolean("email_enabled").notNull().default(true),
+  inAppEnabled: boolean("in_app_enabled").notNull().default(true),
+  /** JSON: { "missing_statement": false, "weekly_digest": true, ... } */
+  perTypeSettings: jsonb("per_type_settings"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ============================================================
 // Pagamentos recorrentes — lembretes mensais ou anuais
 // (IPVA, gás, internet, mensalidade etc.)

@@ -11,6 +11,7 @@ import {
   deleteRule,
   sendTestEmail,
   setRuleRecipients,
+  updateNotificationSettings,
   updateRuleActive,
   updateRuleFrequency,
   type RuleFrequency,
@@ -64,19 +65,134 @@ const FREQ_LABEL: Record<string, string> = {
   monthly_first: "dia 1º do mês",
 };
 
+type MasterSettings = {
+  emailEnabled: boolean;
+  inAppEnabled: boolean;
+  perTypeSettings: Record<string, { email?: boolean; inApp?: boolean }>;
+};
+
 export function NotificationsClient({
   rules,
   recipients,
+  settings,
 }: {
   rules: Rule[];
   recipients: Recipient[];
+  settings: MasterSettings;
 }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18, padding: "14px 20px 24px" }}>
+      <MasterTogglesSection settings={settings} />
       <TestSection recipients={recipients} />
       <RecipientsSection recipients={recipients} />
       <RulesSection rules={rules} recipients={recipients} />
     </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────
+// Master toggles — liga/desliga email + in-app por household
+// ────────────────────────────────────────────────────────────
+function MasterTogglesSection({ settings }: { settings: MasterSettings }) {
+  const [isPending, startTransition] = useTransition();
+
+  function toggleEmail() {
+    startTransition(async () => {
+      await updateNotificationSettings({ emailEnabled: !settings.emailEnabled });
+    });
+  }
+  function toggleInApp() {
+    startTransition(async () => {
+      await updateNotificationSettings({ inAppEnabled: !settings.inAppEnabled });
+    });
+  }
+
+  return (
+    <Card pad={14} raised>
+      <div
+        style={{
+          fontSize: 11,
+          fontWeight: 700,
+          letterSpacing: "0.04em",
+          color: "var(--accent)",
+          marginBottom: 8,
+        }}
+      >
+        CANAIS DE NOTIFICAÇÃO
+      </div>
+      <div style={{ fontSize: 12, color: "var(--muted-d)", lineHeight: 1.5, marginBottom: 10 }}>
+        Liga/desliga cada canal globalmente. Se você desligar o email,
+        nenhuma regra envia email (mesmo as ativas) — viram só in-app.
+        Mesma lógica pra in-app.
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <ToggleRow
+          label="E-mail"
+          desc="Envia pra destinatários nas regras"
+          checked={settings.emailEnabled}
+          onChange={toggleEmail}
+          disabled={isPending}
+        />
+        <ToggleRow
+          label="Sino in-app"
+          desc="Notificações aparecem no sino do topo"
+          checked={settings.inAppEnabled}
+          onChange={toggleInApp}
+          disabled={isPending}
+        />
+      </div>
+    </Card>
+  );
+}
+
+function ToggleRow({
+  label,
+  desc,
+  checked,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  desc: string;
+  checked: boolean;
+  onChange: () => void;
+  disabled: boolean;
+}) {
+  return (
+    <label
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        padding: "8px 12px",
+        background: checked ? "color-mix(in oklab, var(--ok) 8%, var(--card2))" : "var(--card2)",
+        borderRadius: 10,
+        cursor: "pointer",
+      }}
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={onChange}
+        disabled={disabled}
+        style={{ accentColor: "var(--accent)", width: 18, height: 18 }}
+      />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink)" }}>{label}</div>
+        <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 1 }}>{desc}</div>
+      </div>
+      <span
+        style={{
+          fontSize: 10,
+          fontWeight: 700,
+          letterSpacing: "0.06em",
+          textTransform: "uppercase",
+          color: checked ? "var(--ok)" : "var(--muted)",
+        }}
+      >
+        {checked ? "ligado" : "desligado"}
+      </span>
+    </label>
   );
 }
 
