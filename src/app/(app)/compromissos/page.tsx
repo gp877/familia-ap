@@ -632,24 +632,24 @@ function MarkerChip({ marker }: { marker: DayMarker }) {
   if (marker.kind === "aniversario") {
     return (
       <span
-        title={`Aniversário de ${marker.name}`}
+        title={`Aniversário de ${marker.name}${marker.age !== null ? ` (${marker.age} anos)` : ""}`}
         style={{
           display: "inline-flex",
           alignItems: "center",
           gap: 4,
-          padding: "2px 8px",
+          padding: "2px 10px",
           borderRadius: 999,
           background: "color-mix(in oklab, var(--accent) 12%, transparent)",
           color: "var(--accent)",
           fontSize: 10.5,
-          fontWeight: 600,
+          fontWeight: 700,
           lineHeight: 1.4,
+          letterSpacing: "0.02em",
         }}
       >
-        <span aria-hidden>🎂</span>
         <span>{marker.name}</span>
         {marker.age !== null && (
-          <span style={{ opacity: 0.7 }}>· {marker.age}</span>
+          <span style={{ opacity: 0.7, fontWeight: 600 }}>{marker.age}</span>
         )}
       </span>
     );
@@ -662,18 +662,17 @@ function MarkerChip({ marker }: { marker: DayMarker }) {
       style={{
         display: "inline-flex",
         alignItems: "center",
-        gap: 4,
-        padding: "2px 8px",
+        padding: "2px 10px",
         borderRadius: 999,
         background: "color-mix(in oklab, var(--muted) 10%, transparent)",
         color: "var(--muted-d)",
         fontSize: 10.5,
         fontWeight: 600,
         lineHeight: 1.4,
+        fontStyle: "italic",
       }}
     >
-      <span aria-hidden>{h.icon}</span>
-      <span>{h.name}</span>
+      {h.name}
     </span>
   );
 }
@@ -891,32 +890,41 @@ function CalendarView({
                     >
                       {formatDay(c.date)}
                     </div>
-                    {/* Markers (aniversários/feriados) — emoji só, compacto */}
-                    {hasMarkers && (
-                      <div
-                        style={{
-                          display: "flex",
-                          flexWrap: "wrap",
-                          gap: 2,
-                          marginTop: 1,
-                        }}
-                      >
-                        {cellMarkers.slice(0, 3).map((m, i) => (
-                          <span
-                            key={i}
+                    {/* Markers (aniversários/feriados) — nome curto na célula */}
+                    {hasMarkers &&
+                      cellMarkers.slice(0, 2).map((m, i) => {
+                        const text =
+                          m.kind === "aniversario"
+                            ? `${m.name}${m.age !== null ? ` ${m.age}` : ""}`
+                            : m.holiday.name;
+                        const tone = m.kind === "aniversario"
+                          ? (isSelected ? "var(--accent-on)" : "var(--accent)")
+                          : (isSelected ? "var(--accent-on)" : "var(--muted-d)");
+                        return (
+                          <div
+                            key={`m-${i}`}
                             title={
                               m.kind === "aniversario"
-                                ? `🎂 ${m.name}${m.age !== null ? ` (${m.age})` : ""}`
+                                ? `Aniversário de ${m.name}${m.age !== null ? ` (${m.age} anos)` : ""}`
                                 : m.holiday.name
                             }
-                            style={{ fontSize: 11, lineHeight: 1 }}
-                            aria-hidden
+                            style={{
+                              fontSize: 9.5,
+                              fontWeight: 700,
+                              lineHeight: 1.2,
+                              color: tone,
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                              minWidth: 0,
+                              fontStyle: m.kind === "holiday" ? "italic" : "normal",
+                              opacity: m.kind === "holiday" ? 0.85 : 1,
+                            }}
                           >
-                            {m.kind === "aniversario" ? "🎂" : m.holiday.icon}
-                          </span>
-                        ))}
-                      </div>
-                    )}
+                            {text}
+                          </div>
+                        );
+                      })}
                     {items.slice(0, 2).map((it) => (
                       <div
                         key={it.id}
