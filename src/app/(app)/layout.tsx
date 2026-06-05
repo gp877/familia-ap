@@ -60,7 +60,6 @@ export default async function AppLayout({
         userName={myFirstName}
         partnerName={partnerName}
         activeKey={activeKey}
-        bell={<NotificationBellWrapper />}
       />
       <div className="flex min-h-screen flex-1 flex-col" style={{ minWidth: 0 }}>
         <MobileTop activeKey={activeKey} bell={<NotificationBellWrapper />} />

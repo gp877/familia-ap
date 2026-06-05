@@ -21,7 +21,8 @@ type IconName =
   | "spark"
   | "search"
   | "bank"
-  | "bell";
+  | "bell"
+  | "cutlery";
 
 type Props = {
   name: IconName;
@@ -178,6 +179,18 @@ const paths: Record<IconName, (c: string) => React.ReactNode> = {
     <>
       <path d="M6 8a6 6 0 0112 0c0 7 3 9 3 9H3s3-2 3-9" />
       <path d="M10 21a2 2 0 004 0" />
+    </>
+  ),
+  // Garfo (esquerda) + faca (direita) — ícone do Cardápio.
+  cutlery: () => (
+    <>
+      {/* Garfo: 3 dentes que se juntam num cabo central */}
+      <path d="M7 3v5M10 3v5M13 3v5" />
+      <path d="M7 8h6" />
+      <path d="M10 8v13" />
+      {/* Faca: lâmina curva no topo, cabo reto descendo */}
+      <path d="M19 3v18" />
+      <path d="M19 3c-3 4-3 8 0 11" />
     </>
   ),
 };

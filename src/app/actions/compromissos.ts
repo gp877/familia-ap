@@ -42,21 +42,51 @@ export async function createCompromisso(formData: FormData) {
   // Materializa N ocorrências futuras. Geramos generosamente — o user
   // pode deletar a série toda depois. Janelas escolhidas pra cobrir
   // ~1 ano à frente em cada modalidade.
-  const dates: string[] = [occurredOn];
-  if (recurring === "daily") {
-    for (let i = 1; i < 60; i++) dates.push(addDays(occurredOn, i));
+  const [oy, om, od] = occurredOn.split("-").map(Number);
+  const baseDow = new Date(oy, om - 1, od).getDay();
+
+  // weekly aceita múltiplos dias da semana (0=dom..6=sab).
+  // yearly aceita múltiplos meses (1=jan..12=dez).
+  // Se nenhum vier marcado, cai pro dia/mês do occurredOn.
+  const daysOfWeekRaw = formData.getAll("daysOfWeek").map((d) => Number(d));
+  const daysOfWeek = daysOfWeekRaw.length > 0 ? daysOfWeekRaw : [baseDow];
+  const monthsRaw = formData.getAll("months").map((m) => Number(m));
+  const months = monthsRaw.length > 0 ? monthsRaw : [om];
+
+  const dates: string[] = [];
+  if (recurring === "once") {
+    dates.push(occurredOn);
+  } else if (recurring === "daily") {
+    for (let i = 0; i < 60; i++) dates.push(addDays(occurredOn, i));
   } else if (recurring === "weekly") {
-    for (let i = 1; i < 52; i++) dates.push(addDays(occurredOn, 7 * i));
+    // 52 semanas × N dias selecionados. Sempre >= occurredOn.
+    for (let w = 0; w < 52; w++) {
+      for (const dow of daysOfWeek) {
+        const offset = ((dow - baseDow + 7) % 7) + w * 7;
+        dates.push(addDays(occurredOn, offset));
+      }
+    }
   } else if (recurring === "biweekly") {
-    for (let i = 1; i < 26; i++) dates.push(addDays(occurredOn, 14 * i));
+    for (let i = 0; i < 26; i++) dates.push(addDays(occurredOn, 14 * i));
   } else if (recurring === "monthly") {
-    for (let i = 1; i < 24; i++) dates.push(addMonths(occurredOn, i));
+    for (let i = 0; i < 24; i++) dates.push(addMonths(occurredOn, i));
   } else if (recurring === "yearly") {
-    for (let i = 1; i < 5; i++) dates.push(addYears(occurredOn, i));
+    // 5 anos × N meses selecionados. Ano 0 pula meses < mês original
+    // (já passaram nesse ano).
+    for (let y = 0; y < 5; y++) {
+      for (const m of months) {
+        if (y === 0 && m < om) continue;
+        const yr = oy + y;
+        dates.push(`${yr}-${String(m).padStart(2, "0")}-${String(od).padStart(2, "0")}`);
+      }
+    }
   }
 
+  // dedupe (defensivo) + ordem cronológica
+  const unique = Array.from(new Set(dates)).sort();
+
   await db.insert(compromissos).values(
-    dates.map((date) => ({
+    unique.map((date) => ({
       householdId,
       createdById: userId,
       occurredOn: date,

@@ -1,19 +1,31 @@
-import { EmailLayout, Paragraph, PrimaryButton } from "./layout";
+import { EmailLayout, Paragraph, PrimaryButton, StatBox } from "./layout";
 
 export function TestEmail() {
   return (
     <EmailLayout
-      preview="Teste de configuração das notificações"
-      title="Configuração ok ✓"
+      preview="Configuração das notificações ok ✓"
+      eyebrow="Teste de configuração"
+      title="Tudo certo, o e-mail chegou."
     >
       <Paragraph>
-        Se você está vendo esse e-mail, a integração com o Resend está
-        funcionando. As notificações configuradas em{" "}
-        <b>/configuracoes/notificacoes</b> vão chegar normalmente no horário
-        programado.
+        Se você está vendo essa mensagem, a integração com o Resend está
+        funcionando direitinho. Os lembretes vão chegar nessa mesma caixa
+        no horário programado.
       </Paragraph>
+
+      <StatBox
+        label="Status"
+        value="Conectado"
+        hint="Resend · onboarding@resend.dev"
+      />
+
+      <Paragraph>
+        Você ainda pode ajustar destinatários, frequência e quais lembretes
+        ficam ativos no painel de configurações.
+      </Paragraph>
+
       <PrimaryButton href="/configuracoes/notificacoes">
-        Ver minhas notificações →
+        Abrir notificações
       </PrimaryButton>
     </EmailLayout>
   );

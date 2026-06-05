@@ -302,7 +302,7 @@ async function evaluateAndSend(
             "missing_invoice",
             `Falta enviar a fatura de ${t.monthLabel} — ${t.cardName}`,
             null,
-            "/financeiro/upload",
+            "/financeiro/faturas/upload",
             now
           );
         }

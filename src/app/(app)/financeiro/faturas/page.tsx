@@ -147,6 +147,28 @@ export default async function FaturasPage({
         accent={open.length > 0}
       />
 
+      {/* Atalho de upload — fluxo dedicado a fatura. Subir extrato é em /financeiro/upload. */}
+      <div style={{ padding: "14px 20px 0" }}>
+        <Link
+          href="/financeiro/faturas/upload"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "14px 16px",
+            borderRadius: 14,
+            background: "var(--accent)",
+            color: "var(--accent-on)",
+            textDecoration: "none",
+            fontSize: 14,
+            fontWeight: 700,
+          }}
+        >
+          <span>Subir PDF de fatura</span>
+          <span style={{ fontSize: 18, fontWeight: 800 }}>↗</span>
+        </Link>
+      </div>
+
       <div style={{ padding: "14px 0 0" }}>
         <InlineForm buttonLabel="Cadastrar fatura manualmente">
           <form action={createInvoice}>

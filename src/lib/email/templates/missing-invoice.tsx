@@ -30,7 +30,7 @@ export function MissingInvoiceEmail({
         Suba o PDF da fatura e o sistema categoriza cada transação, vincula
         com o pagamento no extrato e atualiza o saldo automaticamente.
       </Paragraph>
-      <PrimaryButton href="/financeiro/upload">
+      <PrimaryButton href="/financeiro/faturas/upload">
         Enviar fatura →
       </PrimaryButton>
     </EmailLayout>

@@ -8,26 +8,20 @@ import { Icon } from "@/components/ap/icon";
 import { BackButton } from "@/components/ap/inline-form";
 import { ScreenShell } from "@/components/ap/screen-shell";
 
-type AccountOption = { id: string; name: string; type: string };
-
-type Props = {
-  accounts: AccountOption[];
-};
-
-function isCheckingLike(type: string) {
-  return type === "checking" || type === "savings" || type === "investment" || type === "other";
-}
+type CardOption = { id: string; name: string; type: string };
 
 /**
- * Upload de extrato bancário (CC, poupança, investimento, outros).
- * Faturas de cartão têm fluxo próprio em /financeiro/faturas/upload —
- * essa tela rejeita cartões na lista e fixa sourceType="bank_statement".
+ * Upload de fatura de cartão de crédito. Espelha visualmente o upload
+ * de extratos mas:
+ *   - Aceita só contas do tipo `credit_card`
+ *   - Fixa sourceType="credit_card_invoice"
+ *   - Após sucesso, leva pra /financeiro/faturas/[id] se a API vinculou
+ *     a fatura criada
  */
-export function UploadClient({ accounts }: Props) {
+export function InvoiceUploadClient({ cards }: { cards: CardOption[] }) {
   const router = useRouter();
-  const accountsForStatement = accounts.filter((a) => isCheckingLike(a.type));
   const [file, setFile] = useState<File | null>(null);
-  const [bankAccountId, setBankAccountId] = useState<string>("");
+  const [cardId, setCardId] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{
@@ -49,8 +43,8 @@ export function UploadClient({ accounts }: Props) {
     try {
       const fd = new FormData();
       fd.append("file", file);
-      fd.append("sourceType", "bank_statement");
-      if (bankAccountId) fd.append("bankAccountId", bankAccountId);
+      fd.append("sourceType", "credit_card_invoice");
+      if (cardId) fd.append("bankAccountId", cardId);
 
       const res = await fetch("/api/upload", { method: "POST", body: fd });
       const data = await res.json();
@@ -68,16 +62,17 @@ export function UploadClient({ accounts }: Props) {
     const skipped = result.skippedCount ?? 0;
     return (
       <ScreenShell
-        userQ="Já processou o extrato?"
+        userQ="Já processou a fatura?"
         insight={
           <>
-            <b>{saved}</b> {saved === 1 ? "transação salva" : "transações salvas"} como pendente.
+            <b>{saved}</b> {saved === 1 ? "lançamento salvo" : "lançamentos salvos"} como pendente.
             {skipped > 0 ? (
               <>
                 {" "}
-                <b>{skipped}</b> {skipped === 1 ? "já estava" : "já estavam"} no banco (duplicada) e {skipped === 1 ? "foi ignorada" : "foram ignoradas"}.
+                <b>{skipped}</b> {skipped === 1 ? "já estava" : "já estavam"} no banco e {skipped === 1 ? "foi ignorada" : "foram ignoradas"}.
               </>
             ) : null}
+            {result.invoiceId ? " Fatura vinculada." : ""}
           </>
         }
       >
@@ -87,19 +82,30 @@ export function UploadClient({ accounts }: Props) {
         <div style={{ padding: "14px 20px 0" }}>
           <Card raised pad={16}>
             <Row label="Banco" value={result.bankSlug} />
-            <Row label="Tipo" value="Extrato bancário" />
-            <Row label="Transações" value={String(result.extractedCount)} />
+            <Row label="Tipo" value="Fatura de cartão" />
+            {result.invoiceId && <Row label="Fatura" value="vinculada" />}
+            <Row label="Lançamentos" value={String(result.extractedCount)} />
           </Card>
         </div>
 
         <div style={{ padding: "16px 20px 0", display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <button
-            type="button"
-            onClick={() => router.push("/financeiro/transacoes")}
-            style={primaryButtonStyle}
-          >
-            Ver transações
-          </button>
+          {result.invoiceId ? (
+            <button
+              type="button"
+              onClick={() => router.push(`/financeiro/faturas/${result.invoiceId}`)}
+              style={primaryButtonStyle}
+            >
+              Ver fatura
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => router.push("/financeiro/faturas")}
+              style={primaryButtonStyle}
+            >
+              Ver faturas
+            </button>
+          )}
           <button
             type="button"
             onClick={() => {
@@ -108,34 +114,34 @@ export function UploadClient({ accounts }: Props) {
             }}
             style={secondaryButtonStyle}
           >
-            Subir outro
+            Subir outra
           </button>
         </div>
       </ScreenShell>
     );
   }
 
-  const needsAccount = accountsForStatement.length === 0;
+  const noCards = cards.length === 0;
 
   return (
     <ScreenShell
-      userQ="Quero subir um extrato"
+      userQ="Quero subir uma fatura"
       insight={
-        needsAccount ? (
+        noCards ? (
           <>
-            Antes de subir, <b>cadastra uma conta corrente ou poupança</b> em <a href="/financeiro/contas" style={{ color: "var(--accent)" }}>/financeiro/contas</a> — fatura de cartão é em <a href="/financeiro/faturas/upload" style={{ color: "var(--accent)" }}>/financeiro/faturas</a>.
+            Antes de subir, <b>cadastra um cartão de crédito</b> em <a href="/financeiro/contas" style={{ color: "var(--accent)" }}>/financeiro/contas</a>.
           </>
         ) : (
-          <>Selecione a conta, mande o PDF do extrato — eu extraio e categorizo automaticamente. <b>Fatura de cartão</b> tem fluxo próprio em <a href="/financeiro/faturas/upload" style={{ color: "var(--accent)" }}>/financeiro/faturas</a>.</>
+          <>Selecione o cartão, mande o PDF da fatura — eu extraio os lançamentos e crio o registro da fatura. <b>Extrato bancário</b> tem fluxo próprio em <a href="/financeiro/upload" style={{ color: "var(--accent)" }}>/financeiro/extratos</a>.</>
         )
       }
     >
       <div style={{ padding: "0 20px 8px" }}>
-        <BackButton href="/financeiro/extratos" label="Extratos" />
+        <BackButton href="/financeiro/faturas" label="Faturas" />
       </div>
 
-      <SectionRow icon="file" label="Subir extrato" />
-      <BigNumber value="PDF" sub="extrato bancário (CC, poupança, investimento)" />
+      <SectionRow icon="file" label="Subir fatura" />
+      <BigNumber value="PDF" sub="fatura de cartão de crédito" />
 
       <form onSubmit={handleSubmit} style={{ padding: "14px 20px 0" }}>
         <label
@@ -169,9 +175,7 @@ export function UploadClient({ accounts }: Props) {
           </div>
           {file ? (
             <>
-              <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink)" }}>
-                {file.name}
-              </div>
+              <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink)" }}>{file.name}</div>
               <div style={{ fontSize: 11, color: "var(--muted)" }}>
                 {(file.size / 1024).toFixed(1)} KB · clique pra trocar
               </div>
@@ -182,7 +186,7 @@ export function UploadClient({ accounts }: Props) {
                 Clique pra escolher um PDF
               </div>
               <div style={{ fontSize: 11, color: "var(--muted)" }}>
-                até 10 MB · extrato bancário
+                até 10 MB · fatura de cartão
               </div>
             </>
           )}
@@ -197,7 +201,6 @@ export function UploadClient({ accounts }: Props) {
           />
         </label>
 
-        {/* Seleção de conta — só CC/poupança/investimento (cartões têm fluxo próprio) */}
         <div style={{ marginTop: 18 }}>
           <label
             style={{
@@ -210,9 +213,9 @@ export function UploadClient({ accounts }: Props) {
               marginBottom: 6,
             }}
           >
-            Conta *
+            Cartão *
           </label>
-          {accountsForStatement.length === 0 ? (
+          {noCards ? (
             <div
               style={{
                 padding: "12px 14px",
@@ -222,19 +225,66 @@ export function UploadClient({ accounts }: Props) {
                 color: "var(--muted-d)",
               }}
             >
-              Nenhuma conta corrente/poupança cadastrada. Vá em{" "}
+              Nenhum cartão cadastrado. Vá em{" "}
               <a href="/financeiro/contas" style={{ color: "var(--accent)" }}>
                 /financeiro/contas
               </a>{" "}
               primeiro.
             </div>
           ) : (
-            <AccountList
-              accounts={accountsForStatement}
-              value={bankAccountId}
-              onChange={setBankAccountId}
-              disabled={submitting}
-            />
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {cards.map((a) => {
+                const selected = cardId === a.id;
+                return (
+                  <button
+                    key={a.id}
+                    type="button"
+                    onClick={() => setCardId(a.id)}
+                    disabled={submitting}
+                    style={{
+                      width: "100%",
+                      padding: "10px 14px",
+                      borderRadius: 12,
+                      background: selected
+                        ? "color-mix(in oklab, var(--accent) 14%, var(--card))"
+                        : "var(--card)",
+                      border: selected ? "1px solid var(--accent)" : "0.5px solid var(--line-d)",
+                      color: "var(--ink)",
+                      fontSize: 13.5,
+                      fontWeight: selected ? 700 : 500,
+                      cursor: "pointer",
+                      textAlign: "left",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      fontFamily: "inherit",
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: 4,
+                        background: selected ? "var(--accent)" : "var(--muted)",
+                        flexShrink: 0,
+                      }}
+                    />
+                    <span style={{ flex: 1 }}>{a.name}</span>
+                    <span
+                      style={{
+                        fontSize: 10.5,
+                        fontWeight: 600,
+                        letterSpacing: "0.04em",
+                        textTransform: "uppercase",
+                        color: "var(--muted)",
+                      }}
+                    >
+                      Cartão
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           )}
         </div>
 
@@ -256,31 +306,25 @@ export function UploadClient({ accounts }: Props) {
 
         <button
           type="submit"
-          disabled={!file || !bankAccountId || submitting || needsAccount}
+          disabled={!file || !cardId || submitting || noCards}
           style={{
             marginTop: 16,
             width: "100%",
             height: 48,
             borderRadius: 24,
-            background: !file || !bankAccountId || submitting || needsAccount ? "var(--card)" : "var(--accent)",
-            color: !file || !bankAccountId || submitting || needsAccount ? "var(--muted-d)" : "var(--accent-on)",
+            background: !file || !cardId || submitting || noCards ? "var(--card)" : "var(--accent)",
+            color: !file || !cardId || submitting || noCards ? "var(--muted-d)" : "var(--accent-on)",
             fontWeight: 700,
             fontSize: 14,
             border: "none",
-            cursor: !file || !bankAccountId || submitting || needsAccount ? "not-allowed" : "pointer",
+            cursor: !file || !cardId || submitting || noCards ? "not-allowed" : "pointer",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             gap: 8,
           }}
         >
-          {submitting ? (
-            <>
-              <Spinner /> Processando (~30s a 1 min)
-            </>
-          ) : (
-            "Enviar e extrair"
-          )}
+          {submitting ? <>Processando (~30s a 1 min)</> : "Enviar e extrair"}
         </button>
 
         {submitting && (
@@ -293,79 +337,6 @@ export function UploadClient({ accounts }: Props) {
   );
 }
 
-/**
- * Lista de contas (sem cartões — esses têm fluxo próprio em /financeiro/faturas/upload).
- */
-function AccountList({
-  accounts,
-  value,
-  onChange,
-  disabled,
-}: {
-  accounts: AccountOption[];
-  value: string;
-  onChange: (id: string) => void;
-  disabled: boolean;
-}) {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        {accounts.map((a) => {
-          const selected = value === a.id;
-          return (
-            <button
-              key={a.id}
-              type="button"
-              onClick={() => onChange(a.id)}
-              disabled={disabled}
-              style={{
-                width: "100%",
-                padding: "10px 14px",
-                borderRadius: 12,
-                background: selected
-                  ? "color-mix(in oklab, var(--accent) 14%, var(--card))"
-                  : "var(--card)",
-                border: selected
-                  ? "1px solid var(--accent)"
-                  : "0.5px solid var(--line-d)",
-                color: "var(--ink)",
-                fontSize: 13.5,
-                fontWeight: selected ? 700 : 500,
-                cursor: "pointer",
-                textAlign: "left",
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                fontFamily: "inherit",
-              }}
-            >
-              <span
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: 4,
-                  background: selected ? "var(--accent)" : "var(--muted)",
-                  flexShrink: 0,
-                }}
-              />
-              <span style={{ flex: 1 }}>{a.name}</span>
-              <span
-                style={{
-                  fontSize: 10.5,
-                  fontWeight: 600,
-                  letterSpacing: "0.04em",
-                  textTransform: "uppercase",
-                  color: "var(--muted)",
-                }}
-              >
-                {typeLabel(a.type)}
-              </span>
-            </button>
-          );
-        })}
-    </div>
-  );
-}
-
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 12.5 }}>
@@ -373,18 +344,6 @@ function Row({ label, value }: { label: string; value: string }) {
       <span style={{ color: "var(--ink)" }}>{value}</span>
     </div>
   );
-}
-
-function typeLabel(t: string) {
-  return t === "checking"
-    ? "CC"
-    : t === "savings"
-      ? "Poupança"
-      : t === "credit_card"
-        ? "Cartão"
-        : t === "investment"
-          ? "Inv."
-          : "Outra";
 }
 
 const primaryButtonStyle: React.CSSProperties = {
@@ -409,29 +368,3 @@ const secondaryButtonStyle: React.CSSProperties = {
   cursor: "pointer",
   flex: 1,
 };
-
-function Spinner() {
-  return (
-    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <circle
-        cx="12"
-        cy="12"
-        r="9"
-        stroke="currentColor"
-        strokeWidth="2.4"
-        opacity="0.25"
-      />
-      <path
-        d="M21 12a9 9 0 0 0-9-9"
-        stroke="currentColor"
-        strokeWidth="2.4"
-        strokeLinecap="round"
-        style={{
-          animation: "spin 0.9s linear infinite",
-          transformOrigin: "12px 12px",
-        }}
-      />
-      <style>{"@keyframes spin{to{transform:rotate(360deg)}}"}</style>
-    </svg>
-  );
-}
