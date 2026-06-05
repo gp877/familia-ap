@@ -26,82 +26,108 @@ import {
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const MAX_BYTES = 10 * 1024 * 1024; // 10MB
+// 4MB é o teto seguro do Serverless body do Vercel (~4.5MB real).
+// Pra arquivos maiores precisaremos de upload direto pro Blob via signed URL.
+const MAX_BYTES = 4 * 1024 * 1024;
 
 export async function POST(
   req: Request,
   ctx: { params: Promise<{ id: string }> }
 ) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
-  }
-  const dbUser = await db.query.users.findFirst({
-    where: eq(users.id, session.user.id),
-  });
-  if (!dbUser?.householdId) {
-    return NextResponse.json({ error: "Sem household" }, { status: 400 });
-  }
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+    }
+    const dbUser = await db.query.users.findFirst({
+      where: eq(users.id, session.user.id),
+    });
+    if (!dbUser?.householdId) {
+      return NextResponse.json({ error: "Sem household" }, { status: 400 });
+    }
 
-  const { id: compromissoId } = await ctx.params;
-  const c = await db.query.compromissos.findFirst({
-    where: eq(compromissos.id, compromissoId),
-  });
-  if (!c || c.householdId !== dbUser.householdId) {
-    return NextResponse.json({ error: "Compromisso não encontrado" }, { status: 404 });
-  }
+    const { id: compromissoId } = await ctx.params;
+    const c = await db.query.compromissos.findFirst({
+      where: eq(compromissos.id, compromissoId),
+    });
+    if (!c || c.householdId !== dbUser.householdId) {
+      return NextResponse.json(
+        { error: "Compromisso não encontrado" },
+        { status: 404 }
+      );
+    }
 
-  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    if (!process.env.BLOB_READ_WRITE_TOKEN) {
+      return NextResponse.json(
+        { error: "Storage não configurado (BLOB_READ_WRITE_TOKEN ausente)" },
+        { status: 500 }
+      );
+    }
+
+    const formData = await req.formData();
+    const file = formData.get("file");
+    if (!file || !(file instanceof File)) {
+      return NextResponse.json(
+        { error: "Arquivo não enviado" },
+        { status: 400 }
+      );
+    }
+    if (file.size > MAX_BYTES) {
+      return NextResponse.json(
+        { error: "Arquivo maior que 4MB não é suportado ainda" },
+        { status: 413 }
+      );
+    }
+
+    const safeName = file.name.replace(/[^\w.\-]+/g, "_").slice(0, 100);
+    const pathname = `compromissos/${dbUser.householdId}/${compromissoId}/${crypto.randomUUID()}-${safeName}`;
+
+    let blobResult;
+    try {
+      blobResult = await put(pathname, file, {
+        access: "public",
+        contentType: file.type || "application/octet-stream",
+        addRandomSuffix: false,
+      });
+    } catch (err) {
+      console.error("[attachments] put pro Blob falhou:", err);
+      const msg = err instanceof Error ? err.message : String(err);
+      return NextResponse.json(
+        { error: `Falha ao salvar no storage: ${msg}` },
+        { status: 500 }
+      );
+    }
+
+    const [row] = await db
+      .insert(compromissoAttachments)
+      .values({
+        compromissoId,
+        householdId: dbUser.householdId,
+        uploadedById: dbUser.id,
+        blobUrl: blobResult.url,
+        filename: file.name,
+        mimeType: file.type || null,
+        fileSize: file.size,
+      })
+      .returning();
+
+    return NextResponse.json({
+      id: row.id,
+      filename: row.filename,
+      blobUrl: row.blobUrl,
+      fileSize: row.fileSize,
+      mimeType: row.mimeType,
+    });
+  } catch (err) {
+    // Catch-all: garante que SEMPRE retornamos JSON, nunca um body vazio
+    // que faria o cliente quebrar com "Unexpected end of JSON input".
+    console.error("[attachments POST] erro inesperado:", err);
+    const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json(
-      { error: "BLOB_READ_WRITE_TOKEN não configurado" },
+      { error: `Erro inesperado no upload: ${msg}` },
       { status: 500 }
     );
   }
-
-  const formData = await req.formData();
-  const file = formData.get("file");
-  if (!file || !(file instanceof File)) {
-    return NextResponse.json({ error: "Arquivo não enviado" }, { status: 400 });
-  }
-  if (file.size > MAX_BYTES) {
-    return NextResponse.json(
-      { error: "Arquivo maior que 10MB" },
-      { status: 413 }
-    );
-  }
-
-  // Path único: <householdId>/<compromissoId>/<uuid-aleatório>-<filename>
-  // O Blob renomeia automaticamente se já existir (com sufixo) — mas como
-  // usamos UUID aleatório, colisão é desprezível.
-  const safeName = file.name.replace(/[^\w.\-]+/g, "_").slice(0, 100);
-  const pathname = `compromissos/${dbUser.householdId}/${compromissoId}/${crypto.randomUUID()}-${safeName}`;
-
-  const blob = await put(pathname, file, {
-    access: "public",
-    contentType: file.type || "application/octet-stream",
-    addRandomSuffix: false,
-  });
-
-  const [row] = await db
-    .insert(compromissoAttachments)
-    .values({
-      compromissoId,
-      householdId: dbUser.householdId,
-      uploadedById: dbUser.id,
-      blobUrl: blob.url,
-      filename: file.name,
-      mimeType: file.type || null,
-      fileSize: file.size,
-    })
-    .returning();
-
-  return NextResponse.json({
-    id: row.id,
-    filename: row.filename,
-    blobUrl: row.blobUrl,
-    fileSize: row.fileSize,
-    mimeType: row.mimeType,
-  });
 }
 
 export async function DELETE(

@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 
-import { upload } from "@vercel/blob/client";
 import { useRouter } from "next/navigation";
 
 type Attachment = {
@@ -107,30 +106,38 @@ function AttachmentsDialog({
     setError(null);
     setUploading(true);
     try {
-      if (file.size > 10 * 1024 * 1024) {
-        throw new Error("Arquivo maior que 10MB");
+      if (file.size > 4 * 1024 * 1024) {
+        throw new Error("Arquivo maior que 4MB não é suportado ainda");
       }
-      // Upload DIRETO pro Vercel Blob via signed URL — bypass do limite
-      // de 4.5MB do body Serverless Function. handleUpload faz tudo:
-      // pede token ao nosso endpoint, upa pro blob, callback registra
-      // metadata no banco.
-      const safeName = file.name.replace(/[^\w.\-]+/g, "_").slice(0, 100);
-      const pathname = `compromissos/${crypto.randomUUID()}-${safeName}`;
-      const blob = await upload(pathname, file, {
-        access: "public",
-        handleUploadUrl: `${apiPath}/attachments/upload-url`,
+      const fd = new FormData();
+      fd.set("file", file);
+      const res = await fetch(`${apiPath}/attachments`, {
+        method: "POST",
+        body: fd,
       });
-      // Não recebemos o id do attachment do callback porque é assíncrono.
-      // Adiciona localmente um item provisório com a URL do blob — o
-      // router.refresh() abaixo trará o item canônico do server.
+
+      // Parse seguro: trata caso de body vazio / não-JSON sem quebrar
+      let data: { error?: string; id?: string; filename?: string; blobUrl?: string; fileSize?: number | null; mimeType?: string | null } = {};
+      try {
+        const text = await res.text();
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        // body não é JSON
+      }
+      if (!res.ok) {
+        throw new Error(data.error || `HTTP ${res.status}: ${res.statusText || "Falha no upload"}`);
+      }
+      if (!data.id) {
+        throw new Error("Resposta do servidor incompleta (sem id)");
+      }
       setItems((arr) => [
         ...arr,
         {
-          id: `pending-${Date.now()}`,
-          filename: file.name,
-          blobUrl: blob.url,
-          fileSize: file.size,
-          mimeType: file.type || null,
+          id: data.id!,
+          filename: data.filename ?? file.name,
+          blobUrl: data.blobUrl ?? "",
+          fileSize: data.fileSize ?? file.size,
+          mimeType: data.mimeType ?? file.type ?? null,
         },
       ]);
       startTransition(() => router.refresh());
