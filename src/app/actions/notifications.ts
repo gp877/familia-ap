@@ -68,6 +68,7 @@ export type RuleType =
   | "missing_statement"
   | "missing_invoice"
   | "pending_classifications"
+  | "pending_recurring_payments"
   | "weekly_digest";
 
 export type RuleFrequency =

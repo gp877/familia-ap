@@ -1,7 +1,14 @@
 import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
 
 import { db } from "@/db";
-import { bankAccounts, transactions, uploads } from "@/db/schema";
+import {
+  bankAccounts,
+  recurringPaymentRecords,
+  recurringPayments,
+  transactions,
+  uploads,
+} from "@/db/schema";
+import { computeStatus, formatDueDate } from "@/lib/recurring-payments";
 
 /**
  * Avaliadores de gatilho — cada função decide se uma regra DEVE disparar
@@ -267,6 +274,89 @@ export async function evaluateWeeklyDigest(
       amount: formatBRL(parseFloat(c.total)),
     })),
     pendingCount: pending,
+  };
+}
+
+// ────────────────────────────────────────────────────────────
+// 5. Pagamentos recorrentes pendentes
+// ────────────────────────────────────────────────────────────
+
+export type PendingRecurringPaymentsTrigger = {
+  type: "pending_recurring_payments";
+  items: {
+    name: string;
+    status: "due" | "overdue";
+    formattedDue: string;
+    expectedAmount: string | null;
+  }[];
+  overdueCount: number;
+  dueSoonCount: number;
+};
+
+/**
+ * Pendentes do período corrente. Dispara se há ao menos 1 pagamento
+ * `due` ou `overdue`. Email lista todos pra revisão semanal.
+ */
+export async function evaluatePendingRecurringPayments(
+  householdId: string,
+  now: Date = new Date()
+): Promise<PendingRecurringPaymentsTrigger | null> {
+  const active = await db.query.recurringPayments.findMany({
+    where: and(
+      eq(recurringPayments.householdId, householdId),
+      eq(recurringPayments.isActive, true)
+    ),
+  });
+  if (active.length === 0) return null;
+
+  const records = await db.query.recurringPaymentRecords.findMany({
+    where: eq(recurringPaymentRecords.householdId, householdId),
+  });
+  const periodsByPayment = new Map<string, Set<string>>();
+  for (const r of records) {
+    const set = periodsByPayment.get(r.paymentId) ?? new Set<string>();
+    set.add(r.period);
+    periodsByPayment.set(r.paymentId, set);
+  }
+
+  const items: PendingRecurringPaymentsTrigger["items"] = [];
+  let overdueCount = 0;
+  let dueSoonCount = 0;
+  for (const p of active) {
+    const periods = periodsByPayment.get(p.id) ?? new Set();
+    const status = computeStatus({
+      frequency: p.frequency,
+      dueDay: p.dueDay,
+      dueMonth: p.dueMonth,
+      recordedPeriods: periods,
+      now,
+    });
+    if (status.status === "paid") continue;
+    if (status.status === "overdue") overdueCount++;
+    else dueSoonCount++;
+    items.push({
+      name: p.name,
+      status: status.status,
+      formattedDue: formatDueDate(status.dueDate, status.daysUntilDue),
+      expectedAmount: p.expectedAmount
+        ? formatBRL(parseFloat(p.expectedAmount))
+        : null,
+    });
+  }
+
+  if (items.length === 0) return null;
+
+  // Ordena: atrasados primeiro, depois por dias até vencer (asc)
+  items.sort((a, b) => {
+    if (a.status !== b.status) return a.status === "overdue" ? -1 : 1;
+    return 0;
+  });
+
+  return {
+    type: "pending_recurring_payments",
+    items,
+    overdueCount,
+    dueSoonCount,
   };
 }
 

@@ -44,6 +44,11 @@ const TYPE_LABEL: Record<string, { title: string; desc: string; icon: string }> 
     desc: "Alerta quando >10 transações ficam sem categorizar por >5 dias.",
     icon: "🏷️",
   },
+  pending_recurring_payments: {
+    title: "Pagamentos recorrentes pendentes",
+    desc: "Avisa pagamentos recorrentes (mensais e anuais) ainda não marcados como pagos.",
+    icon: "🔁",
+  },
   weekly_digest: {
     title: "Resumo semanal",
     desc: "Recap dos últimos 7 dias: total gasto, top categorias, pendentes.",

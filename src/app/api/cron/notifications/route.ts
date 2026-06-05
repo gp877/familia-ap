@@ -20,11 +20,13 @@ import { sendEmail } from "@/lib/email/send";
 import { MissingInvoiceEmail } from "@/lib/email/templates/missing-invoice";
 import { MissingStatementEmail } from "@/lib/email/templates/missing-statement";
 import { PendingClassificationsEmail } from "@/lib/email/templates/pending-classifications";
+import { PendingRecurringPaymentsEmail } from "@/lib/email/templates/pending-recurring";
 import { WeeklyDigestEmail } from "@/lib/email/templates/weekly-digest";
 import {
   evaluateMissingInvoice,
   evaluateMissingStatement,
   evaluatePendingClassifications,
+  evaluatePendingRecurringPayments,
   evaluateWeeklyDigest,
 } from "@/lib/notifications/triggers";
 
@@ -273,6 +275,49 @@ async function evaluateAndSend(
         if (res.ok) anySent = true;
       }
       return { sent: anySent, reason: `${trigger.pendingCount} pendentes` };
+    }
+
+    case "pending_recurring_payments": {
+      const trigger = await evaluatePendingRecurringPayments(rule.householdId, now);
+      if (!trigger) {
+        await db.insert(notificationLog).values({
+          ruleId: rule.id,
+          status: "skipped",
+          triggerSummary: "Nenhum pagamento recorrente pendente",
+        });
+        return { sent: false, reason: "no-pending-recurring" };
+      }
+      let anySent = false;
+      for (const r of recipients) {
+        const res = await sendEmail({
+          to: r.email,
+          subject:
+            trigger.overdueCount > 0
+              ? `${trigger.overdueCount} pagamento(s) recorrente(s) atrasado(s)`
+              : `${trigger.items.length} pagamento(s) recorrente(s) pendente(s)`,
+          react: PendingRecurringPaymentsEmail({
+            recipientName: r.name,
+            items: trigger.items,
+            overdueCount: trigger.overdueCount,
+            dueSoonCount: trigger.dueSoonCount,
+            ruleId: rule.id,
+          }),
+          tag: "pending_recurring_payments",
+        });
+        await db.insert(notificationLog).values({
+          ruleId: rule.id,
+          status: res.ok ? "sent" : "failed",
+          recipientEmail: r.email,
+          providerId: res.providerId,
+          triggerSummary: `${trigger.items.length} pendentes, ${trigger.overdueCount} atrasados`,
+          errorMessage: res.error,
+        });
+        if (res.ok) anySent = true;
+      }
+      return {
+        sent: anySent,
+        reason: `${trigger.items.length} pendentes (${trigger.overdueCount} atrasados)`,
+      };
     }
 
     case "weekly_digest": {

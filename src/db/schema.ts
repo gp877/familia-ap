@@ -62,6 +62,12 @@ export const notificationRuleTypeEnum = pgEnum("notification_rule_type", [
   "missing_invoice", // fatura do mês não foi enviada
   "pending_classifications", // tx pending demais
   "weekly_digest", // resumo semanal
+  "pending_recurring_payments", // pgtos recorrentes ainda não marcados como pagos
+]);
+
+export const recurringPaymentFreqEnum = pgEnum("recurring_payment_freq", [
+  "monthly",
+  "yearly",
 ]);
 export const notificationFrequencyEnum = pgEnum("notification_frequency", [
   "daily",
@@ -627,6 +633,91 @@ export const notificationLog = pgTable(
   },
   (l) => [
     index("notification_log_rule_date").on(l.ruleId, l.createdAt),
+  ]
+);
+
+// ============================================================
+// Pagamentos recorrentes — lembretes mensais ou anuais
+// (IPVA, gás, internet, mensalidade etc.)
+// ============================================================
+/**
+ * Definição da regra recorrente. Cada linha = um item recorrente.
+ * Não cria transações automaticamente — só lembra que precisa pagar.
+ * O usuário marca como pago em recurringPaymentRecords.
+ */
+export const recurringPayments = pgTable(
+  "recurring_payment",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    createdById: text("created_by_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    name: text("name").notNull(), // "IPVA Onix", "Gás botijão", "Internet Claro"
+    frequency: recurringPaymentFreqEnum("frequency").notNull(),
+    // Vencimento — semântica varia por frequency:
+    //   monthly: dueDay = 1..31 (ex: dia 10 do mês). dueMonth = null
+    //   yearly:  dueMonth = 1..12 + dueDay = 1..31 (ex: 03/abril)
+    dueDay: integer("due_day").notNull(),
+    dueMonth: integer("due_month"), // só usado em yearly
+    // Valor esperado (referência — pode variar). Null = "varia"
+    expectedAmount: numeric("expected_amount", { precision: 14, scale: 2 }),
+    // Categoria pra futuro link com lançamentos (opcional)
+    categoryId: uuid("category_id").references(() => categories.id, {
+      onDelete: "set null",
+    }),
+    // Conta default de débito (opcional, informativo)
+    bankAccountId: uuid("bank_account_id").references(() => bankAccounts.id, {
+      onDelete: "set null",
+    }),
+    notes: text("notes"),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (r) => [
+    index("recurring_payment_household_active").on(r.householdId, r.isActive),
+  ]
+);
+
+/**
+ * Registro de quitação por período. Cada linha = "este recorrente foi
+ * pago para o período X". UNIQUE em (paymentId, period) impede marcar 2x.
+ *
+ * Period format:
+ *   monthly → "YYYY-MM" (ex: "2026-06")
+ *   yearly  → "YYYY"     (ex: "2026")
+ */
+export const recurringPaymentRecords = pgTable(
+  "recurring_payment_record",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    paymentId: uuid("payment_id")
+      .notNull()
+      .references(() => recurringPayments.id, { onDelete: "cascade" }),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    markedById: text("marked_by_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    period: text("period").notNull(), // YYYY-MM ou YYYY
+    paidOn: date("paid_on"), // dia real do pagamento (opcional)
+    paidAmount: numeric("paid_amount", { precision: 14, scale: 2 }),
+    // Link com transação do extrato (opcional — pra rastreio)
+    transactionId: uuid("transaction_id").references(() => transactions.id, {
+      onDelete: "set null",
+    }),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (r) => [
+    uniqueIndex("recurring_payment_record_period_unique").on(
+      r.paymentId,
+      r.period
+    ),
   ]
 );
 

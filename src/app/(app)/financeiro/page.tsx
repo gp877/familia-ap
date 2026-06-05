@@ -177,6 +177,7 @@ export default async function FinanceiroPage() {
         <Shortcut href="/financeiro/orcamento" icon="chart" label="Orçamento" sub="planejado anual" />
         <Shortcut href="/financeiro/contas" icon="bank" label="Contas" sub={`${accounts.length} cadastradas`} />
         <Shortcut href="/financeiro/categorias" icon="star" label="Categorias" sub="gerenciar" />
+        <Shortcut href="/financeiro/recorrentes" icon="bag" label="Recorrentes" sub="mensais e anuais" />
       </div>
     </ScreenShell>
   );
