@@ -656,6 +656,33 @@ export const compromissos = pgTable(
   (c) => [index("compromisso_household_date_idx").on(c.householdId, c.occurredOn)]
 );
 
+/**
+ * Anexos de compromisso — arquivos relacionados ao evento (convite, contrato,
+ * comprovante, etc). Armazenados no Vercel Blob; aqui guardamos só metadata
+ * + URL pública.
+ */
+export const compromissoAttachments = pgTable(
+  "compromisso_attachment",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    compromissoId: uuid("compromisso_id")
+      .notNull()
+      .references(() => compromissos.id, { onDelete: "cascade" }),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    uploadedById: text("uploaded_by_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    blobUrl: text("blob_url").notNull(),
+    filename: text("filename").notNull(),
+    mimeType: text("mime_type"),
+    fileSize: integer("file_size"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (a) => [index("compromisso_attachment_compromisso_idx").on(a.compromissoId)]
+);
+
 // ============================================================
 // Finais de Semana (uma entrada = um dia sex/sab/dom)
 // ============================================================

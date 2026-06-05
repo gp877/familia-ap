@@ -15,7 +15,9 @@ import {
 import { AddCompromissoCard } from "./add-compromisso-card";
 import { auth } from "@/auth";
 import { db } from "@/db";
-import { compromissos, users } from "@/db/schema";
+import { compromissoAttachments, compromissos, users } from "@/db/schema";
+import { AttachmentsButton } from "@/components/ap/attachments-button";
+import { inArray } from "drizzle-orm";
 
 const DOW_LABEL = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
 const ORDINAL = ["1º", "2º", "3º", "4º", "5º", "6º"];
@@ -138,6 +140,37 @@ export default async function CompromissosPage({
         orderBy: [asc(compromissos.occurredOn), asc(compromissos.time)],
       });
 
+  // Anexos: 1 query agregada pra todos os compromissos exibidos.
+  // attachmentsByCompromisso: compromissoId → Attachment[]
+  const compromissoIds = allCompromissos.map((c) => c.id);
+  const attachments =
+    compromissoIds.length > 0
+      ? await db.query.compromissoAttachments.findMany({
+          where: inArray(compromissoAttachments.compromissoId, compromissoIds),
+        })
+      : [];
+  const attachmentsByCompromisso = new Map<
+    string,
+    {
+      id: string;
+      filename: string;
+      blobUrl: string;
+      fileSize: number | null;
+      mimeType: string | null;
+    }[]
+  >();
+  for (const a of attachments) {
+    const arr = attachmentsByCompromisso.get(a.compromissoId) ?? [];
+    arr.push({
+      id: a.id,
+      filename: a.filename,
+      blobUrl: a.blobUrl,
+      fileSize: a.fileSize,
+      mimeType: a.mimeType,
+    });
+    attachmentsByCompromisso.set(a.compromissoId, arr);
+  }
+
   // Mapa: data → lista de compromissos
   const byDate = new Map<string, typeof allCompromissos>();
   for (const c of allCompromissos) {
@@ -203,7 +236,7 @@ export default async function CompromissosPage({
       </div>
 
       {isList ? (
-        <ListView upcoming={allCompromissos} />
+        <ListView upcoming={allCompromissos} attMap={attachmentsByCompromisso} />
       ) : isCalendar ? (
         <CalendarView
           year={yearN}
@@ -211,6 +244,7 @@ export default async function CompromissosPage({
           byDate={byDate}
           monthStr={monthStr}
           selectedDay={sp.day ?? null}
+          attMap={attachmentsByCompromisso}
         />
       ) : (
         <FdsView
@@ -218,6 +252,7 @@ export default async function CompromissosPage({
           byDate={byDate}
           targetYear={yearN}
           targetMonth={monthN}
+          attMap={attachmentsByCompromisso}
         />
       )}
     </ScreenShell>
@@ -233,11 +268,13 @@ function FdsView({
   byDate,
   targetYear,
   targetMonth,
+  attMap,
 }: {
   clusters: WeekendCluster[];
   byDate: Map<string, (typeof compromissos.$inferSelect)[]>;
   targetYear: number;
   targetMonth: number;
+  attMap: AttMap;
 }) {
   // Datas já cobertas pelos clusters de FDS — evita duplicar
   const clusterDates = new Set<string>();
@@ -279,6 +316,7 @@ function FdsView({
               date={entry.date}
               dow={entry.dow}
               items={byDate.get(entry.date) ?? []}
+              attMap={attMap}
             />
           );
         }
@@ -373,6 +411,7 @@ function FdsView({
                     day={d}
                     items={byDate.get(d.date) ?? []}
                     dimmed={!inTarget}
+                    attMap={attMap}
                   />
                 );
               })}
@@ -384,14 +423,25 @@ function FdsView({
   );
 }
 
+type AttachmentMeta = {
+  id: string;
+  filename: string;
+  blobUrl: string;
+  fileSize: number | null;
+  mimeType: string | null;
+};
+type AttMap = Map<string, AttachmentMeta[]>;
+
 function WeekdayCard({
   date,
   dow,
   items,
+  attMap,
 }: {
   date: string;
   dow: number;
   items: (typeof compromissos.$inferSelect)[];
+  attMap: AttMap;
 }) {
   return (
     <div
@@ -422,7 +472,7 @@ function WeekdayCard({
           dia útil · {formatMonthAbbrev(date)}
         </span>
       </div>
-      <DayBlock day={{ date, dow }} items={items} dimmed={false} />
+      <DayBlock day={{ date, dow }} items={items} dimmed={false} attMap={attMap} />
     </div>
   );
 }
@@ -431,10 +481,12 @@ function DayBlock({
   day,
   items,
   dimmed,
+  attMap,
 }: {
   day: DayCell;
   items: (typeof compromissos.$inferSelect)[];
   dimmed: boolean;
+  attMap: AttMap;
 }) {
   return (
     <div
@@ -478,19 +530,33 @@ function DayBlock({
         {items.length === 0 ? (
           <EmptyDayRow date={day.date} />
         ) : (
-          items.map((c) => <CompromissoRow key={c.id} c={c} />)
+          items.map((c) => (
+            <CompromissoRow key={c.id} c={c} attachments={attMap.get(c.id) ?? []} />
+          ))
         )}
       </div>
     </div>
   );
 }
 
-function CompromissoRow({ c }: { c: typeof compromissos.$inferSelect }) {
+function CompromissoRow({
+  c,
+  attachments,
+}: {
+  c: typeof compromissos.$inferSelect;
+  attachments: {
+    id: string;
+    filename: string;
+    blobUrl: string;
+    fileSize: number | null;
+    mimeType: string | null;
+  }[];
+}) {
   return (
     <div
       style={{
         display: "grid",
-        gridTemplateColumns: "auto 1fr auto",
+        gridTemplateColumns: "auto 1fr auto auto",
         alignItems: "start",
         gap: 8,
       }}
@@ -520,6 +586,12 @@ function CompromissoRow({ c }: { c: typeof compromissos.$inferSelect }) {
             {[c.who, c.location].filter(Boolean).join(" · ")}
           </div>
         )}
+      </div>
+      <div style={{ paddingTop: 2 }}>
+        <AttachmentsButton
+          apiPath={`/api/compromissos/${c.id}`}
+          attachments={attachments}
+        />
       </div>
       <DeleteBtn action={deleteCompromisso.bind(null, c.id)} confirmMsg={null} />
     </div>
@@ -570,12 +642,14 @@ function CalendarView({
   byDate,
   monthStr,
   selectedDay,
+  attMap,
 }: {
   year: number;
   month: number;
   byDate: Map<string, (typeof compromissos.$inferSelect)[]>;
   monthStr: string;
   selectedDay: string | null;
+  attMap: AttMap;
 }) {
   const firstDay = new Date(year, month - 1, 1);
   const lastDay = new Date(year, month, 0);
@@ -768,6 +842,7 @@ function CalendarView({
           date={selectedDay}
           items={byDate.get(selectedDay) ?? []}
           monthStr={monthStr}
+          attMap={attMap}
         />
       )}
     </>
@@ -780,10 +855,12 @@ function DayDetailPanel({
   date,
   items,
   monthStr,
+  attMap,
 }: {
   date: string;
   items: (typeof compromissos.$inferSelect)[];
   monthStr: string;
+  attMap: AttMap;
 }) {
   const dt = new Date(date + "T00:00:00");
   const fullLabel = dt
@@ -866,7 +943,9 @@ function DayDetailPanel({
           {items.length === 0 ? (
             <EmptyDayRow date={date} />
           ) : (
-            items.map((c) => <CompromissoRow key={c.id} c={c} />)
+            items.map((c) => (
+              <CompromissoRow key={c.id} c={c} attachments={attMap.get(c.id) ?? []} />
+            ))
           )}
         </div>
       </div>
@@ -879,8 +958,10 @@ function DayDetailPanel({
 // ────────────────────────────────────────────────────────────
 function ListView({
   upcoming,
+  attMap,
 }: {
   upcoming: (typeof compromissos.$inferSelect)[];
+  attMap: AttMap;
 }) {
   if (upcoming.length === 0) {
     return (
@@ -932,6 +1013,7 @@ function ListView({
               <ListRow
                 c={c}
                 isLast={i === future.length - 1 && pastByMonth.size === 0}
+                attachments={attMap.get(c.id) ?? []}
               />
             </div>
           );
@@ -1000,7 +1082,13 @@ function ListView({
                 </summary>
                 <div style={{ paddingBottom: 6 }}>
                   {items.map((c, i) => (
-                    <ListRow key={c.id} c={c} isLast={i === items.length - 1} dimmed />
+                    <ListRow
+                      key={c.id}
+                      c={c}
+                      isLast={i === items.length - 1}
+                      dimmed
+                      attachments={attMap.get(c.id) ?? []}
+                    />
                   ))}
                 </div>
               </details>
@@ -1047,10 +1135,12 @@ function ListRow({
   c,
   isLast,
   dimmed = false,
+  attachments,
 }: {
   c: typeof compromissos.$inferSelect;
   isLast: boolean;
   dimmed?: boolean;
+  attachments: AttachmentMeta[];
 }) {
   const dt = new Date(c.occurredOn + "T00:00:00");
   const dow = dt.getDay();
@@ -1061,7 +1151,7 @@ function ListRow({
         display: "grid",
         gridTemplateColumns: "56px 1fr auto",
         alignItems: "center",
-        gap: 14,
+        gap: 10,
         padding: "12px 0",
         borderBottom: isLast ? "none" : "0.5px solid var(--line-d)",
         opacity: dimmed ? 0.72 : 1,
@@ -1117,7 +1207,10 @@ function ListRow({
           </div>
         )}
       </div>
-      <DeleteBtn action={deleteCompromisso.bind(null, c.id)} confirmMsg={null} />
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <AttachmentsButton apiPath={`/api/compromissos/${c.id}`} attachments={attachments} />
+        <DeleteBtn action={deleteCompromisso.bind(null, c.id)} confirmMsg={null} />
+      </div>
     </div>
   );
 }
