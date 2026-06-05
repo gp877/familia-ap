@@ -10,6 +10,7 @@ import { ViewToggle } from "@/components/ap/view-toggle";
 import {
   createCompromisso,
   deleteCompromisso,
+  deleteSeries,
   patchCompromisso,
 } from "@/app/actions/compromissos";
 import { AddCompromissoCard } from "./add-compromisso-card";
@@ -24,6 +25,7 @@ import {
 import { AttachmentsButton } from "@/components/ap/attachments-button";
 import { inArray } from "drizzle-orm";
 import { getHolidaysInRange, type Holiday } from "@/lib/holidays";
+import { SeriesDeleteButton } from "./series-delete-button";
 
 const DOW_LABEL = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
 const ORDINAL = ["1º", "2º", "3º", "4º", "5º", "6º"];
@@ -711,21 +713,27 @@ function CompromissoRow({
         {c.time ?? "·"}
       </span>
       <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 0 }}>
-        <InlineEditInput
-          initialValue={c.title}
-          action={patchCompromisso}
-          hiddenFields={{ id: c.id }}
-          fieldName="title"
-          fontSize={13.5}
-          fontWeight={600}
-        />
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          {c.seriesId && <SeriesBadge />}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <InlineEditInput
+              initialValue={c.title}
+              action={patchCompromisso}
+              hiddenFields={{ id: c.id }}
+              fieldName="title"
+              fontSize={13.5}
+              fontWeight={600}
+            />
+          </div>
+        </div>
         {(c.who || c.location) && (
           <div style={{ fontSize: 11, color: "var(--muted-d)", lineHeight: 1.4 }}>
             {[c.who, c.location].filter(Boolean).join(" · ")}
           </div>
         )}
       </div>
-      <div style={{ paddingTop: 2 }}>
+      <div style={{ paddingTop: 2, display: "flex", gap: 4, alignItems: "center" }}>
+        {c.seriesId && <SeriesDeleteButton seriesId={c.seriesId} name={c.title} />}
         <AttachmentsButton
           apiPath={`/api/compromissos/${c.id}`}
           attachments={attachments}
@@ -733,6 +741,27 @@ function CompromissoRow({
       </div>
       <DeleteBtn action={deleteCompromisso.bind(null, c.id)} confirmMsg={null} />
     </div>
+  );
+}
+
+function SeriesBadge() {
+  return (
+    <span
+      title="Compromisso recorrente — parte de uma série"
+      style={{
+        fontSize: 9.5,
+        fontWeight: 700,
+        letterSpacing: "0.06em",
+        color: "var(--accent)",
+        padding: "1px 6px",
+        borderRadius: 999,
+        background: "color-mix(in oklab, var(--accent) 14%, transparent)",
+        flexShrink: 0,
+        lineHeight: 1.3,
+      }}
+    >
+      ↻ série
+    </span>
   );
 }
 
@@ -1383,6 +1412,7 @@ function ListRow({
               {c.time}
             </span>
           )}
+          {c.seriesId && <SeriesBadge />}
           <div style={{ flex: 1, minWidth: 0 }}>
             <InlineEditInput
               initialValue={c.title}
@@ -1402,6 +1432,7 @@ function ListRow({
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
         <AttachmentsButton apiPath={`/api/compromissos/${c.id}`} attachments={attachments} />
+        {c.seriesId && <SeriesDeleteButton seriesId={c.seriesId} name={c.title} />}
         <DeleteBtn action={deleteCompromisso.bind(null, c.id)} confirmMsg={null} />
       </div>
     </div>

@@ -20,6 +20,11 @@ function addMonths(dateStr: string, months: number): string {
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
 }
 
+function addYears(dateStr: string, years: number): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return `${y + years}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
 export async function createCompromisso(formData: FormData) {
   const { householdId, userId } = await requireUserAndHousehold();
   const occurredOn = formData.get("occurredOn") as string;
@@ -34,13 +39,20 @@ export async function createCompromisso(formData: FormData) {
 
   const seriesId = recurring !== "once" ? crypto.randomUUID() : null;
 
+  // Materializa N ocorrências futuras. Geramos generosamente — o user
+  // pode deletar a série toda depois. Janelas escolhidas pra cobrir
+  // ~1 ano à frente em cada modalidade.
   const dates: string[] = [occurredOn];
-  if (recurring === "weekly") {
-    for (let i = 1; i < 12; i++) dates.push(addDays(occurredOn, 7 * i));
+  if (recurring === "daily") {
+    for (let i = 1; i < 60; i++) dates.push(addDays(occurredOn, i));
+  } else if (recurring === "weekly") {
+    for (let i = 1; i < 52; i++) dates.push(addDays(occurredOn, 7 * i));
   } else if (recurring === "biweekly") {
-    for (let i = 1; i < 6; i++) dates.push(addDays(occurredOn, 14 * i));
+    for (let i = 1; i < 26; i++) dates.push(addDays(occurredOn, 14 * i));
   } else if (recurring === "monthly") {
-    for (let i = 1; i < 12; i++) dates.push(addMonths(occurredOn, i));
+    for (let i = 1; i < 24; i++) dates.push(addMonths(occurredOn, i));
+  } else if (recurring === "yearly") {
+    for (let i = 1; i < 5; i++) dates.push(addYears(occurredOn, i));
   }
 
   await db.insert(compromissos).values(

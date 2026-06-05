@@ -4,12 +4,25 @@ import { useRef, useState, useTransition } from "react";
 
 import { createCompromisso } from "@/app/actions/compromissos";
 
+type Recurring = "once" | "daily" | "weekly" | "biweekly" | "monthly" | "yearly";
+
+const RECURRING_OPTIONS: { value: Recurring; label: string; desc: string }[] = [
+  { value: "once", label: "Uma vez", desc: "" },
+  { value: "daily", label: "Diário", desc: "próximos 60 dias" },
+  { value: "weekly", label: "Semanal", desc: "1× por semana × 52" },
+  { value: "biweekly", label: "Quinzenal", desc: "1× a cada 15 dias × 26" },
+  { value: "monthly", label: "Mensal", desc: "1× por mês × 24" },
+  { value: "yearly", label: "Anual", desc: "1× por ano × 5" },
+];
+
 /**
  * Botão grande que vira form expandido inline. Cria compromisso em
- * qualquer data — não está vinculado a fim de semana.
+ * qualquer data — não está vinculado a fim de semana. Suporta
+ * recorrência: gera múltiplas instâncias compartilhando um seriesId.
  */
 export function AddCompromissoCard({ defaultDate }: { defaultDate: string }) {
   const [open, setOpen] = useState(false);
+  const [recurring, setRecurring] = useState<Recurring>("once");
   const [, startTransition] = useTransition();
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -17,9 +30,11 @@ export function AddCompromissoCard({ defaultDate }: { defaultDate: string }) {
     e.preventDefault();
     const form = e.currentTarget;
     const fd = new FormData(form);
+    fd.set("recurring", recurring);
     startTransition(async () => {
       await createCompromisso(fd);
       form.reset();
+      setRecurring("once");
       setOpen(false);
     });
   }
@@ -109,6 +124,65 @@ export function AddCompromissoCard({ defaultDate }: { defaultDate: string }) {
           style={fieldStyle}
         />
       </div>
+      {/* Recorrência — chips horizontais com rolagem */}
+      <div>
+        <div
+          style={{
+            fontSize: 10,
+            fontWeight: 700,
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            color: "var(--muted)",
+            marginBottom: 6,
+          }}
+        >
+          Repetir
+        </div>
+        <div
+          style={{
+            display: "flex",
+            gap: 6,
+            overflowX: "auto",
+            paddingBottom: 4,
+          }}
+        >
+          {RECURRING_OPTIONS.map((opt) => {
+            const active = recurring === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setRecurring(opt.value)}
+                style={{
+                  padding: "5px 12px",
+                  borderRadius: 999,
+                  background: active
+                    ? "var(--accent)"
+                    : "var(--card2)",
+                  color: active ? "var(--accent-on)" : "var(--muted-d)",
+                  border: active
+                    ? "1px solid var(--accent)"
+                    : "0.5px solid var(--line-d)",
+                  fontSize: 11.5,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                  flexShrink: 0,
+                  fontFamily: "inherit",
+                }}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+        {recurring !== "once" && (
+          <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 4 }}>
+            {RECURRING_OPTIONS.find((o) => o.value === recurring)?.desc}
+          </div>
+        )}
+      </div>
+
       <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
         <button
           type="button"
@@ -140,7 +214,7 @@ export function AddCompromissoCard({ defaultDate }: { defaultDate: string }) {
             cursor: "pointer",
           }}
         >
-          Salvar
+          {recurring === "once" ? "Salvar" : "Salvar série"}
         </button>
       </div>
     </form>
