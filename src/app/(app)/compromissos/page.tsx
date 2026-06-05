@@ -15,9 +15,15 @@ import {
 import { AddCompromissoCard } from "./add-compromisso-card";
 import { auth } from "@/auth";
 import { db } from "@/db";
-import { compromissoAttachments, compromissos, users } from "@/db/schema";
+import {
+  aniversarios,
+  compromissoAttachments,
+  compromissos,
+  users,
+} from "@/db/schema";
 import { AttachmentsButton } from "@/components/ap/attachments-button";
 import { inArray } from "drizzle-orm";
+import { getHolidaysInRange, type Holiday } from "@/lib/holidays";
 
 const DOW_LABEL = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
 const ORDINAL = ["1º", "2º", "3º", "4º", "5º", "6º"];
@@ -179,6 +185,47 @@ export default async function CompromissosPage({
     byDate.set(c.occurredOn, arr);
   }
 
+  // ── Markers: aniversários + feriados ──────────────────────────
+  // Não são compromissos editáveis, só "decoração" visual no calendário.
+  // Reaparecem todo ano automaticamente (idade recalculada, datas móveis
+  // recalculadas pelo getHolidaysForYear).
+  const allAniversarios = await db.query.aniversarios.findMany({
+    where: eq(aniversarios.householdId, dbUser.householdId),
+  });
+
+  // Janela: do range exibido até 1 ano depois (cobre vista anual)
+  const markerStart = isList ? `${yearN - 1}-01-01` : rangeStart;
+  const markerEnd = isList ? `${yearN + 1}-12-31` : rangeEnd;
+  const markerStartYear = parseInt(markerStart.slice(0, 4), 10);
+  const markerEndYear = parseInt(markerEnd.slice(0, 4), 10);
+
+  // Aniversários: pra cada ano da janela, materializa a data MM-DD
+  const aniversarioMarkers: { date: string; name: string; age: number | null }[] = [];
+  for (let y = markerStartYear; y <= markerEndYear; y++) {
+    for (const a of allAniversarios) {
+      const date = `${y}-${a.monthDay}`;
+      if (date < markerStart || date > markerEnd) continue;
+      const age = a.birthYear ? y - a.birthYear : null;
+      aniversarioMarkers.push({ date, name: a.name, age });
+    }
+  }
+
+  // Feriados
+  const holidayMarkers = getHolidaysInRange(markerStart, markerEnd);
+
+  // Mapa unificado: data → markers do dia (tipos no topo do arquivo)
+  const markersByDate: MarkerMap = new Map();
+  for (const a of aniversarioMarkers) {
+    const arr = markersByDate.get(a.date) ?? [];
+    arr.push({ kind: "aniversario", name: a.name, age: a.age });
+    markersByDate.set(a.date, arr);
+  }
+  for (const h of holidayMarkers) {
+    const arr = markersByDate.get(h.date) ?? [];
+    arr.push({ kind: "holiday", holiday: h });
+    markersByDate.set(h.date, arr);
+  }
+
   const totalInMonth = allCompromissos.filter(
     (c) => c.occurredOn >= monthStartStr && c.occurredOn <= monthEndStr
   ).length;
@@ -236,7 +283,11 @@ export default async function CompromissosPage({
       </div>
 
       {isList ? (
-        <ListView upcoming={allCompromissos} attMap={attachmentsByCompromisso} />
+        <ListView
+          upcoming={allCompromissos}
+          attMap={attachmentsByCompromisso}
+          markerMap={markersByDate}
+        />
       ) : isCalendar ? (
         <CalendarView
           year={yearN}
@@ -245,6 +296,7 @@ export default async function CompromissosPage({
           monthStr={monthStr}
           selectedDay={sp.day ?? null}
           attMap={attachmentsByCompromisso}
+          markerMap={markersByDate}
         />
       ) : (
         <FdsView
@@ -253,6 +305,7 @@ export default async function CompromissosPage({
           targetYear={yearN}
           targetMonth={monthN}
           attMap={attachmentsByCompromisso}
+          markerMap={markersByDate}
         />
       )}
     </ScreenShell>
@@ -269,12 +322,14 @@ function FdsView({
   targetYear,
   targetMonth,
   attMap,
+  markerMap,
 }: {
   clusters: WeekendCluster[];
   byDate: Map<string, (typeof compromissos.$inferSelect)[]>;
   targetYear: number;
   targetMonth: number;
   attMap: AttMap;
+  markerMap: MarkerMap;
 }) {
   // Datas já cobertas pelos clusters de FDS — evita duplicar
   const clusterDates = new Set<string>();
@@ -317,6 +372,7 @@ function FdsView({
               dow={entry.dow}
               items={byDate.get(entry.date) ?? []}
               attMap={attMap}
+              markerMap={markerMap}
             />
           );
         }
@@ -412,6 +468,7 @@ function FdsView({
                     items={byDate.get(d.date) ?? []}
                     dimmed={!inTarget}
                     attMap={attMap}
+                    markerMap={markerMap}
                   />
                 );
               })}
@@ -432,16 +489,23 @@ type AttachmentMeta = {
 };
 type AttMap = Map<string, AttachmentMeta[]>;
 
+type DayMarker =
+  | { kind: "aniversario"; name: string; age: number | null }
+  | { kind: "holiday"; holiday: Holiday };
+type MarkerMap = Map<string, DayMarker[]>;
+
 function WeekdayCard({
   date,
   dow,
   items,
   attMap,
+  markerMap,
 }: {
   date: string;
   dow: number;
   items: (typeof compromissos.$inferSelect)[];
   attMap: AttMap;
+  markerMap: MarkerMap;
 }) {
   return (
     <div
@@ -472,7 +536,13 @@ function WeekdayCard({
           dia útil · {formatMonthAbbrev(date)}
         </span>
       </div>
-      <DayBlock day={{ date, dow }} items={items} dimmed={false} attMap={attMap} />
+      <DayBlock
+        day={{ date, dow }}
+        items={items}
+        dimmed={false}
+        attMap={attMap}
+        markerMap={markerMap}
+      />
     </div>
   );
 }
@@ -482,12 +552,15 @@ function DayBlock({
   items,
   dimmed,
   attMap,
+  markerMap,
 }: {
   day: DayCell;
   items: (typeof compromissos.$inferSelect)[];
   dimmed: boolean;
   attMap: AttMap;
+  markerMap: MarkerMap;
 }) {
+  const markers = markerMap.get(day.date) ?? [];
   return (
     <div
       style={{
@@ -527,6 +600,7 @@ function DayBlock({
 
       {/* Um compromisso por dia — a linha É o compromisso (ou input pra criar) */}
       <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 6, paddingTop: 6 }}>
+        {markers.length > 0 && <MarkersRow markers={markers} />}
         {items.length === 0 ? (
           <EmptyDayRow date={day.date} />
         ) : (
@@ -536,6 +610,71 @@ function DayBlock({
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Linha de "decoração" pra dias com aniversário ou feriado. Não é
+ * compromisso editável, só lembrete visual discreto: ícone + nome (+ idade
+ * pra aniversário). Cor diferente por tipo.
+ */
+function MarkersRow({ markers }: { markers: DayMarker[] }) {
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 2 }}>
+      {markers.map((m, i) => (
+        <MarkerChip key={i} marker={m} />
+      ))}
+    </div>
+  );
+}
+
+function MarkerChip({ marker }: { marker: DayMarker }) {
+  if (marker.kind === "aniversario") {
+    return (
+      <span
+        title={`Aniversário de ${marker.name}`}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 4,
+          padding: "2px 8px",
+          borderRadius: 999,
+          background: "color-mix(in oklab, var(--accent) 12%, transparent)",
+          color: "var(--accent)",
+          fontSize: 10.5,
+          fontWeight: 600,
+          lineHeight: 1.4,
+        }}
+      >
+        <span aria-hidden>🎂</span>
+        <span>{marker.name}</span>
+        {marker.age !== null && (
+          <span style={{ opacity: 0.7 }}>· {marker.age}</span>
+        )}
+      </span>
+    );
+  }
+  // holiday
+  const h = marker.holiday;
+  return (
+    <span
+      title={h.name}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        padding: "2px 8px",
+        borderRadius: 999,
+        background: "color-mix(in oklab, var(--muted) 10%, transparent)",
+        color: "var(--muted-d)",
+        fontSize: 10.5,
+        fontWeight: 600,
+        lineHeight: 1.4,
+      }}
+    >
+      <span aria-hidden>{h.icon}</span>
+      <span>{h.name}</span>
+    </span>
   );
 }
 
@@ -643,6 +782,7 @@ function CalendarView({
   monthStr,
   selectedDay,
   attMap,
+  markerMap,
 }: {
   year: number;
   month: number;
@@ -650,6 +790,7 @@ function CalendarView({
   monthStr: string;
   selectedDay: string | null;
   attMap: AttMap;
+  markerMap: MarkerMap;
 }) {
   const firstDay = new Date(year, month - 1, 1);
   const lastDay = new Date(year, month, 0);
@@ -718,7 +859,9 @@ function CalendarView({
               {wk.map((c) => {
                 const isWeekend = c.dow === 0 || c.dow === 6;
                 const items = byDate.get(c.date) ?? [];
+                const cellMarkers = markerMap.get(c.date) ?? [];
                 const hasItems = items.length > 0;
+                const hasMarkers = cellMarkers.length > 0;
                 const isToday = c.date === todayISO;
                 const isSelected = selectedDay === c.date;
                 const isOpenable = c.inMonth;
@@ -748,6 +891,32 @@ function CalendarView({
                     >
                       {formatDay(c.date)}
                     </div>
+                    {/* Markers (aniversários/feriados) — emoji só, compacto */}
+                    {hasMarkers && (
+                      <div
+                        style={{
+                          display: "flex",
+                          flexWrap: "wrap",
+                          gap: 2,
+                          marginTop: 1,
+                        }}
+                      >
+                        {cellMarkers.slice(0, 3).map((m, i) => (
+                          <span
+                            key={i}
+                            title={
+                              m.kind === "aniversario"
+                                ? `🎂 ${m.name}${m.age !== null ? ` (${m.age})` : ""}`
+                                : m.holiday.name
+                            }
+                            style={{ fontSize: 11, lineHeight: 1 }}
+                            aria-hidden
+                          >
+                            {m.kind === "aniversario" ? "🎂" : m.holiday.icon}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                     {items.slice(0, 2).map((it) => (
                       <div
                         key={it.id}
@@ -843,6 +1012,7 @@ function CalendarView({
           items={byDate.get(selectedDay) ?? []}
           monthStr={monthStr}
           attMap={attMap}
+          markerMap={markerMap}
         />
       )}
     </>
@@ -856,12 +1026,15 @@ function DayDetailPanel({
   items,
   monthStr,
   attMap,
+  markerMap,
 }: {
   date: string;
   items: (typeof compromissos.$inferSelect)[];
   monthStr: string;
   attMap: AttMap;
+  markerMap: MarkerMap;
 }) {
+  const markers = markerMap.get(date) ?? [];
   const dt = new Date(date + "T00:00:00");
   const fullLabel = dt
     .toLocaleDateString("pt-BR", {
@@ -939,6 +1112,11 @@ function DayDetailPanel({
           </Link>
         </div>
 
+        {markers.length > 0 && (
+          <div style={{ marginBottom: 10 }}>
+            <MarkersRow markers={markers} />
+          </div>
+        )}
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {items.length === 0 ? (
             <EmptyDayRow date={date} />
@@ -959,9 +1137,11 @@ function DayDetailPanel({
 function ListView({
   upcoming,
   attMap,
+  markerMap,
 }: {
   upcoming: (typeof compromissos.$inferSelect)[];
   attMap: AttMap;
+  markerMap: MarkerMap;
 }) {
   if (upcoming.length === 0) {
     return (
@@ -1010,6 +1190,11 @@ function ListView({
           return (
             <div key={c.id}>
               {showMonthDivider && <MonthDivider yyyymm={currentMonth} />}
+              {(markerMap.get(c.occurredOn) ?? []).length > 0 && (
+                <div style={{ padding: "8px 0 0 70px" }}>
+                  <MarkersRow markers={markerMap.get(c.occurredOn)!} />
+                </div>
+              )}
               <ListRow
                 c={c}
                 isLast={i === future.length - 1 && pastByMonth.size === 0}

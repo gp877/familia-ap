@@ -33,7 +33,11 @@ function daysUntil(monthDay: string): number {
   return Math.round((target.getTime() - today.getTime()) / 86_400_000);
 }
 
-function computeAge(birthYear: number | null, monthDay: string): number | null {
+/**
+ * Idade atual (anos vividos até hoje). Se ainda não passou o aniversário
+ * deste ano, retorna ano - birthYear - 1.
+ */
+function currentAge(birthYear: number | null, monthDay: string): number | null {
   if (!birthYear) return null;
   const [m, d] = monthDay.split("-").map(Number);
   const now = new Date();
@@ -41,7 +45,15 @@ function computeAge(birthYear: number | null, monthDay: string): number | null {
   const passed =
     now.getMonth() + 1 > m || (now.getMonth() + 1 === m && now.getDate() >= d);
   if (!passed) age -= 1;
-  return age + 1;
+  return age;
+}
+
+/**
+ * Idade que vai fazer no próximo aniversário. Útil pra "faz X em N dias".
+ */
+function nextAge(birthYear: number | null, monthDay: string): number | null {
+  const cur = currentAge(birthYear, monthDay);
+  return cur === null ? null : cur + 1;
 }
 
 type SearchParams = Promise<{ view?: string }>;
@@ -72,7 +84,8 @@ export default async function AniversariosPage({
   const enriched = all.map((a) => ({
     ...a,
     days: daysUntil(a.monthDay),
-    nextAge: computeAge(a.birthYear, a.monthDay),
+    nextAge: nextAge(a.birthYear, a.monthDay),
+    currentAge: currentAge(a.birthYear, a.monthDay),
   }));
 
   const sorted = [...enriched].sort((a, b) => a.days - b.days);
@@ -229,7 +242,7 @@ export default async function AniversariosPage({
                     fontSize={16}
                     fontWeight={700}
                   />
-                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                     <InlineEditInput
                       initialValue={aniv.relation ?? ""}
                       action={patchAniversario}
@@ -239,10 +252,67 @@ export default async function AniversariosPage({
                       fontSize={12}
                       color="var(--muted-d)"
                     />
-                    {aniv.nextAge && (
-                      <span style={{ fontSize: 11, color: "var(--muted)", whiteSpace: "nowrap" }}>
-                        · faz {aniv.nextAge}
+                    {aniv.currentAge !== null ? (
+                      <span
+                        title={`Vai fazer ${aniv.nextAge} em ${aniv.days === 0 ? "hoje" : `${aniv.days} dia${aniv.days === 1 ? "" : "s"}`}`}
+                        style={{
+                          fontSize: 10.5,
+                          fontWeight: 700,
+                          padding: "2px 8px",
+                          borderRadius: 999,
+                          background: "color-mix(in oklab, var(--accent) 14%, transparent)",
+                          color: "var(--accent)",
+                          whiteSpace: "nowrap",
+                          letterSpacing: "0.02em",
+                        }}
+                      >
+                        {aniv.currentAge} anos · faz {aniv.nextAge}
                       </span>
+                    ) : (
+                      <details>
+                        <summary
+                          style={{
+                            cursor: "pointer",
+                            listStyle: "none",
+                            fontSize: 10.5,
+                            color: "var(--muted)",
+                            fontStyle: "italic",
+                          }}
+                        >
+                          + adicionar ano
+                        </summary>
+                        <form action={patchAniversario} style={{ display: "inline-flex", gap: 4, marginTop: 4 }}>
+                          <input type="hidden" name="id" value={aniv.id} />
+                          <input
+                            name="birthYear"
+                            type="number"
+                            placeholder="ex: 1980"
+                            min="1900"
+                            max={new Date().getFullYear()}
+                            style={{
+                              ...fieldStyle,
+                              width: 90,
+                              padding: "2px 6px",
+                              fontSize: 11.5,
+                            }}
+                          />
+                          <button
+                            type="submit"
+                            style={{
+                              padding: "2px 8px",
+                              fontSize: 10.5,
+                              borderRadius: 6,
+                              border: "0.5px solid var(--accent)",
+                              background: "var(--accent)",
+                              color: "var(--accent-on)",
+                              fontWeight: 700,
+                              cursor: "pointer",
+                            }}
+                          >
+                            ok
+                          </button>
+                        </form>
+                      </details>
                     )}
                   </div>
                 </div>
