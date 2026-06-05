@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 
 import { Card } from "@/components/ap/atoms";
 import { CategoryBulkPicker } from "@/components/category-bulk-picker";
@@ -10,6 +10,7 @@ import {
   clearRecurringMocks,
   createRecurringPayment,
   deleteRecurringPayment,
+  findCandidateTransactions,
   markRecurringPaid,
   seedRecurringMocks,
   unmarkRecurringPaid,
@@ -45,6 +46,10 @@ type Payment = {
   currentDueDate: string;
   currentDaysUntilDue: number;
   records: PaymentRecord[];
+  ownerInitial: string | null;
+  ownerName: string | null;
+  pixKey: string | null;
+  barcodeNumber: string | null;
 };
 
 export function RecurringClient({
@@ -55,6 +60,7 @@ export function RecurringClient({
   focusYear,
   accounts,
   categoryOptions,
+  showOwner = false,
 }: {
   monthly: Payment[];
   yearly: Payment[];
@@ -63,6 +69,7 @@ export function RecurringClient({
   focusYear: number;
   accounts: Account[];
   categoryOptions: CategoryOption[];
+  showOwner?: boolean;
 }) {
   const [hasMocks, setHasMocks] = useState(
     [...monthly, ...yearly, ...inactive].some((p) => p.name.includes("(demo)"))
@@ -88,6 +95,7 @@ export function RecurringClient({
                 payment={p}
                 accounts={accounts}
                 categoryOptions={categoryOptions}
+                showOwner={showOwner}
               />
             ))}
           </div>
@@ -107,6 +115,7 @@ export function RecurringClient({
                 payment={p}
                 accounts={accounts}
                 categoryOptions={categoryOptions}
+                showOwner={showOwner}
               />
             ))}
           </div>
@@ -136,6 +145,7 @@ export function RecurringClient({
                 payment={p}
                 accounts={accounts}
                 categoryOptions={categoryOptions}
+                showOwner={showOwner}
                 dimmed
               />
             ))}
@@ -161,27 +171,25 @@ function PaymentRow({
   accounts,
   categoryOptions,
   dimmed,
+  showOwner,
 }: {
   payment: Payment;
   accounts: Account[];
   categoryOptions: CategoryOption[];
   dimmed?: boolean;
+  showOwner?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [payOpen, setPayOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   const color = urgencyColor(payment.currentUrgency);
   const dueDate = new Date(payment.currentDueDate + "T00:00:00");
 
-  function markPaid() {
-    startTransition(async () => {
-      await markRecurringPaid({
-        paymentId: payment.id,
-        period: payment.currentPeriod,
-        paidOn: new Date().toISOString().slice(0, 10),
-      });
-    });
+  function openPay() {
+    setPayOpen(true);
+    setExpanded(true);
   }
   function unmark() {
     if (!confirm(`Desfazer "${payment.name}" em ${formatPeriod(payment.currentPeriod)}?`)) return;
@@ -225,7 +233,7 @@ function PaymentRow({
         urgency={payment.currentUrgency}
         isPaid={payment.currentStatus === "paid"}
         isPending={isPending}
-        onClick={payment.currentStatus === "paid" ? unmark : markPaid}
+        onClick={payment.currentStatus === "paid" ? unmark : openPay}
       />
 
       {/* Conteúdo central */}
@@ -253,9 +261,34 @@ function PaymentRow({
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
           }}
         >
-          {payment.name}
+          {showOwner && payment.ownerInitial && (
+            <span
+              title={payment.ownerName ?? undefined}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 16,
+                height: 16,
+                borderRadius: 8,
+                background: "var(--card2)",
+                color: "var(--muted-d)",
+                border: "0.5px solid var(--line-d)",
+                fontSize: 9,
+                fontWeight: 800,
+                flexShrink: 0,
+                lineHeight: 1,
+              }}
+            >
+              {payment.ownerInitial}
+            </span>
+          )}
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{payment.name}</span>
         </div>
         <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 1 }}>
           {dueDate.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }).replace(".", "")}
@@ -322,6 +355,8 @@ function PaymentRow({
           categoryOptions={categoryOptions}
           editing={editing}
           setEditing={setEditing}
+          payOpen={payOpen}
+          setPayOpen={setPayOpen}
           onToggleActive={toggleActive}
           onDelete={del}
         />
@@ -336,6 +371,8 @@ function ExpandedRowDetails({
   categoryOptions,
   editing,
   setEditing,
+  payOpen,
+  setPayOpen,
   onToggleActive,
   onDelete,
 }: {
@@ -344,6 +381,8 @@ function ExpandedRowDetails({
   categoryOptions: CategoryOption[];
   editing: boolean;
   setEditing: (v: boolean) => void;
+  payOpen: boolean;
+  setPayOpen: (v: boolean) => void;
   onToggleActive: () => void;
   onDelete: () => void;
 }) {
@@ -355,7 +394,9 @@ function ExpandedRowDetails({
         borderTop: "0.5px solid var(--line-d)",
       }}
     >
-      {editing ? (
+      {payOpen ? (
+        <PayPanel payment={payment} onClose={() => setPayOpen(false)} />
+      ) : editing ? (
         <EditForm
           payment={payment}
           accounts={accounts}
@@ -398,7 +439,16 @@ function ExpandedRowDetails({
               </div>
             </div>
           )}
-          <div style={{ display: "flex", gap: 6 }}>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {payment.currentStatus !== "paid" && (
+              <button
+                type="button"
+                onClick={() => setPayOpen(true)}
+                style={{ ...ghostBtnStyle, color: "var(--accent)", borderColor: "var(--accent)" }}
+              >
+                pagar / marcar pago
+              </button>
+            )}
             <button type="button" onClick={() => setEditing(true)} style={ghostBtnStyle}>
               editar
             </button>
@@ -593,6 +643,8 @@ function NewPaymentForm({
   const [bankAccountId, setBankAccountId] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [notes, setNotes] = useState("");
+  const [pixKey, setPixKey] = useState("");
+  const [barcodeNumber, setBarcodeNumber] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -626,10 +678,14 @@ function NewPaymentForm({
           bankAccountId: bankAccountId || null,
           categoryId: categoryId || null,
           notes: notes || null,
+          pixKey: pixKey || null,
+          barcodeNumber: barcodeNumber || null,
         });
         setName("");
         setExpectedAmount("");
         setNotes("");
+        setPixKey("");
+        setBarcodeNumber("");
         setOpen(false);
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
@@ -768,6 +824,18 @@ function NewPaymentForm({
           placeholder="(sem categoria)"
         />
         <input
+          value={pixKey}
+          onChange={(e) => setPixKey(e.target.value)}
+          placeholder="Chave PIX (opcional, copia-cola na hora de pagar)"
+          style={inputStyle}
+        />
+        <input
+          value={barcodeNumber}
+          onChange={(e) => setBarcodeNumber(e.target.value)}
+          placeholder="Linha digitável boleto (opcional)"
+          style={inputStyle}
+        />
+        <input
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           placeholder="Observação (opcional)"
@@ -809,6 +877,8 @@ function EditForm({
   const [bankAccountId, setBankAccountId] = useState(payment.bankAccountId ?? "");
   const [categoryId, setCategoryId] = useState(payment.categoryId ?? "");
   const [notes, setNotes] = useState(payment.notes ?? "");
+  const [pixKey, setPixKey] = useState(payment.pixKey ?? "");
+  const [barcodeNumber, setBarcodeNumber] = useState(payment.barcodeNumber ?? "");
   const [isPending, startTransition] = useTransition();
 
   function save() {
@@ -824,6 +894,8 @@ function EditForm({
         bankAccountId: bankAccountId || null,
         categoryId: categoryId || null,
         notes: notes.trim() || null,
+        pixKey: pixKey.trim() || null,
+        barcodeNumber: barcodeNumber.trim() || null,
       });
       onClose();
     });
@@ -882,6 +954,18 @@ function EditForm({
         buttonContrast={false}
         placeholder="(sem categoria)"
       />
+      <input
+        value={pixKey}
+        onChange={(e) => setPixKey(e.target.value)}
+        placeholder="Chave PIX"
+        style={inputStyle}
+      />
+      <input
+        value={barcodeNumber}
+        onChange={(e) => setBarcodeNumber(e.target.value)}
+        placeholder="Linha digitável boleto"
+        style={inputStyle}
+      />
       <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Observação" style={inputStyle} />
       <div style={{ display: "flex", gap: 6 }}>
         <button type="button" onClick={save} disabled={isPending} style={primaryBtnStyle}>
@@ -892,6 +976,385 @@ function EditForm({
         </button>
       </div>
     </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────
+// PayPanel — fluxo de "marcar como pago" com dados de pagamento
+// pra copiar (PIX/boleto) + picker de transação do extrato +
+// confirmação com data/valor/notas.
+// ────────────────────────────────────────────────────────────
+
+type CandidateTransaction = {
+  id: string;
+  occurredOn: string;
+  amount: string;
+  description: string;
+  rawDescription: string | null;
+  bankAccountName: string | null;
+};
+
+function PayPanel({
+  payment,
+  onClose,
+}: {
+  payment: Payment;
+  onClose: () => void;
+}) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [paidOn, setPaidOn] = useState(today);
+  const [paidAmount, setPaidAmount] = useState(payment.expectedAmount ?? "");
+  const [notes, setNotes] = useState("");
+  const [transactionId, setTransactionId] = useState<string | null>(null);
+  const [candidates, setCandidates] = useState<CandidateTransaction[] | null>(null);
+  const [loadingCandidates, setLoadingCandidates] = useState(false);
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  // Carrega candidatos uma vez quando o painel abre
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingCandidates(true);
+    findCandidateTransactions({
+      paymentId: payment.id,
+      period: payment.currentPeriod,
+    })
+      .then((rows) => {
+        if (!cancelled) setCandidates(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setCandidates([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingCandidates(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [payment.id, payment.currentPeriod]);
+
+  function selectCandidate(c: CandidateTransaction) {
+    setTransactionId(c.id);
+    setPaidOn(c.occurredOn);
+    setPaidAmount(c.amount);
+  }
+  function clearCandidate() {
+    setTransactionId(null);
+  }
+
+  function confirm() {
+    setError(null);
+    const amountNorm = paidAmount
+      ? paidAmount.replace(/\./g, "").replace(",", ".")
+      : null;
+    startTransition(async () => {
+      try {
+        await markRecurringPaid({
+          paymentId: payment.id,
+          period: payment.currentPeriod,
+          paidOn,
+          paidAmount: amountNorm,
+          notes: notes.trim() || null,
+          transactionId,
+        });
+        onClose();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    });
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {/* Dados pra copiar — PIX / boleto / notas com botão de copiar */}
+      {(payment.pixKey || payment.barcodeNumber || payment.notes) && (
+        <div>
+          <SectionLabel>Dados pra pagar</SectionLabel>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {payment.pixKey && (
+              <CopyableRow label="Chave PIX" value={payment.pixKey} accent />
+            )}
+            {payment.barcodeNumber && (
+              <CopyableRow label="Linha digitável" value={payment.barcodeNumber} />
+            )}
+            {payment.notes && (
+              <CopyableRow label="Observação" value={payment.notes} />
+            )}
+          </div>
+        </div>
+      )}
+      {!payment.pixKey && !payment.barcodeNumber && (
+        <div
+          style={{
+            padding: "8px 10px",
+            borderRadius: 8,
+            background: "var(--card)",
+            border: "0.5px dashed var(--line-d)",
+            fontSize: 11,
+            color: "var(--muted)",
+            fontStyle: "italic",
+          }}
+        >
+          Sem chave PIX ou linha digitável cadastrada. Use o botão{" "}
+          <b>editar</b> pra adicionar.
+        </div>
+      )}
+
+      {/* Candidatos do extrato — preenche valor/data ao clicar */}
+      <div>
+        <SectionLabel>
+          Vincular a uma transação{" "}
+          <span style={{ color: "var(--muted)", fontWeight: 600 }}>(opcional)</span>
+        </SectionLabel>
+        {loadingCandidates ? (
+          <div style={{ fontSize: 11, color: "var(--muted)" }}>
+            Procurando candidatas no extrato…
+          </div>
+        ) : candidates && candidates.length === 0 ? (
+          <div style={{ fontSize: 11, color: "var(--muted)", fontStyle: "italic" }}>
+            Nenhuma transação próxima da data/valor encontrada.
+          </div>
+        ) : (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 4,
+              maxHeight: 180,
+              overflowY: "auto",
+              padding: 2,
+            }}
+          >
+            {candidates?.slice(0, 8).map((c) => {
+              const selected = transactionId === c.id;
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => (selected ? clearCandidate() : selectCandidate(c))}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    padding: "6px 10px",
+                    borderRadius: 8,
+                    background: selected
+                      ? "color-mix(in oklab, var(--accent) 18%, var(--card))"
+                      : "var(--card)",
+                    border: selected
+                      ? "1px solid var(--accent)"
+                      : "0.5px solid var(--line-d)",
+                    cursor: "pointer",
+                    textAlign: "left",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: 4,
+                      background: selected ? "var(--accent)" : "var(--muted)",
+                      flexShrink: 0,
+                    }}
+                  />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div
+                      style={{
+                        fontSize: 11.5,
+                        fontWeight: 600,
+                        color: "var(--ink)",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {c.description}
+                    </div>
+                    <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 1 }}>
+                      {new Date(c.occurredOn + "T00:00:00")
+                        .toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })
+                        .replace(".", "")}
+                      {c.bankAccountName && ` · ${c.bankAccountName}`}
+                    </div>
+                  </div>
+                  <span
+                    className="ap-num"
+                    style={{
+                      fontSize: 11.5,
+                      fontWeight: 700,
+                      color: "var(--alert)",
+                      flexShrink: 0,
+                    }}
+                  >
+                    R$ {formatBRL(parseFloat(c.amount))}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Confirmação — data + valor + notas */}
+      <div>
+        <SectionLabel>Confirmar pagamento</SectionLabel>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+          <input
+            type="date"
+            value={paidOn}
+            onChange={(e) => setPaidOn(e.target.value)}
+            style={inputStyle}
+          />
+          <input
+            value={paidAmount}
+            onChange={(e) => setPaidAmount(e.target.value)}
+            placeholder="Valor pago (R$)"
+            inputMode="decimal"
+            style={inputStyle}
+          />
+        </div>
+        <input
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Observação (opcional)"
+          style={{ ...inputStyle, marginTop: 6, width: "100%" }}
+        />
+      </div>
+
+      {error && (
+        <div style={{ fontSize: 11.5, color: "var(--alert)" }}>{error}</div>
+      )}
+
+      <div style={{ display: "flex", gap: 6 }}>
+        <button type="button" onClick={confirm} disabled={isPending} style={primaryBtnStyle}>
+          {isPending ? "Confirmando…" : "Confirmar pagamento"}
+        </button>
+        <button type="button" onClick={onClose} style={ghostBtnStyle}>
+          Cancelar
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        fontSize: 9.5,
+        fontWeight: 700,
+        letterSpacing: "0.08em",
+        textTransform: "uppercase",
+        color: "var(--muted)",
+        marginBottom: 6,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function CopyableRow({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: string;
+  accent?: boolean;
+}) {
+  const [copied, setCopied] = useState(false);
+  function copy() {
+    navigator.clipboard
+      .writeText(value)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1600);
+      })
+      .catch(() => {
+        // Fallback antigo se clipboard API falhar
+        const ta = document.createElement("textarea");
+        ta.value = value;
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+          document.execCommand("copy");
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1600);
+        } catch {
+          // ignore
+        }
+        document.body.removeChild(ta);
+      });
+  }
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      title="Toque pra copiar"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        padding: "8px 10px",
+        borderRadius: 8,
+        background: accent
+          ? "color-mix(in oklab, var(--accent) 14%, var(--card))"
+          : "var(--card)",
+        border: accent ? "1px solid var(--accent)" : "0.5px solid var(--line-d)",
+        cursor: "pointer",
+        textAlign: "left",
+        width: "100%",
+        fontFamily: "inherit",
+      }}
+    >
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            fontSize: 9.5,
+            fontWeight: 700,
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            color: accent ? "var(--accent)" : "var(--muted)",
+            marginBottom: 2,
+          }}
+        >
+          {label}
+        </div>
+        <div
+          className="ap-num"
+          style={{
+            fontSize: 12.5,
+            fontWeight: 600,
+            color: "var(--ink)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {value}
+        </div>
+      </div>
+      <span
+        style={{
+          fontSize: 10,
+          fontWeight: 800,
+          letterSpacing: "0.06em",
+          textTransform: "uppercase",
+          padding: "4px 10px",
+          borderRadius: 999,
+          background: copied ? "var(--ok)" : "transparent",
+          color: copied ? "var(--accent-on)" : accent ? "var(--accent)" : "var(--muted-d)",
+          border: copied
+            ? "none"
+            : `0.5px solid ${accent ? "var(--accent)" : "var(--line-d)"}`,
+          flexShrink: 0,
+        }}
+      >
+        {copied ? "copiado ✓" : "copiar"}
+      </span>
+    </button>
   );
 }
 

@@ -1,13 +1,15 @@
 "use server";
 
-import { and, eq, like } from "drizzle-orm";
+import { and, eq, isNull, like, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
 import { auth } from "@/auth";
 import { db } from "@/db";
 import {
+  bankAccounts,
   recurringPaymentRecords,
   recurringPayments,
+  transactions,
   users,
 } from "@/db/schema";
 
@@ -36,6 +38,8 @@ export async function createRecurringPayment(input: {
   bankAccountId?: string | null;
   categoryId?: string | null;
   notes?: string | null;
+  pixKey?: string | null;
+  barcodeNumber?: string | null;
 }) {
   const { userId, householdId } = await requireUser();
   if (!input.name.trim()) throw new Error("Nome obrigatório");
@@ -56,6 +60,8 @@ export async function createRecurringPayment(input: {
     bankAccountId: input.bankAccountId || null,
     categoryId: input.categoryId || null,
     notes: input.notes?.trim() || null,
+    pixKey: input.pixKey?.trim() || null,
+    barcodeNumber: input.barcodeNumber?.trim() || null,
   });
   revalidatePath("/financeiro/recorrentes");
 }
@@ -70,6 +76,8 @@ export async function updateRecurringPayment(
     bankAccountId: string | null;
     categoryId: string | null;
     notes: string | null;
+    pixKey: string | null;
+    barcodeNumber: string | null;
     isActive: boolean;
   }>
 ) {
@@ -106,7 +114,7 @@ export async function deleteRecurringPayment(id: string) {
 /**
  * Marca um pagamento recorrente como pago para o período especificado.
  * Period: YYYY-MM (mensal) ou YYYY (anual). Idempotente — se já existe,
- * só atualiza paidAmount/paidOn/notes.
+ * só atualiza paidAmount/paidOn/notes/transactionId.
  */
 export async function markRecurringPaid(input: {
   paymentId: string;
@@ -114,12 +122,24 @@ export async function markRecurringPaid(input: {
   paidOn?: string | null; // YYYY-MM-DD
   paidAmount?: string | null;
   notes?: string | null;
+  transactionId?: string | null;
 }) {
   const { userId, householdId } = await requireUser();
   const cur = await db.query.recurringPayments.findFirst({
     where: eq(recurringPayments.id, input.paymentId),
   });
   if (!cur || cur.householdId !== householdId) throw new Error("Não encontrado");
+
+  // Se vincular transação, valida que pertence ao household.
+  let transactionId: string | null = input.transactionId?.trim() || null;
+  if (transactionId) {
+    const tx = await db.query.transactions.findFirst({
+      where: eq(transactions.id, transactionId),
+    });
+    if (!tx || tx.householdId !== householdId) {
+      throw new Error("Transação inválida");
+    }
+  }
 
   const paidOn = input.paidOn?.trim() || null; // YYYY-MM-DD string
   await db
@@ -132,6 +152,7 @@ export async function markRecurringPaid(input: {
       paidOn,
       paidAmount: input.paidAmount?.trim() || null,
       notes: input.notes?.trim() || null,
+      transactionId,
     })
     .onConflictDoUpdate({
       target: [recurringPaymentRecords.paymentId, recurringPaymentRecords.period],
@@ -139,10 +160,131 @@ export async function markRecurringPaid(input: {
         paidOn,
         paidAmount: input.paidAmount?.trim() || null,
         notes: input.notes?.trim() || null,
+        transactionId,
         markedById: userId,
       },
     });
   revalidatePath("/financeiro/recorrentes");
+}
+
+/**
+ * Lista transações candidatas pra vincular a um pagamento recorrente:
+ * - mesmo household, débito
+ * - data dentro de ±20 dias do vencimento do período
+ * - ainda não vinculada a NENHUM outro recurring_payment_record
+ *
+ * Retorna até 20 ordenadas por proximidade (valor mais próximo + data
+ * mais próxima do vencimento).
+ */
+export async function findCandidateTransactions(input: {
+  paymentId: string;
+  period: string; // YYYY-MM ou YYYY
+}): Promise<
+  {
+    id: string;
+    occurredOn: string;
+    amount: string;
+    description: string;
+    rawDescription: string | null;
+    bankAccountName: string | null;
+  }[]
+> {
+  const { householdId } = await requireUser();
+  const cur = await db.query.recurringPayments.findFirst({
+    where: eq(recurringPayments.id, input.paymentId),
+  });
+  if (!cur || cur.householdId !== householdId) throw new Error("Não encontrado");
+
+  // Calcula data de vencimento do período
+  const period = input.period.trim();
+  let dueDate: Date;
+  if (cur.frequency === "monthly") {
+    const [y, m] = period.split("-").map(Number);
+    if (!y || !m) throw new Error("Período inválido");
+    // Clampa pra não passar do último dia do mês
+    const lastDay = new Date(y, m, 0).getDate();
+    dueDate = new Date(y, m - 1, Math.min(cur.dueDay, lastDay));
+  } else {
+    const y = parseInt(period, 10);
+    if (!y) throw new Error("Período inválido");
+    const mm = cur.dueMonth ?? 1;
+    const lastDay = new Date(y, mm, 0).getDate();
+    dueDate = new Date(y, mm - 1, Math.min(cur.dueDay, lastDay));
+  }
+
+  const minDate = new Date(dueDate);
+  minDate.setDate(minDate.getDate() - 20);
+  const maxDate = new Date(dueDate);
+  maxDate.setDate(maxDate.getDate() + 20);
+  const minStr = minDate.toISOString().slice(0, 10);
+  const maxStr = maxDate.toISOString().slice(0, 10);
+
+  // IDs já vinculadas — excluir
+  const linked = await db
+    .select({ transactionId: recurringPaymentRecords.transactionId })
+    .from(recurringPaymentRecords)
+    .where(
+      and(
+        eq(recurringPaymentRecords.householdId, householdId),
+        sql`${recurringPaymentRecords.transactionId} IS NOT NULL`
+      )
+    );
+  const linkedIds = linked.map((l) => l.transactionId).filter(Boolean) as string[];
+
+  const conditions = [
+    eq(transactions.householdId, householdId),
+    eq(transactions.kind, "debit"),
+    sql`${transactions.occurredOn} >= ${minStr}::date`,
+    sql`${transactions.occurredOn} <= ${maxStr}::date`,
+    isNull(recurringPaymentRecords.id),
+  ];
+  if (linkedIds.length > 0) {
+    conditions.push(sql`${transactions.id} NOT IN (${sql.join(linkedIds.map((id) => sql`${id}`), sql`, `)})`);
+  }
+
+  // Busca + join com bank_account pra ter nome da conta
+  const rows = await db
+    .select({
+      id: transactions.id,
+      occurredOn: transactions.occurredOn,
+      amount: transactions.amount,
+      description: transactions.description,
+      rawDescription: transactions.rawDescription,
+      bankAccountName: bankAccounts.name,
+    })
+    .from(transactions)
+    .leftJoin(bankAccounts, eq(transactions.bankAccountId, bankAccounts.id))
+    .leftJoin(
+      recurringPaymentRecords,
+      eq(recurringPaymentRecords.transactionId, transactions.id)
+    )
+    .where(and(...conditions))
+    .limit(40);
+
+  // Score por proximidade (valor + data). Drizzle retorna `date` como
+  // string ou Date dependendo do mode — normaliza pra YYYY-MM-DD aqui.
+  const expected = cur.expectedAmount ? parseFloat(cur.expectedAmount) : null;
+  const dueTs = dueDate.getTime();
+  const scored = rows.map((r) => {
+    const dateStr =
+      typeof r.occurredOn === "string"
+        ? r.occurredOn
+        : new Date(r.occurredOn).toISOString().slice(0, 10);
+    const amt = parseFloat(r.amount);
+    const valueScore = expected ? Math.abs(amt - expected) / expected : 0;
+    const dateScore = Math.abs(new Date(dateStr + "T00:00:00").getTime() - dueTs) / 86_400_000;
+    return { ...r, occurredOn: dateStr, score: valueScore * 10 + dateScore };
+  });
+  scored.sort((a, b) => a.score - b.score);
+
+  return scored.slice(0, 20).map((r) => ({
+    id: r.id,
+    occurredOn: r.occurredOn,
+    amount: r.amount,
+    description: r.description,
+    rawDescription: r.rawDescription,
+    bankAccountName: r.bankAccountName,
+  }));
 }
 
 /**

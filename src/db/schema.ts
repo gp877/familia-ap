@@ -717,6 +717,11 @@ export const recurringPayments = pgTable(
     bankAccountId: uuid("bank_account_id").references(() => bankAccounts.id, {
       onDelete: "set null",
     }),
+    // Dados de pagamento — usuário copia na hora de pagar.
+    // pixKey aceita qualquer chave (email/cpf/telefone/aleatória/copia-cola).
+    // barcodeNumber aceita linha digitável de boleto/convênio.
+    pixKey: text("pix_key"),
+    barcodeNumber: text("barcode_number"),
     notes: text("notes"),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

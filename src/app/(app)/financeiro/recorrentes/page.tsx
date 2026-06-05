@@ -1,4 +1,4 @@
-import { asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 
 import { BigNumber, SectionRow } from "@/components/ap/atoms";
 import { BackButton } from "@/components/ap/inline-form";
@@ -15,9 +15,10 @@ import {
 } from "@/db/schema";
 import { computeStatus, urgencyOf } from "@/lib/recurring-payments";
 
+import { OwnerToggle } from "./owner-toggle";
 import { RecurringClient } from "./recurring-client";
 
-type SearchParams = Promise<{ month?: string }>;
+type SearchParams = Promise<{ month?: string; view?: string }>;
 
 export default async function RecorrentesPage({
   searchParams,
@@ -45,9 +46,19 @@ export default async function RecorrentesPage({
   const focusDate = new Date(focusYear, focusMonth1 - 1, 15); // ponto no meio do mês p/ cálculos
   const focusMonthStr = `${focusYear}-${String(focusMonth1).padStart(2, "0")}`;
 
-  const [payments, accounts, allCategories] = await Promise.all([
+  // view=mine (default) → só os do usuário logado.
+  // view=all → todos do household (mostra inicial do dono).
+  const view = sp.view === "all" ? "all" : "mine";
+
+  const [payments, accounts, allCategories, householdMembers] = await Promise.all([
     db.query.recurringPayments.findMany({
-      where: eq(recurringPayments.householdId, dbUser.householdId),
+      where:
+        view === "all"
+          ? eq(recurringPayments.householdId, dbUser.householdId)
+          : and(
+              eq(recurringPayments.householdId, dbUser.householdId),
+              eq(recurringPayments.createdById, session.user.id)
+            ),
       orderBy: [
         asc(recurringPayments.isActive),
         asc(recurringPayments.frequency),
@@ -63,7 +74,36 @@ export default async function RecorrentesPage({
       where: eq(categories.householdId, dbUser.householdId),
       orderBy: [asc(categories.kind), asc(categories.name)],
     }),
+    db.query.users.findMany({
+      where: eq(users.householdId, dbUser.householdId),
+      columns: { id: true, name: true, email: true },
+    }),
   ]);
+
+  // Conta totais pra mostrar no toggle (independente do view atual)
+  const totalMine = await db
+    .select({ id: recurringPayments.id })
+    .from(recurringPayments)
+    .where(
+      and(
+        eq(recurringPayments.householdId, dbUser.householdId),
+        eq(recurringPayments.createdById, session.user.id)
+      )
+    );
+  const totalHousehold = await db
+    .select({ id: recurringPayments.id })
+    .from(recurringPayments)
+    .where(eq(recurringPayments.householdId, dbUser.householdId));
+
+  const ownerById = new Map(
+    householdMembers.map((u) => [
+      u.id,
+      {
+        name: u.name ?? u.email,
+        initial: (u.name ?? u.email).charAt(0).toUpperCase(),
+      },
+    ])
+  );
 
   const paymentIds = payments.map((p) => p.id);
   const records = paymentIds.length
@@ -114,6 +154,7 @@ export default async function RecorrentesPage({
     const urgency = p.frequency === "monthly" && !isCurrentMonth
       ? "ok"
       : urgencyOf(status.status, status.daysUntilDue);
+    const owner = p.createdById ? ownerById.get(p.createdById) : null;
     return {
       id: p.id,
       name: p.name,
@@ -131,6 +172,10 @@ export default async function RecorrentesPage({
       currentDueDate: status.dueDate.toISOString().slice(0, 10),
       currentDaysUntilDue: status.daysUntilDue,
       records: recArr.slice(0, 12),
+      ownerInitial: owner?.initial ?? null,
+      ownerName: owner?.name ?? null,
+      pixKey: p.pixKey,
+      barcodeNumber: p.barcodeNumber,
     };
   });
 
@@ -181,7 +226,20 @@ export default async function RecorrentesPage({
         }
       />
 
-      <MonthChips basePath="/financeiro/recorrentes" currentMonth={focusMonthStr} />
+      <div style={{ padding: "0 20px" }}>
+        <OwnerToggle
+          view={view}
+          countMine={totalMine.length}
+          countAll={totalHousehold.length}
+          focusMonth={focusMonthStr}
+        />
+      </div>
+
+      <MonthChips
+        basePath="/financeiro/recorrentes"
+        currentMonth={focusMonthStr}
+        extraParams={{ view: view === "all" ? "all" : undefined }}
+      />
 
       <BigNumber
         value={`R$ ${monthlyTotalExpected.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
@@ -194,6 +252,7 @@ export default async function RecorrentesPage({
         inactive={inactive}
         focusMonth={focusMonthStr}
         focusYear={focusYear}
+        showOwner={view === "all"}
         accounts={accounts.map((a) => ({ id: a.id, name: a.name, type: a.type }))}
         categoryOptions={allCategories.map((c) => {
           const parent = c.parentId
