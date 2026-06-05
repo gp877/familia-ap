@@ -2,6 +2,7 @@ import { asc, eq, inArray } from "drizzle-orm";
 
 import { BigNumber, SectionRow } from "@/components/ap/atoms";
 import { BackButton } from "@/components/ap/inline-form";
+import { MonthChips } from "@/components/ap/month-chips";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import { auth } from "@/auth";
 import { db } from "@/db";
@@ -12,11 +13,18 @@ import {
   recurringPayments,
   users,
 } from "@/db/schema";
-import { computeStatus } from "@/lib/recurring-payments";
+import { computeStatus, urgencyOf } from "@/lib/recurring-payments";
 
 import { RecurringClient } from "./recurring-client";
 
-export default async function RecorrentesPage() {
+type SearchParams = Promise<{ month?: string }>;
+
+export default async function RecorrentesPage({
+  searchParams,
+}: {
+  searchParams: SearchParams;
+}) {
+  const sp = await searchParams;
   const session = await auth();
   if (!session?.user?.id) return null;
   const dbUser = await db.query.users.findFirst({
@@ -24,12 +32,26 @@ export default async function RecorrentesPage() {
   });
   if (!dbUser?.householdId) return null;
 
+  // Mês foco — default mês atual. Affecta APENAS pagamentos mensais.
+  // Anuais aparecem sempre (são poucos, peso visual diferente).
+  const now = new Date();
+  const requestedMonth = sp.month && /^\d{4}-\d{2}$/.test(sp.month) ? sp.month : null;
+  const focusYear = requestedMonth
+    ? parseInt(requestedMonth.slice(0, 4), 10)
+    : now.getFullYear();
+  const focusMonth1 = requestedMonth
+    ? parseInt(requestedMonth.slice(5, 7), 10)
+    : now.getMonth() + 1;
+  const focusDate = new Date(focusYear, focusMonth1 - 1, 15); // ponto no meio do mês p/ cálculos
+  const focusMonthStr = `${focusYear}-${String(focusMonth1).padStart(2, "0")}`;
+
   const [payments, accounts, allCategories] = await Promise.all([
     db.query.recurringPayments.findMany({
       where: eq(recurringPayments.householdId, dbUser.householdId),
       orderBy: [
         asc(recurringPayments.isActive),
         asc(recurringPayments.frequency),
+        asc(recurringPayments.dueDay),
         asc(recurringPayments.name),
       ],
     }),
@@ -43,8 +65,6 @@ export default async function RecorrentesPage() {
     }),
   ]);
 
-  // Records: pega todos pra cada payment, monta Set de periods pagos +
-  // últimos 12 records pra histórico
   const paymentIds = payments.map((p) => p.id);
   const records = paymentIds.length
     ? await db.query.recurringPaymentRecords.findMany({
@@ -75,16 +95,25 @@ export default async function RecorrentesPage() {
     recordsByPayment.set(r.paymentId, arr);
   }
 
-  // Calcula status pra cada payment
+  // Calcula status PARA O MÊS FOCO (mensais) ou pro ano (anuais).
   const enriched = payments.map((p) => {
     const recArr = recordsByPayment.get(p.id) ?? [];
     const paidPeriods = new Set(recArr.map((r) => r.period));
+    // Pra mensal, status no mês focado; pra anual, status no ano atual
+    const referenceDate = p.frequency === "monthly" ? focusDate : now;
     const status = computeStatus({
       frequency: p.frequency,
       dueDay: p.dueDay,
       dueMonth: p.dueMonth,
       recordedPeriods: paidPeriods,
+      now: referenceDate,
     });
+    // Pra urgência só faz sentido pra mensal focando mês atual ou anuais.
+    // Pra meses passados ou futuros distantes a urgência fica neutra.
+    const isCurrentMonth = focusMonthStr === `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const urgency = p.frequency === "monthly" && !isCurrentMonth
+      ? "ok"
+      : urgencyOf(status.status, status.daysUntilDue);
     return {
       id: p.id,
       name: p.name,
@@ -98,34 +127,42 @@ export default async function RecorrentesPage() {
       isActive: p.isActive,
       currentPeriod: status.period,
       currentStatus: status.status,
+      currentUrgency: urgency,
       currentDueDate: status.dueDate.toISOString().slice(0, 10),
       currentDaysUntilDue: status.daysUntilDue,
       records: recArr.slice(0, 12),
     };
   });
 
-  const active = enriched.filter((p) => p.isActive);
-  const overdue = active.filter((p) => p.currentStatus === "overdue").length;
-  const due = active.filter((p) => p.currentStatus === "due").length;
-  const paid = active.filter((p) => p.currentStatus === "paid").length;
+  // Stats só do mês focado (mensais + anuais que caem no mês)
+  const monthly = enriched.filter((p) => p.frequency === "monthly" && p.isActive);
+  const yearly = enriched.filter((p) => p.frequency === "yearly" && p.isActive);
+  const inactive = enriched.filter((p) => !p.isActive);
+
+  const monthlyOverdue = monthly.filter((p) => p.currentStatus === "overdue").length;
+  const monthlyDue = monthly.filter((p) => p.currentStatus === "due").length;
+  const monthlyPaid = monthly.filter((p) => p.currentStatus === "paid").length;
+  const monthlyTotalExpected = monthly
+    .reduce((s, p) => s + (p.expectedAmount ? parseFloat(p.expectedAmount) : 0), 0);
+
+  const today = new Date();
+  const isCurrentMonth = focusMonthStr === `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
 
   return (
     <ScreenShell
       insight={
-        active.length === 0 ? (
+        monthly.length === 0 && yearly.length === 0 ? (
           <>
-            Cadastra teus pagamentos recorrentes (IPVA, gás, internet,
-            mensalidade…) — o sistema te lembra todo mês/ano por e-mail.
+            Sem pagamentos recorrentes ainda. Cadastra teus pagamentos
+            mensais e anuais — o sistema te lembra por e-mail e via sino.
           </>
-        ) : overdue > 0 ? (
+        ) : isCurrentMonth && monthlyOverdue > 0 ? (
           <>
-            ⚠️ <b>{overdue}</b>{" "}
-            {overdue === 1 ? "pagamento atrasado" : "pagamentos atrasados"}. {due > 0 ? `${due} chegando.` : ""}
+            ⚠️ <b>{monthlyOverdue}</b> {monthlyOverdue === 1 ? "atrasado" : "atrasados"} este mês. {monthlyDue > 0 ? `${monthlyDue} chegando.` : ""}
           </>
         ) : (
           <>
-            <b>{paid}/{active.length}</b>{" "}
-            pagos no período. {due > 0 ? `${due} chegando.` : "Tudo em dia."}
+            <b>{monthlyPaid}/{monthly.length}</b> mensais pagos · {yearly.length} anuais.
           </>
         )
       }
@@ -138,25 +175,25 @@ export default async function RecorrentesPage() {
         icon="bag"
         label="Pagamentos recorrentes"
         action={
-          <span
-            style={{
-              fontSize: 11,
-              fontWeight: 700,
-              color: overdue > 0 ? "var(--alert)" : "var(--muted)",
-            }}
-          >
-            {paid}/{active.length}
+          <span style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)" }}>
+            {monthly.length + yearly.length} ativos
           </span>
         }
       />
+
+      <MonthChips basePath="/financeiro/recorrentes" currentMonth={focusMonthStr} />
+
       <BigNumber
-        value={String(active.length)}
-        sub={`${overdue} atrasado${overdue === 1 ? "" : "s"} · ${due} chegando · ${paid} ok`}
-        accent={overdue === 0 && active.length > 0}
+        value={`R$ ${monthlyTotalExpected.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+        sub={`mensais em ${focusMonthStr.split("-").reverse().join("/")} · ${monthlyPaid} pagos · ${monthlyOverdue} atrasados`}
       />
 
       <RecurringClient
-        payments={enriched}
+        monthly={monthly}
+        yearly={yearly}
+        inactive={inactive}
+        focusMonth={focusMonthStr}
+        focusYear={focusYear}
         accounts={accounts.map((a) => ({ id: a.id, name: a.name, type: a.type }))}
         categoryOptions={allCategories.map((c) => {
           const parent = c.parentId

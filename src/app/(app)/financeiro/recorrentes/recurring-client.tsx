@@ -7,14 +7,16 @@ import { CategoryBulkPicker } from "@/components/category-bulk-picker";
 import type { CategoryOption } from "@/components/category-select";
 
 import {
+  clearRecurringMocks,
   createRecurringPayment,
   deleteRecurringPayment,
   markRecurringPaid,
+  seedRecurringMocks,
   unmarkRecurringPaid,
   updateRecurringPayment,
   type RecurringFreq,
 } from "@/app/actions/recurring-payments";
-import { formatDueDate, formatPeriod } from "@/lib/recurring-payments";
+import { formatPeriod, type UrgencyLevel } from "@/lib/recurring-payments";
 
 type Account = { id: string; name: string; type: string };
 
@@ -39,35 +41,68 @@ type Payment = {
   isActive: boolean;
   currentPeriod: string;
   currentStatus: "paid" | "due" | "overdue";
+  currentUrgency: UrgencyLevel;
   currentDueDate: string;
   currentDaysUntilDue: number;
   records: PaymentRecord[];
 };
 
 export function RecurringClient({
-  payments,
+  monthly,
+  yearly,
+  inactive,
+  focusMonth,
+  focusYear,
   accounts,
   categoryOptions,
 }: {
-  payments: Payment[];
+  monthly: Payment[];
+  yearly: Payment[];
+  inactive: Payment[];
+  focusMonth: string;
+  focusYear: number;
   accounts: Account[];
   categoryOptions: CategoryOption[];
 }) {
-  const active = payments.filter((p) => p.isActive);
-  const inactive = payments.filter((p) => !p.isActive);
+  const [hasMocks, setHasMocks] = useState(
+    [...monthly, ...yearly, ...inactive].some((p) => p.name.includes("(demo)"))
+  );
 
   return (
-    <div style={{ padding: "14px 20px 24px", display: "flex", flexDirection: "column", gap: 18 }}>
+    <div style={{ padding: "10px 20px 24px", display: "flex", flexDirection: "column", gap: 18 }}>
       <NewPaymentForm accounts={accounts} categoryOptions={categoryOptions} />
 
+      {/* MENSAIS — depende do mês focado */}
       <section>
-        <h2 style={sectionTitleStyle}>Ativos</h2>
-        {active.length === 0 ? (
-          <div style={emptyHintStyle}>Nenhum pagamento recorrente cadastrado ainda.</div>
+        <SectionHeader
+          title={`Mensais · ${formatMonthLabel(focusMonth)}`}
+          count={monthly.length}
+        />
+        {monthly.length === 0 ? (
+          <EmptyHint text="Nenhum pagamento mensal cadastrado." />
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {active.map((p) => (
-              <PaymentCard
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {monthly.map((p) => (
+              <PaymentRow
+                key={p.id}
+                payment={p}
+                accounts={accounts}
+                categoryOptions={categoryOptions}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* ANUAIS — sempre visíveis */}
+      <section>
+        <SectionHeader title={`Anuais · ${focusYear}`} count={yearly.length} />
+        {yearly.length === 0 ? (
+          <EmptyHint text="Nenhum pagamento anual cadastrado." />
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {yearly.map((p) => (
+              <PaymentRow
                 key={p.id}
                 payment={p}
                 accounts={accounts}
@@ -79,13 +114,24 @@ export function RecurringClient({
       </section>
 
       {inactive.length > 0 && (
-        <section>
-          <h2 style={{ ...sectionTitleStyle, color: "var(--muted)" }}>
-            Pausados ({inactive.length})
-          </h2>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <details>
+          <summary
+            style={{
+              cursor: "pointer",
+              listStyle: "none",
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+              color: "var(--muted)",
+              padding: "4px 0",
+            }}
+          >
+            + {inactive.length} pausado{inactive.length === 1 ? "" : "s"}
+          </summary>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 8 }}>
             {inactive.map((p) => (
-              <PaymentCard
+              <PaymentRow
                 key={p.id}
                 payment={p}
                 accounts={accounts}
@@ -94,14 +140,441 @@ export function RecurringClient({
               />
             ))}
           </div>
-        </section>
+        </details>
+      )}
+
+      {/* Botão de mocks pra teste */}
+      <MockSection
+        hasMocks={hasMocks}
+        onChange={(v) => setHasMocks(v)}
+      />
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────
+// Linha compacta — caber 20+ na tela
+// ────────────────────────────────────────────────────────────
+
+function PaymentRow({
+  payment,
+  accounts,
+  categoryOptions,
+  dimmed,
+}: {
+  payment: Payment;
+  accounts: Account[];
+  categoryOptions: CategoryOption[];
+  dimmed?: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [isPending, startTransition] = useTransition();
+
+  const color = urgencyColor(payment.currentUrgency);
+  const dueDate = new Date(payment.currentDueDate + "T00:00:00");
+
+  function markPaid() {
+    startTransition(async () => {
+      await markRecurringPaid({
+        paymentId: payment.id,
+        period: payment.currentPeriod,
+        paidOn: new Date().toISOString().slice(0, 10),
+      });
+    });
+  }
+  function unmark() {
+    if (!confirm(`Desfazer "${payment.name}" em ${formatPeriod(payment.currentPeriod)}?`)) return;
+    startTransition(async () => {
+      await unmarkRecurringPaid(payment.id, payment.currentPeriod);
+    });
+  }
+  function toggleActive() {
+    startTransition(async () => {
+      await updateRecurringPayment(payment.id, { isActive: !payment.isActive });
+    });
+  }
+  function del() {
+    if (!confirm(`Excluir "${payment.name}" e o histórico?`)) return;
+    startTransition(async () => {
+      await deleteRecurringPayment(payment.id);
+    });
+  }
+
+  return (
+    <div
+      style={{
+        background: "var(--card)",
+        borderRadius: 10,
+        borderLeft: `3px solid ${color}`,
+        opacity: dimmed ? 0.55 : 1,
+        overflow: "hidden",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          padding: "8px 12px",
+          minHeight: 44,
+        }}
+      >
+      {/* Status check button — pequeno mas clicável */}
+      <CheckButton
+        urgency={payment.currentUrgency}
+        isPaid={payment.currentStatus === "paid"}
+        isPending={isPending}
+        onClick={payment.currentStatus === "paid" ? unmark : markPaid}
+      />
+
+      {/* Conteúdo central */}
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        style={{
+          flex: 1,
+          minWidth: 0,
+          background: "transparent",
+          border: "none",
+          textAlign: "left",
+          cursor: "pointer",
+          padding: 0,
+          fontFamily: "inherit",
+          color: "inherit",
+        }}
+      >
+        <div
+          style={{
+            fontSize: 12.5,
+            fontWeight: payment.currentStatus === "paid" ? 500 : 700,
+            color: payment.currentStatus === "paid" ? "var(--muted-d)" : "var(--ink)",
+            textDecoration: payment.currentStatus === "paid" ? "line-through" : "none",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {payment.name}
+        </div>
+        <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 1 }}>
+          {dueDate.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }).replace(".", "")}
+          {payment.currentStatus !== "paid" && (
+            <span style={{ color, fontWeight: 700 }}>
+              {" "}
+              {payment.currentDaysUntilDue === 0
+                ? "· hoje"
+                : payment.currentDaysUntilDue > 0
+                  ? `· em ${payment.currentDaysUntilDue}d`
+                  : `· ${Math.abs(payment.currentDaysUntilDue)}d atrasado`}
+            </span>
+          )}
+        </div>
+      </button>
+
+      {/* Valor */}
+      {payment.expectedAmount && (
+        <span
+          className="ap-num"
+          style={{
+            fontSize: 12.5,
+            fontWeight: 700,
+            color: payment.currentStatus === "paid" ? "var(--muted)" : "var(--ink-d)",
+            flexShrink: 0,
+            textAlign: "right",
+            minWidth: 80,
+          }}
+        >
+          R$ {formatBRL(parseFloat(payment.expectedAmount))}
+        </span>
+      )}
+
+      {/* Menu dot */}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setExpanded((v) => !v);
+        }}
+        title="Mais opções"
+        style={{
+          width: 22,
+          height: 22,
+          borderRadius: 11,
+          background: "transparent",
+          color: "var(--muted)",
+          border: "none",
+          fontSize: 14,
+          cursor: "pointer",
+          flexShrink: 0,
+          padding: 0,
+          lineHeight: 1,
+        }}
+      >
+        ⋯
+      </button>
+
+      </div>
+      {expanded && (
+        <ExpandedRowDetails
+          payment={payment}
+          accounts={accounts}
+          categoryOptions={categoryOptions}
+          editing={editing}
+          setEditing={setEditing}
+          onToggleActive={toggleActive}
+          onDelete={del}
+        />
+      )}
+    </div>
+  );
+}
+
+function ExpandedRowDetails({
+  payment,
+  accounts,
+  categoryOptions,
+  editing,
+  setEditing,
+  onToggleActive,
+  onDelete,
+}: {
+  payment: Payment;
+  accounts: Account[];
+  categoryOptions: CategoryOption[];
+  editing: boolean;
+  setEditing: (v: boolean) => void;
+  onToggleActive: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div
+      style={{
+        background: "var(--card2)",
+        padding: 10,
+        borderTop: "0.5px solid var(--line-d)",
+      }}
+    >
+      {editing ? (
+        <EditForm
+          payment={payment}
+          accounts={accounts}
+          categoryOptions={categoryOptions}
+          onClose={() => setEditing(false)}
+        />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {payment.records.length > 0 && (
+            <div>
+              <div
+                style={{
+                  fontSize: 9.5,
+                  fontWeight: 700,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  color: "var(--muted)",
+                  marginBottom: 4,
+                }}
+              >
+                histórico ({payment.records.length})
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                {payment.records.slice(0, 6).map((r) => (
+                  <div
+                    key={r.id}
+                    style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}
+                  >
+                    <span style={{ color: "var(--muted-d)" }}>{formatPeriod(r.period)}</span>
+                    <span style={{ color: "var(--muted)" }}>
+                      {r.paidOn &&
+                        new Date(r.paidOn + "T00:00:00").toLocaleDateString("pt-BR", {
+                          day: "2-digit",
+                          month: "short",
+                        }).replace(".", "")}
+                      {r.paidAmount && ` · R$ ${formatBRL(parseFloat(r.paidAmount))}`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 6 }}>
+            <button type="button" onClick={() => setEditing(true)} style={ghostBtnStyle}>
+              editar
+            </button>
+            <button type="button" onClick={onToggleActive} style={ghostBtnStyle}>
+              {payment.isActive ? "pausar" : "reativar"}
+            </button>
+            <button
+              type="button"
+              onClick={onDelete}
+              style={{ ...ghostBtnStyle, color: "var(--alert)", borderColor: "var(--alert)" }}
+            >
+              excluir
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
 }
 
 // ────────────────────────────────────────────────────────────
-// New payment form (collapsed por default)
+// Botão check (icon-only, pequeno)
+// ────────────────────────────────────────────────────────────
+
+function CheckButton({
+  urgency,
+  isPaid,
+  isPending,
+  onClick,
+}: {
+  urgency: UrgencyLevel;
+  isPaid: boolean;
+  isPending: boolean;
+  onClick: () => void;
+}) {
+  const color = urgencyColor(urgency);
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={isPending}
+      title={isPaid ? "Desfazer pago" : "Marcar como pago"}
+      style={{
+        width: 28,
+        height: 28,
+        borderRadius: 14,
+        background: isPaid ? "var(--ok)" : "transparent",
+        color: isPaid ? "var(--accent-on)" : color,
+        border: isPaid ? "none" : `1.5px solid ${color}`,
+        cursor: "pointer",
+        flexShrink: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: 14,
+        fontWeight: 800,
+        padding: 0,
+        lineHeight: 1,
+      }}
+    >
+      {isPaid ? "✓" : ""}
+    </button>
+  );
+}
+
+// ────────────────────────────────────────────────────────────
+// Section header + Empty hint + Mock section
+// ────────────────────────────────────────────────────────────
+
+function SectionHeader({ title, count }: { title: string; count: number }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        marginBottom: 8,
+      }}
+    >
+      <span style={{ fontSize: 13, fontWeight: 700, color: "var(--ink)" }}>{title}</span>
+      <span
+        style={{
+          fontSize: 10,
+          fontWeight: 700,
+          letterSpacing: "0.06em",
+          textTransform: "uppercase",
+          color: "var(--muted)",
+        }}
+      >
+        {count}
+      </span>
+      <div style={{ flex: 1, height: 0.5, background: "var(--line-d)" }} />
+    </div>
+  );
+}
+
+function EmptyHint({ text }: { text: string }) {
+  return (
+    <div
+      style={{
+        padding: "10px 12px",
+        fontSize: 11.5,
+        color: "var(--muted)",
+        fontStyle: "italic",
+        textAlign: "center",
+      }}
+    >
+      {text}
+    </div>
+  );
+}
+
+function MockSection({
+  hasMocks,
+  onChange,
+}: {
+  hasMocks: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  const [isPending, startTransition] = useTransition();
+  function seed() {
+    startTransition(async () => {
+      await seedRecurringMocks();
+      onChange(true);
+    });
+  }
+  function clear() {
+    if (!confirm("Remover todos os pagamentos marcados como (demo)?")) return;
+    startTransition(async () => {
+      await clearRecurringMocks();
+      onChange(false);
+    });
+  }
+  return (
+    <Card pad={12}>
+      <div
+        style={{
+          fontSize: 10.5,
+          fontWeight: 700,
+          letterSpacing: "0.06em",
+          color: "var(--muted)",
+          marginBottom: 6,
+        }}
+      >
+        TESTE / DEMO
+      </div>
+      <div style={{ fontSize: 11.5, color: "var(--muted-d)", lineHeight: 1.4, marginBottom: 8 }}>
+        Popula 15 mensais + 5 anuais marcados como <code>(demo)</code> pra testar
+        densidade. Remove só os <code>(demo)</code>, mantém o resto.
+      </div>
+      <div style={{ display: "flex", gap: 6 }}>
+        <button
+          type="button"
+          onClick={seed}
+          disabled={isPending || hasMocks}
+          style={primaryBtnStyle}
+        >
+          {hasMocks ? "Já populado" : "Popular com mocks"}
+        </button>
+        {hasMocks && (
+          <button
+            type="button"
+            onClick={clear}
+            disabled={isPending}
+            style={{ ...ghostBtnStyle, color: "var(--alert)", borderColor: "var(--alert)" }}
+          >
+            Remover mocks
+          </button>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+// ────────────────────────────────────────────────────────────
+// New payment form (collapsed)
 // ────────────────────────────────────────────────────────────
 
 function NewPaymentForm({
@@ -136,7 +609,7 @@ function NewPaymentForm({
     }
     const month = frequency === "yearly" ? parseInt(dueMonth, 10) : null;
     if (frequency === "yearly" && (isNaN(month!) || month! < 1 || month! > 12)) {
-      setError("Mês inválido (1-12)");
+      setError("Mês inválido");
       return;
     }
     const amountNorm = expectedAmount
@@ -170,12 +643,12 @@ function NewPaymentForm({
         type="button"
         onClick={() => setOpen(true)}
         style={{
-          padding: "12px 16px",
-          borderRadius: 12,
+          padding: "10px 14px",
+          borderRadius: 10,
           background: "var(--card)",
           color: "var(--ink-d)",
           border: "1px dashed var(--line-d)",
-          fontSize: 13,
+          fontSize: 12.5,
           fontWeight: 600,
           cursor: "pointer",
           textAlign: "left",
@@ -187,137 +660,121 @@ function NewPaymentForm({
   }
 
   return (
-    <Card pad={16} raised>
+    <Card pad={14} raised>
       <div
         style={{
           fontSize: 11,
           fontWeight: 700,
           letterSpacing: "0.04em",
           color: "var(--muted)",
-          marginBottom: 10,
+          marginBottom: 8,
         }}
       >
         NOVO PAGAMENTO RECORRENTE
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        <Field label="Nome *">
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="ex: IPVA Onix, Gás botijão, Internet"
-            style={inputStyle}
-          />
-        </Field>
-
-        <Field label="Frequência *">
-          <div style={{ display: "flex", gap: 6 }}>
-            {(["monthly", "yearly"] as RecurringFreq[]).map((f) => (
-              <button
-                key={f}
-                type="button"
-                onClick={() => setFrequency(f)}
-                style={{
-                  flex: 1,
-                  padding: "8px 14px",
-                  borderRadius: 8,
-                  border:
-                    frequency === f
-                      ? "1px solid var(--accent)"
-                      : "0.5px solid var(--line-d)",
-                  background: frequency === f ? "color-mix(in oklab, var(--accent) 18%, var(--card2))" : "var(--card2)",
-                  color: frequency === f ? "var(--accent)" : "var(--muted-d)",
-                  fontSize: 12.5,
-                  fontWeight: 700,
-                  cursor: "pointer",
-                }}
-              >
-                {f === "monthly" ? "Mensal" : "Anual"}
-              </button>
-            ))}
-          </div>
-        </Field>
-
-        <div style={{ display: "grid", gridTemplateColumns: frequency === "yearly" ? "1fr 1fr" : "1fr", gap: 10 }}>
-          {frequency === "yearly" && (
-            <Field label="Mês *">
-              <select
-                value={dueMonth}
-                onChange={(e) => setDueMonth(e.target.value)}
-                style={inputStyle}
-              >
-                {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                  <option key={m} value={m}>
-                    {new Date(2026, m - 1, 1).toLocaleDateString("pt-BR", { month: "long" })}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          )}
-          <Field label="Dia do vencimento *">
-            <input
-              value={dueDay}
-              onChange={(e) => setDueDay(e.target.value)}
-              type="number"
-              min="1"
-              max="31"
-              style={inputStyle}
-            />
-          </Field>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Nome (ex: IPVA Onix, Gás, Internet)"
+          style={inputStyle}
+        />
+        <div style={{ display: "flex", gap: 6 }}>
+          {(["monthly", "yearly"] as RecurringFreq[]).map((f) => (
+            <button
+              key={f}
+              type="button"
+              onClick={() => setFrequency(f)}
+              style={{
+                flex: 1,
+                padding: "7px 14px",
+                borderRadius: 8,
+                border:
+                  frequency === f
+                    ? "1px solid var(--accent)"
+                    : "0.5px solid var(--line-d)",
+                background:
+                  frequency === f
+                    ? "color-mix(in oklab, var(--accent) 18%, var(--card2))"
+                    : "var(--card2)",
+                color: frequency === f ? "var(--accent)" : "var(--muted-d)",
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              {f === "monthly" ? "Mensal" : "Anual"}
+            </button>
+          ))}
         </div>
-
-        <Field label="Valor esperado (R$)" hint="opcional · pode ser deixado vazio se varia">
-          <input
-            value={expectedAmount}
-            onChange={(e) => setExpectedAmount(e.target.value)}
-            placeholder="0,00"
-            inputMode="decimal"
-            style={inputStyle}
-          />
-        </Field>
-
-        {accounts.length > 0 && (
-          <Field label="Conta de débito" hint="opcional">
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: frequency === "yearly" ? "1fr 1fr 1fr" : "1fr 1fr",
+            gap: 6,
+          }}
+        >
+          {frequency === "yearly" && (
             <select
-              value={bankAccountId}
-              onChange={(e) => setBankAccountId(e.target.value)}
+              value={dueMonth}
+              onChange={(e) => setDueMonth(e.target.value)}
               style={inputStyle}
             >
-              <option value="">(nenhuma)</option>
-              {accounts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
+              {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                <option key={m} value={m}>
+                  {new Date(2026, m - 1, 1)
+                    .toLocaleDateString("pt-BR", { month: "short" })
+                    .replace(".", "")}
                 </option>
               ))}
             </select>
-          </Field>
-        )}
-
-        <Field label="Categoria" hint="opcional">
-          <div>
-            <CategoryBulkPicker
-              options={categoryOptions}
-              value={categoryId}
-              onChange={setCategoryId}
-              buttonContrast={false}
-              placeholder="(nenhuma)"
-            />
-          </div>
-        </Field>
-
-        <Field label="Observação" hint="opcional">
+          )}
           <input
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="ex: débito automático"
+            value={dueDay}
+            onChange={(e) => setDueDay(e.target.value)}
+            type="number"
+            min="1"
+            max="31"
+            placeholder="Dia"
             style={inputStyle}
           />
-        </Field>
-
-        {error && (
-          <div style={{ fontSize: 11.5, color: "var(--alert)" }}>{error}</div>
+          <input
+            value={expectedAmount}
+            onChange={(e) => setExpectedAmount(e.target.value)}
+            placeholder="Valor (R$)"
+            inputMode="decimal"
+            style={inputStyle}
+          />
+        </div>
+        {accounts.length > 0 && (
+          <select
+            value={bankAccountId}
+            onChange={(e) => setBankAccountId(e.target.value)}
+            style={inputStyle}
+          >
+            <option value="">(sem conta)</option>
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
         )}
-
-        <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+        <CategoryBulkPicker
+          options={categoryOptions}
+          value={categoryId}
+          onChange={setCategoryId}
+          buttonContrast={false}
+          placeholder="(sem categoria)"
+        />
+        <input
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Observação (opcional)"
+          style={inputStyle}
+        />
+        {error && <div style={{ fontSize: 11.5, color: "var(--alert)" }}>{error}</div>}
+        <div style={{ display: "flex", gap: 6 }}>
           <button type="button" onClick={save} disabled={isPending} style={primaryBtnStyle}>
             {isPending ? "Salvando…" : "Cadastrar"}
           </button>
@@ -325,255 +782,6 @@ function NewPaymentForm({
             Cancelar
           </button>
         </div>
-      </div>
-    </Card>
-  );
-}
-
-// ────────────────────────────────────────────────────────────
-// Payment card
-// ────────────────────────────────────────────────────────────
-
-function PaymentCard({
-  payment,
-  accounts,
-  categoryOptions,
-  dimmed,
-}: {
-  payment: Payment;
-  accounts: Account[];
-  categoryOptions: CategoryOption[];
-  dimmed?: boolean;
-}) {
-  const [isPending, startTransition] = useTransition();
-  const [confirmPayOpen, setConfirmPayOpen] = useState(false);
-  const [editOpen, setEditOpen] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
-
-  const account = payment.bankAccountId
-    ? accounts.find((a) => a.id === payment.bankAccountId)
-    : null;
-  const category = payment.categoryId
-    ? categoryOptions.find((c) => c.id === payment.categoryId)
-    : null;
-
-  const statusColor =
-    payment.currentStatus === "paid"
-      ? "var(--ok)"
-      : payment.currentStatus === "overdue"
-        ? "var(--alert)"
-        : "var(--accent)";
-
-  const dueDate = new Date(payment.currentDueDate + "T00:00:00");
-
-  function markPaid() {
-    startTransition(async () => {
-      await markRecurringPaid({
-        paymentId: payment.id,
-        period: payment.currentPeriod,
-        paidOn: new Date().toISOString().slice(0, 10),
-      });
-      setConfirmPayOpen(false);
-    });
-  }
-  function unmark() {
-    if (!confirm(`Desfazer marcação de pago em ${formatPeriod(payment.currentPeriod)}?`)) return;
-    startTransition(async () => {
-      await unmarkRecurringPaid(payment.id, payment.currentPeriod);
-    });
-  }
-  function toggleActive() {
-    startTransition(async () => {
-      await updateRecurringPayment(payment.id, { isActive: !payment.isActive });
-    });
-  }
-  function del() {
-    if (!confirm(`Excluir "${payment.name}" e todo o histórico de pagamentos?`)) return;
-    startTransition(async () => {
-      await deleteRecurringPayment(payment.id);
-    });
-  }
-
-  return (
-    <Card pad={14} raised={!dimmed && payment.currentStatus !== "paid"}>
-      <div style={{ opacity: dimmed ? 0.55 : 1 }}>
-        {/* Header com nome + status */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-              <span style={{ fontSize: 14, fontWeight: 700 }}>{payment.name}</span>
-              <span
-                style={{
-                  fontSize: 9.5,
-                  fontWeight: 700,
-                  letterSpacing: "0.06em",
-                  textTransform: "uppercase",
-                  color: "var(--muted)",
-                  padding: "2px 7px",
-                  borderRadius: 999,
-                  background: "color-mix(in oklab, var(--muted) 10%, transparent)",
-                }}
-              >
-                {payment.frequency === "monthly" ? "mensal" : "anual"}
-              </span>
-            </div>
-            <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
-              vence em <b style={{ color: "var(--ink-d)" }}>{formatDueDate(dueDate, payment.currentDaysUntilDue)}</b>
-              {payment.expectedAmount && (
-                <>
-                  {" · "}<span className="ap-num">R$ {formatBRL(parseFloat(payment.expectedAmount))}</span>
-                </>
-              )}
-              {account && ` · ${account.name}`}
-            </div>
-            {category && (
-              <div style={{ marginTop: 4 }}>
-                <span
-                  style={{
-                    fontSize: 10,
-                    fontWeight: 600,
-                    padding: "1px 8px",
-                    borderRadius: 999,
-                    background: `color-mix(in oklab, ${category.color ?? "var(--muted)"} 14%, transparent)`,
-                    color: "var(--ink-d)",
-                  }}
-                >
-                  {category.label}
-                </span>
-              </div>
-            )}
-          </div>
-          <span
-            style={{
-              fontSize: 10,
-              fontWeight: 800,
-              letterSpacing: "0.06em",
-              textTransform: "uppercase",
-              padding: "3px 10px",
-              borderRadius: 999,
-              background: `color-mix(in oklab, ${statusColor} 14%, transparent)`,
-              color: statusColor,
-              flexShrink: 0,
-            }}
-          >
-            {payment.currentStatus === "paid"
-              ? "pago"
-              : payment.currentStatus === "overdue"
-                ? "atrasado"
-                : "a pagar"}
-          </span>
-        </div>
-
-        {/* Ação principal */}
-        {payment.currentStatus === "paid" ? (
-          <button
-            type="button"
-            onClick={unmark}
-            disabled={isPending}
-            style={{
-              ...ghostBtnStyle,
-              width: "100%",
-              borderColor: "var(--ok)",
-              color: "var(--ok)",
-            }}
-          >
-            ✓ pago em {formatPeriod(payment.currentPeriod)} — clique pra desfazer
-          </button>
-        ) : confirmPayOpen ? (
-          <div style={{ display: "flex", gap: 6 }}>
-            <button type="button" onClick={markPaid} disabled={isPending} style={primaryBtnStyle}>
-              Confirmar pago hoje
-            </button>
-            <button type="button" onClick={() => setConfirmPayOpen(false)} style={ghostBtnStyle}>
-              Cancelar
-            </button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setConfirmPayOpen(true)}
-            disabled={isPending}
-            style={{ ...primaryBtnStyle, width: "100%" }}
-          >
-            Marcar como pago
-          </button>
-        )}
-
-        {payment.notes && (
-          <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 8, fontStyle: "italic" }}>
-            {payment.notes}
-          </div>
-        )}
-
-        {/* Footer: histórico + editar + pausa + excluir */}
-        <div
-          style={{
-            display: "flex",
-            gap: 8,
-            marginTop: 10,
-            fontSize: 11,
-            color: "var(--muted)",
-            flexWrap: "wrap",
-            alignItems: "center",
-          }}
-        >
-          {payment.records.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setHistoryOpen((v) => !v)}
-              style={linkBtnStyle}
-            >
-              {historyOpen ? "esconder" : "ver"} histórico ({payment.records.length})
-            </button>
-          )}
-          <button type="button" onClick={() => setEditOpen((v) => !v)} style={linkBtnStyle}>
-            editar
-          </button>
-          <button type="button" onClick={toggleActive} style={linkBtnStyle}>
-            {payment.isActive ? "pausar" : "reativar"}
-          </button>
-          <button type="button" onClick={del} style={{ ...linkBtnStyle, color: "var(--alert)" }}>
-            excluir
-          </button>
-        </div>
-
-        {historyOpen && payment.records.length > 0 && (
-          <div
-            style={{
-              marginTop: 10,
-              padding: "10px 12px",
-              background: "var(--card2)",
-              borderRadius: 10,
-              display: "flex",
-              flexDirection: "column",
-              gap: 4,
-            }}
-          >
-            {payment.records.map((r) => (
-              <div
-                key={r.id}
-                style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5 }}
-              >
-                <span style={{ color: "var(--ink-d)", fontWeight: 600 }}>
-                  {formatPeriod(r.period)}
-                </span>
-                <span style={{ color: "var(--muted)" }}>
-                  {r.paidOn && new Date(r.paidOn + "T00:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }).replace(".", "")}
-                  {r.paidAmount && ` · R$ ${formatBRL(parseFloat(r.paidAmount))}`}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {editOpen && (
-          <EditForm
-            payment={payment}
-            accounts={accounts}
-            categoryOptions={categoryOptions}
-            onClose={() => setEditOpen(false)}
-          />
-        )}
       </div>
     </Card>
   );
@@ -622,24 +830,20 @@ function EditForm({
   }
 
   return (
-    <div
-      style={{
-        marginTop: 10,
-        padding: 12,
-        background: "var(--card2)",
-        borderRadius: 12,
-        display: "flex",
-        flexDirection: "column",
-        gap: 8,
-      }}
-    >
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       <input value={name} onChange={(e) => setName(e.target.value)} style={inputStyle} placeholder="Nome" />
-      <div style={{ display: "grid", gridTemplateColumns: payment.frequency === "yearly" ? "1fr 1fr" : "1fr", gap: 8 }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: payment.frequency === "yearly" ? "1fr 1fr" : "1fr",
+          gap: 6,
+        }}
+      >
         {payment.frequency === "yearly" && (
           <select value={dueMonth} onChange={(e) => setDueMonth(e.target.value)} style={inputStyle}>
             {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
               <option key={m} value={m}>
-                {new Date(2026, m - 1, 1).toLocaleDateString("pt-BR", { month: "long" })}
+                {new Date(2026, m - 1, 1).toLocaleDateString("pt-BR", { month: "short" }).replace(".", "")}
               </option>
             ))}
           </select>
@@ -657,7 +861,7 @@ function EditForm({
       <input
         value={expectedAmount}
         onChange={(e) => setExpectedAmount(e.target.value)}
-        placeholder="Valor esperado (R$)"
+        placeholder="Valor (R$)"
         inputMode="decimal"
         style={inputStyle}
       />
@@ -678,12 +882,7 @@ function EditForm({
         buttonContrast={false}
         placeholder="(sem categoria)"
       />
-      <input
-        value={notes}
-        onChange={(e) => setNotes(e.target.value)}
-        placeholder="Observação"
-        style={inputStyle}
-      />
+      <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Observação" style={inputStyle} />
       <div style={{ display: "flex", gap: 6 }}>
         <button type="button" onClick={save} disabled={isPending} style={primaryBtnStyle}>
           Salvar
@@ -697,35 +896,30 @@ function EditForm({
 }
 
 // ────────────────────────────────────────────────────────────
-// Helpers UI
+// Helpers
 // ────────────────────────────────────────────────────────────
 
-function Field({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-      <span
-        style={{
-          fontSize: 10.5,
-          fontWeight: 600,
-          letterSpacing: "0.08em",
-          textTransform: "uppercase",
-          color: "var(--muted)",
-        }}
-      >
-        {label}
-      </span>
-      {children}
-      {hint && <span style={{ fontSize: 10.5, color: "var(--muted)" }}>{hint}</span>}
-    </label>
-  );
+function urgencyColor(u: UrgencyLevel): string {
+  switch (u) {
+    case "paid":
+      return "var(--ok)";
+    case "overdue":
+      return "var(--alert)";
+    case "urgent":
+      return "#FF8866"; // coral — atenção urgente
+    case "soon":
+      return "var(--accent)"; // accent lima/rosa — chegando
+    case "ok":
+    default:
+      return "var(--muted)";
+  }
+}
+
+function formatMonthLabel(yyyymm: string): string {
+  const [y, m] = yyyymm.split("-").map(Number);
+  return new Date(y, m - 1, 1)
+    .toLocaleDateString("pt-BR", { month: "long", year: "numeric" })
+    .replace(/^\w/, (c) => c.toUpperCase());
 }
 
 function formatBRL(n: number): string {
@@ -735,61 +929,35 @@ function formatBRL(n: number): string {
   });
 }
 
-const sectionTitleStyle: React.CSSProperties = {
-  fontSize: 15,
-  fontWeight: 700,
-  color: "var(--ink)",
-  marginBottom: 10,
-};
-
-const emptyHintStyle: React.CSSProperties = {
-  fontSize: 12.5,
-  color: "var(--muted)",
-  fontStyle: "italic",
-  padding: 14,
-  textAlign: "center",
-};
-
 const inputStyle: React.CSSProperties = {
-  padding: "8px 12px",
-  borderRadius: 8,
+  padding: "7px 10px",
+  borderRadius: 7,
   background: "var(--card2)",
   color: "var(--ink)",
   border: "0.5px solid var(--line-d)",
-  fontSize: 12.5,
+  fontSize: 12,
   fontFamily: "inherit",
   outline: "none",
 };
 
 const primaryBtnStyle: React.CSSProperties = {
-  padding: "8px 16px",
-  borderRadius: 10,
+  padding: "7px 14px",
+  borderRadius: 8,
   background: "var(--accent)",
   color: "var(--accent-on)",
   border: "none",
-  fontSize: 12.5,
+  fontSize: 12,
   fontWeight: 700,
   cursor: "pointer",
 };
 
 const ghostBtnStyle: React.CSSProperties = {
-  padding: "8px 14px",
-  borderRadius: 10,
+  padding: "6px 12px",
+  borderRadius: 8,
   background: "transparent",
   color: "var(--muted-d)",
   border: "0.5px solid var(--line-d)",
-  fontSize: 12,
+  fontSize: 11.5,
   fontWeight: 600,
   cursor: "pointer",
-};
-
-const linkBtnStyle: React.CSSProperties = {
-  background: "transparent",
-  color: "var(--muted-d)",
-  border: "none",
-  fontSize: 11,
-  fontWeight: 600,
-  cursor: "pointer",
-  padding: 0,
-  textDecoration: "underline",
 };

@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, like } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
 import { auth } from "@/auth";
@@ -160,4 +160,99 @@ export async function unmarkRecurringPaid(paymentId: string, period: string) {
       )
     );
   revalidatePath("/financeiro/recorrentes");
+}
+
+// ────────────────────────────────────────────────────────────
+// Mock seeder pra teste de densidade
+// ────────────────────────────────────────────────────────────
+
+const MOCK_MONTHLY: { name: string; dueDay: number; amount: string }[] = [
+  { name: "Gás botijão (demo)", dueDay: 5, amount: "120.00" },
+  { name: "Internet Claro (demo)", dueDay: 10, amount: "129.90" },
+  { name: "Energia CELESC (demo)", dueDay: 15, amount: "320.00" },
+  { name: "Água CASAN (demo)", dueDay: 20, amount: "95.00" },
+  { name: "Telefone TIM (demo)", dueDay: 8, amount: "89.90" },
+  { name: "Netflix (demo)", dueDay: 12, amount: "55.90" },
+  { name: "Spotify Família (demo)", dueDay: 14, amount: "26.90" },
+  { name: "Mensalidade escola (demo)", dueDay: 5, amount: "1850.00" },
+  { name: "Plano de saúde (demo)", dueDay: 25, amount: "1240.00" },
+  { name: "Academia (demo)", dueDay: 7, amount: "159.00" },
+  { name: "Condomínio (demo)", dueDay: 10, amount: "750.00" },
+  { name: "Diarista (demo)", dueDay: 28, amount: "400.00" },
+  { name: "Estacionamento (demo)", dueDay: 1, amount: "180.00" },
+  { name: "Seguro carro (demo)", dueDay: 18, amount: "385.00" },
+  { name: "Streaming Disney+ (demo)", dueDay: 22, amount: "33.90" },
+];
+
+const MOCK_YEARLY: {
+  name: string;
+  dueMonth: number;
+  dueDay: number;
+  amount: string;
+}[] = [
+  { name: "IPVA Onix (demo)", dueMonth: 4, dueDay: 30, amount: "1850.00" },
+  { name: "IPTU casa (demo)", dueMonth: 3, dueDay: 15, amount: "2400.00" },
+  { name: "Licenciamento (demo)", dueMonth: 9, dueDay: 30, amount: "180.00" },
+  { name: "Renovação CNH (demo)", dueMonth: 11, dueDay: 1, amount: "270.00" },
+  { name: "Anuidade conselho (demo)", dueMonth: 2, dueDay: 28, amount: "850.00" },
+];
+
+export async function seedRecurringMocks() {
+  const { userId, householdId } = await requireUser();
+  let inserted = 0;
+  for (const m of MOCK_MONTHLY) {
+    const exists = await db.query.recurringPayments.findFirst({
+      where: and(
+        eq(recurringPayments.householdId, householdId),
+        eq(recurringPayments.name, m.name)
+      ),
+    });
+    if (exists) continue;
+    await db.insert(recurringPayments).values({
+      householdId,
+      createdById: userId,
+      name: m.name,
+      frequency: "monthly",
+      dueDay: m.dueDay,
+      dueMonth: null,
+      expectedAmount: m.amount,
+    });
+    inserted++;
+  }
+  for (const y of MOCK_YEARLY) {
+    const exists = await db.query.recurringPayments.findFirst({
+      where: and(
+        eq(recurringPayments.householdId, householdId),
+        eq(recurringPayments.name, y.name)
+      ),
+    });
+    if (exists) continue;
+    await db.insert(recurringPayments).values({
+      householdId,
+      createdById: userId,
+      name: y.name,
+      frequency: "yearly",
+      dueDay: y.dueDay,
+      dueMonth: y.dueMonth,
+      expectedAmount: y.amount,
+    });
+    inserted++;
+  }
+  revalidatePath("/financeiro/recorrentes");
+  return { inserted };
+}
+
+export async function clearRecurringMocks() {
+  const { householdId } = await requireUser();
+  const result = await db
+    .delete(recurringPayments)
+    .where(
+      and(
+        eq(recurringPayments.householdId, householdId),
+        like(recurringPayments.name, "%(demo)")
+      )
+    )
+    .returning({ id: recurringPayments.id });
+  revalidatePath("/financeiro/recorrentes");
+  return { removed: result.length };
 }

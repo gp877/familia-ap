@@ -107,6 +107,20 @@ export function formatPeriod(period: string): string {
 }
 
 /**
+ * Nível de urgência baseado em dias até vencer + status.
+ * Usado pra colorir o ponto/borda do card.
+ */
+export type UrgencyLevel = "paid" | "ok" | "soon" | "urgent" | "overdue";
+
+export function urgencyOf(status: PaymentStatus, daysUntilDue: number): UrgencyLevel {
+  if (status === "paid") return "paid";
+  if (status === "overdue") return "overdue";
+  if (daysUntilDue <= 2) return "urgent";
+  if (daysUntilDue <= 7) return "soon";
+  return "ok";
+}
+
+/**
  * Formata data de vencimento: "10/jun" ou "10/jun (em 5 dias)".
  */
 export function formatDueDate(dueDate: Date, daysUntil: number): string {
