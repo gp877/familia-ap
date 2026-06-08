@@ -30,12 +30,19 @@ export function AccountPicker({
   activeAccountId,
   extraParams = {},
   paramName = "account",
+  flat = false,
 }: {
   basePath: string;
   accounts: AccountLite[];
   activeAccountId: string | null;
   extraParams?: Record<string, string | undefined>;
   paramName?: string;
+  /**
+   * Quando true, ignora hierarquia: mostra contas e cartões lado a lado
+   * em grid, prefixados por "Extrato …" ou "Cartão …". Usar quando a tela
+   * já separa visualmente as duas fontes (ex: /financeiro/transacoes).
+   */
+  flat?: boolean;
 }) {
   const roots = accounts.filter((a) => a.type !== "credit_card");
   const cards = accounts.filter((a) => a.type === "credit_card");
@@ -72,6 +79,127 @@ export function AccountPicker({
 
   if (roots.length === 0 && orphanCards.length === 0) {
     return null;
+  }
+
+  // Modo flat (2 etapas):
+  //   1) Chips pequenos pra escolher a CONTA (Todas | UNICRED | …)
+  //   2) Cards grandes pra escolher o TIPO de visualização dessa conta:
+  //      - "EXTRATO" da conta (estilo neutro, ícone bank)
+  //      - "CARTÃO Visa Gold" (estilo distinto, ícone card, borda accent)
+  //   Os 2 tipos têm visual diferente pra não confundir.
+  if (flat) {
+    const activeChildCards = activeRootId
+      ? cardsByParent.get(activeRootId) ?? []
+      : [];
+    const showOrphans = !activeRootId && orphanCards.length > 0;
+
+    return (
+      <div
+        style={{
+          padding: "12px 16px 10px",
+          display: "flex",
+          flexDirection: "column",
+          gap: 12,
+        }}
+      >
+        {/* Etapa 1: chips de CONTA */}
+        <div>
+          <StepLabel>Conta</StepLabel>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            <Link href={urlFor(null)} style={accountChipStyle(activeAccountId === null)}>
+              Todas
+            </Link>
+            {roots.map((acc) => {
+              const isActive = activeRootId === acc.id;
+              return (
+                <Link key={acc.id} href={urlFor(acc.id)} style={accountChipStyle(isActive)}>
+                  {acc.name}
+                  {acc.lastFour ? ` ····${acc.lastFour}` : ""}
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Etapa 2: TIPO — só faz sentido quando uma conta tá ativa.
+            Mostra "Extrato" + um card por cartão filho. */}
+        {activeRootId && (
+          <div>
+            <StepLabel>Visualizar</StepLabel>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: 8,
+              }}
+            >
+              {/* Extrato da conta */}
+              <Link
+                href={urlFor(activeRootId)}
+                style={statementCardStyle(activeAccountId === activeRootId)}
+              >
+                <Icon name="bank" size={20} stroke={1.8} />
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
+                  <span style={typeBadgeStyle(activeAccountId === activeRootId)}>
+                    EXTRATO
+                  </span>
+                  <span style={typeNameStyle(activeAccountId === activeRootId)}>
+                    {roots.find((r) => r.id === activeRootId)?.name}
+                  </span>
+                </div>
+              </Link>
+
+              {/* Um card por cartão filho */}
+              {activeChildCards.map((card) => {
+                const isActive = activeAccountId === card.id;
+                return (
+                  <Link key={card.id} href={urlFor(card.id)} style={cardCardStyle(isActive)}>
+                    <Icon name="card" size={20} stroke={1.8} />
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
+                      <span style={typeBadgeStyle(isActive)}>CARTÃO</span>
+                      <span style={typeNameStyle(isActive)}>
+                        {card.name}
+                        {card.lastFour ? ` ····${card.lastFour}` : ""}
+                      </span>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Cartões órfãos (sem conta-mãe) — só quando "Todas" ativo */}
+        {showOrphans && (
+          <div>
+            <StepLabel>Cartões sem conta</StepLabel>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: 8,
+              }}
+            >
+              {orphanCards.map((card) => {
+                const isActive = activeAccountId === card.id;
+                return (
+                  <Link key={card.id} href={urlFor(card.id)} style={cardCardStyle(isActive)}>
+                    <Icon name="card" size={20} stroke={1.8} />
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
+                      <span style={typeBadgeStyle(isActive)}>CARTÃO</span>
+                      <span style={typeNameStyle(isActive)}>
+                        {card.name}
+                        {card.lastFour ? ` ····${card.lastFour}` : ""}
+                      </span>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    );
   }
 
   return (
@@ -203,6 +331,89 @@ function rootLabelStyle(isActive: boolean): React.CSSProperties {
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
     maxWidth: "100%",
+  };
+}
+
+function StepLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        fontSize: 9.5,
+        fontWeight: 800,
+        letterSpacing: "0.14em",
+        textTransform: "uppercase",
+        color: "var(--muted)",
+        marginBottom: 6,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function accountChipStyle(isActive: boolean): React.CSSProperties {
+  return {
+    padding: "6px 14px",
+    borderRadius: 999,
+    fontSize: 12,
+    fontWeight: 700,
+    background: isActive ? "var(--ink)" : "var(--card)",
+    color: isActive ? "var(--bg)" : "var(--muted-d)",
+    border: isActive ? "none" : "0.5px solid var(--line-d)",
+    textDecoration: "none",
+  };
+}
+
+/**
+ * Estilo unificado pros botões Extrato e Cartão. Ambos ficam:
+ *   - Inativos: fundo neutro escuro, texto branco mutado
+ *   - Ativos: fundo accent sólido + glow externo + texto preto bold
+ *
+ * A diferença entre os dois fica só no ícone e no badge ("EXTRATO" vs
+ * "CARTÃO") — o que basta pra distinguir, sem perder destaque de seleção.
+ */
+function typeCardStyle(isActive: boolean): React.CSSProperties {
+  return {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    padding: "14px 14px",
+    borderRadius: 14,
+    background: isActive ? "var(--accent)" : "var(--card2)",
+    border: isActive ? "1.5px solid var(--accent)" : "0.5px solid var(--line-d)",
+    color: isActive ? "var(--accent-on)" : "var(--ink)",
+    textDecoration: "none",
+    minHeight: 64,
+    boxShadow: isActive
+      ? "0 0 0 3px color-mix(in oklab, var(--accent) 28%, transparent), 0 2px 8px color-mix(in oklab, var(--accent) 25%, transparent)"
+      : "none",
+    transition: "box-shadow 120ms",
+  };
+}
+
+// Alias mantido pra compatibilidade interna — ambos os tipos usam o mesmo estilo
+const statementCardStyle = typeCardStyle;
+const cardCardStyle = typeCardStyle;
+
+function typeBadgeStyle(isActive: boolean): React.CSSProperties {
+  return {
+    fontSize: 9.5,
+    fontWeight: 800,
+    letterSpacing: "0.14em",
+    color: isActive ? "var(--accent-on)" : "var(--muted-d)",
+    lineHeight: 1,
+    marginBottom: 4,
+    opacity: isActive ? 0.7 : 1,
+  };
+}
+
+function typeNameStyle(isActive: boolean): React.CSSProperties {
+  return {
+    fontSize: 13.5,
+    fontWeight: 800,
+    color: isActive ? "var(--accent-on)" : "var(--ink)",
+    letterSpacing: "-0.01em",
+    lineHeight: 1.15,
   };
 }
 

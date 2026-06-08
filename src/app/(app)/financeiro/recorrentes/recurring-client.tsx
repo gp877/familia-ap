@@ -186,6 +186,15 @@ function PaymentRow({
 
   const color = urgencyColor(payment.currentUrgency);
   const dueDate = new Date(payment.currentDueDate + "T00:00:00");
+  const isPaid = payment.currentStatus === "paid";
+  // Data em que foi pago (último record desse período) — só pra mostrar
+  // bem pequeno na linha compacta.
+  const paidRecord = payment.records.find((r) => r.period === payment.currentPeriod);
+  const paidOnShort = paidRecord?.paidOn
+    ? new Date(paidRecord.paidOn + "T00:00:00")
+        .toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })
+        .replace(".", "")
+    : null;
 
   function openPay() {
     setPayOpen(true);
@@ -255,9 +264,9 @@ function PaymentRow({
         <div
           style={{
             fontSize: 12.5,
-            fontWeight: payment.currentStatus === "paid" ? 500 : 700,
-            color: payment.currentStatus === "paid" ? "var(--muted-d)" : "var(--ink)",
-            textDecoration: payment.currentStatus === "paid" ? "line-through" : "none",
+            fontWeight: isPaid ? 500 : 700,
+            color: isPaid ? "var(--muted-d)" : "var(--ink)",
+            textDecoration: isPaid ? "line-through" : "none",
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
@@ -290,9 +299,17 @@ function PaymentRow({
           )}
           <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{payment.name}</span>
         </div>
+        {/* Sub-line sempre presente pra manter altura uniforme — varia o
+            conteúdo (vencimento vs data do pagamento), não o tamanho. */}
         <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 1 }}>
           {dueDate.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }).replace(".", "")}
-          {payment.currentStatus !== "paid" && (
+          {isPaid ? (
+            paidOnShort && (
+              <span style={{ color: "var(--ok)", fontWeight: 700 }}>
+                {" "}· pago em {paidOnShort}
+              </span>
+            )
+          ) : (
             <span style={{ color, fontWeight: 700 }}>
               {" "}
               {payment.currentDaysUntilDue === 0
@@ -305,20 +322,20 @@ function PaymentRow({
         </div>
       </button>
 
-      {/* Valor */}
-      {payment.expectedAmount && (
+      {/* Valor — usa o pago real se houver, senão o esperado */}
+      {(paidRecord?.paidAmount || payment.expectedAmount) && (
         <span
           className="ap-num"
           style={{
             fontSize: 12.5,
             fontWeight: 700,
-            color: payment.currentStatus === "paid" ? "var(--muted)" : "var(--ink-d)",
+            color: isPaid ? "var(--muted)" : "var(--ink-d)",
             flexShrink: 0,
             textAlign: "right",
             minWidth: 80,
           }}
         >
-          R$ {formatBRL(parseFloat(payment.expectedAmount))}
+          R$ {formatBRL(parseFloat(paidRecord?.paidAmount || payment.expectedAmount!))}
         </span>
       )}
 
@@ -664,9 +681,7 @@ function NewPaymentForm({
       setError("Mês inválido");
       return;
     }
-    const amountNorm = expectedAmount
-      ? expectedAmount.replace(/\./g, "").replace(",", ".")
-      : null;
+    const amountNorm = parseAmountInput(expectedAmount);
     startTransition(async () => {
       try {
         await createRecurringPayment({
@@ -797,7 +812,11 @@ function NewPaymentForm({
           <input
             value={expectedAmount}
             onChange={(e) => setExpectedAmount(e.target.value)}
-            placeholder="Valor (R$)"
+            onBlur={(e) => {
+              const parsed = parseAmountInput(e.target.value);
+              setExpectedAmount(parsed ? formatAmountInput(parsed) : "");
+            }}
+            placeholder="0,00"
             inputMode="decimal"
             style={inputStyle}
           />
@@ -873,7 +892,9 @@ function EditForm({
   const [name, setName] = useState(payment.name);
   const [dueDay, setDueDay] = useState(String(payment.dueDay));
   const [dueMonth, setDueMonth] = useState(String(payment.dueMonth ?? 1));
-  const [expectedAmount, setExpectedAmount] = useState(payment.expectedAmount ?? "");
+  const [expectedAmount, setExpectedAmount] = useState(
+    formatAmountInput(payment.expectedAmount)
+  );
   const [bankAccountId, setBankAccountId] = useState(payment.bankAccountId ?? "");
   const [categoryId, setCategoryId] = useState(payment.categoryId ?? "");
   const [notes, setNotes] = useState(payment.notes ?? "");
@@ -882,9 +903,7 @@ function EditForm({
   const [isPending, startTransition] = useTransition();
 
   function save() {
-    const amountNorm = expectedAmount
-      ? expectedAmount.replace(/\./g, "").replace(",", ".")
-      : null;
+    const amountNorm = parseAmountInput(expectedAmount);
     startTransition(async () => {
       await updateRecurringPayment(payment.id, {
         name: name.trim(),
@@ -933,7 +952,11 @@ function EditForm({
       <input
         value={expectedAmount}
         onChange={(e) => setExpectedAmount(e.target.value)}
-        placeholder="Valor (R$)"
+        onBlur={(e) => {
+          const parsed = parseAmountInput(e.target.value);
+          setExpectedAmount(parsed ? formatAmountInput(parsed) : "");
+        }}
+        placeholder="0,00"
         inputMode="decimal"
         style={inputStyle}
       />
@@ -1003,7 +1026,7 @@ function PayPanel({
 }) {
   const today = new Date().toISOString().slice(0, 10);
   const [paidOn, setPaidOn] = useState(today);
-  const [paidAmount, setPaidAmount] = useState(payment.expectedAmount ?? "");
+  const [paidAmount, setPaidAmount] = useState(formatAmountInput(payment.expectedAmount));
   const [notes, setNotes] = useState("");
   const [transactionId, setTransactionId] = useState<string | null>(null);
   const [candidates, setCandidates] = useState<CandidateTransaction[] | null>(null);
@@ -1036,7 +1059,7 @@ function PayPanel({
   function selectCandidate(c: CandidateTransaction) {
     setTransactionId(c.id);
     setPaidOn(c.occurredOn);
-    setPaidAmount(c.amount);
+    setPaidAmount(formatAmountInput(c.amount));
   }
   function clearCandidate() {
     setTransactionId(null);
@@ -1044,9 +1067,7 @@ function PayPanel({
 
   function confirm() {
     setError(null);
-    const amountNorm = paidAmount
-      ? paidAmount.replace(/\./g, "").replace(",", ".")
-      : null;
+    const amountNorm = parseAmountInput(paidAmount);
     startTransition(async () => {
       try {
         await markRecurringPaid({
@@ -1209,7 +1230,11 @@ function PayPanel({
           <input
             value={paidAmount}
             onChange={(e) => setPaidAmount(e.target.value)}
-            placeholder="Valor pago (R$)"
+            onBlur={(e) => {
+              const parsed = parseAmountInput(e.target.value);
+              setPaidAmount(parsed ? formatAmountInput(parsed) : "");
+            }}
+            placeholder="0,00"
             inputMode="decimal"
             style={inputStyle}
           />
@@ -1386,6 +1411,67 @@ function formatMonthLabel(yyyymm: string): string {
 }
 
 function formatBRL(n: number): string {
+  return n.toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+/**
+ * Parse defensivo do valor digitado pelo usuário. Aceita:
+ *   "4000"        → 4000.00
+ *   "4000,50"     → 4000.50    (BR — vírgula decimal)
+ *   "4.000,50"    → 4000.50    (BR — ponto milhar + vírgula decimal)
+ *   "4000.50"     → 4000.50    (US — ponto decimal)
+ *   "4.000"       → 4000.00    (BR — ponto milhar, sem decimal)
+ *   "1.234.567,89"→ 1234567.89 (BR cheio)
+ *
+ * Heurística pra desambiguar 1 ponto sem vírgula:
+ *   - Se houver 1 ou 2 dígitos após → decimal (4000.50, 4000.5)
+ *   - Se houver 3 dígitos exatos    → milhar (4.000)
+ *   - Outros casos                  → decimal (parseFloat direto)
+ *
+ * Retorna string normalizada em formato US ("4000.00") pronta pro DB,
+ * ou null se for vazio/inválido.
+ */
+function parseAmountInput(s: string): string | null {
+  const trimmed = s.trim();
+  if (!trimmed) return null;
+  if (trimmed.includes(",")) {
+    const norm = trimmed.replace(/\./g, "").replace(",", ".");
+    const n = parseFloat(norm);
+    return isNaN(n) ? null : n.toFixed(2);
+  }
+  const parts = trimmed.split(".");
+  if (parts.length === 1) {
+    const n = parseFloat(trimmed);
+    return isNaN(n) ? null : n.toFixed(2);
+  }
+  if (parts.length > 2) {
+    const n = parseFloat(parts.join(""));
+    return isNaN(n) ? null : n.toFixed(2);
+  }
+  const dec = parts[1];
+  if (dec.length <= 2) {
+    const n = parseFloat(trimmed);
+    return isNaN(n) ? null : n.toFixed(2);
+  }
+  if (dec.length === 3) {
+    const n = parseFloat(parts.join(""));
+    return isNaN(n) ? null : n.toFixed(2);
+  }
+  const n = parseFloat(trimmed);
+  return isNaN(n) ? null : n.toFixed(2);
+}
+
+/**
+ * Formata um valor (do DB "4000.00" ou string limpa) pra exibição BR
+ * no input ("4.000,00"). Vazio/inválido vira "".
+ */
+function formatAmountInput(v: string | null | undefined): string {
+  if (!v) return "";
+  const n = parseFloat(v);
+  if (isNaN(n)) return "";
   return n.toLocaleString("pt-BR", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,

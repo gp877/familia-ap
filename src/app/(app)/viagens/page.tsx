@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import Link from "next/link";
 
 import { BigNumber, Card, Pill, SectionRow } from "@/components/ap/atoms";
@@ -10,7 +10,9 @@ import { ViewToggle } from "@/components/ap/view-toggle";
 import { createViagem, deleteViagem, patchViagem } from "@/app/actions/viagens";
 import { auth } from "@/auth";
 import { db } from "@/db";
-import { users, viagens } from "@/db/schema";
+import { travelDrafts, users, viagens } from "@/db/schema";
+
+import { TravelDraftGrid } from "./travel-draft-grid";
 
 function formatDateBr(d: string | null): string | null {
   if (!d) return null;
@@ -30,7 +32,7 @@ function daysFromToday(d: string | null): number | null {
   return Math.round((target.getTime() - today.getTime()) / 86_400_000);
 }
 
-type SearchParams = Promise<{ view?: string }>;
+type SearchParams = Promise<{ view?: string; draftYear?: string }>;
 
 export default async function ViagensPage({
   searchParams,
@@ -52,6 +54,27 @@ export default async function ViagensPage({
     where: eq(viagens.householdId, dbUser.householdId),
     orderBy: [desc(viagens.startDate), desc(viagens.createdAt)],
   });
+
+  // Rascunho do ano: anotação leve por mês ("Agosto: Noronha"). Não tem
+  // ligação com `viagens` cadastradas nem com roteiros.
+  const draftYear = sp.draftYear && /^\d{4}$/.test(sp.draftYear)
+    ? parseInt(sp.draftYear, 10)
+    : new Date().getFullYear();
+  const draftsRaw = await db.query.travelDrafts.findMany({
+    where: and(
+      eq(travelDrafts.householdId, dbUser.householdId),
+      eq(travelDrafts.year, draftYear)
+    ),
+    orderBy: [asc(travelDrafts.month)],
+  });
+  const draftsForGrid = draftsRaw.map((d) => ({
+    id: d.id,
+    year: d.year,
+    month: d.month,
+    title: d.title,
+    notes: d.notes,
+  }));
+  const draftYearOptions = [draftYear - 1, draftYear, draftYear + 1];
 
   const planned = all.filter((v) => v.status === "planned" || v.status === "in_progress");
   const past = all.filter((v) => v.status === "past");
@@ -99,6 +122,16 @@ export default async function ViagensPage({
         value={`${totalNights} noites`}
         sub={`${totalCities} ${totalCities === 1 ? "cidade" : "cidades"} · ${totalCountries} ${totalCountries === 1 ? "país" : "países"} · histórico de ${currentYear}`}
       />
+
+      {/* Rascunho do ano — anotações leves por mês. Independente das
+          viagens cadastradas abaixo (que têm datas, custo, status etc). */}
+      <div style={{ marginTop: 18 }}>
+        <TravelDraftGrid
+          year={draftYear}
+          drafts={draftsForGrid}
+          yearOptions={draftYearOptions}
+        />
+      </div>
 
       <div style={{ padding: "14px 0 0" }}>
         <InlineForm buttonLabel="Cadastrar viagem">

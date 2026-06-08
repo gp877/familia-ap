@@ -963,6 +963,33 @@ export const roteiros = pgTable(
   (r) => [index("roteiro_viagem_day_idx").on(r.viagemId, r.dayNumber)]
 );
 
+/**
+ * Rascunho anual de viagens — anotação leve por mês ("Agosto: Noronha",
+ * "Outubro: Ushuaia"). Sem vínculo com `viagens` ou `roteiros` — é só
+ * planejamento de alto nível pro ano.
+ */
+export const travelDrafts = pgTable(
+  "travel_draft",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    createdById: text("created_by_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    year: integer("year").notNull(),
+    month: integer("month").notNull(), // 1..12
+    title: text("title").notNull(),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("travel_draft_unique_per_month").on(t.householdId, t.year, t.month),
+  ]
+);
+
 // ============================================================
 // Passagens aéreas (segmentos de voo) ligadas à viagem
 // ============================================================

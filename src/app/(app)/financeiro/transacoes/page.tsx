@@ -7,6 +7,8 @@ import { BackButton } from "@/components/ap/inline-form";
 import { MonthChips } from "@/components/ap/month-chips";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import { TransactionsMultiSelect } from "@/components/ap/transactions-multi-select";
+
+import { InlineNewTransaction } from "./inline-new-transaction";
 import { auth } from "@/auth";
 import type { CategoryOption } from "@/components/category-select";
 import { db } from "@/db";
@@ -94,7 +96,9 @@ export default async function TransacoesPage({
   if (sp.uncategorized === "1") {
     conds.push(isNull(transactions.categoryId));
   }
-  // Expande filtro de conta: se selecionou raiz, inclui cartões filhos.
+  // Filtro de conta — preserva o vínculo conta→cartão: selecionar a conta
+  // raiz traz o extrato dela + as faturas dos cartões filhos (que vão pros
+  // 2 blocos separados abaixo). Selecionar um cartão específico traz só ele.
   const expandedAccountIds = expandAccountFilter(allAccounts, sp.account ?? null);
   if (expandedAccountIds) {
     conds.push(inArray(transactions.bankAccountId, expandedAccountIds));
@@ -176,6 +180,19 @@ export default async function TransacoesPage({
     splits: (tx.splits as Array<{ categoryId: string; amount: string; note?: string }> | null) ?? null,
   }));
 
+  // Separa transações em dois fluxos: EXTRATO (CC, poupança, investimento)
+  // e FATURA (cartão). Cada uma tem sua sequência de dias e fluxo próprio.
+  const accountTypeById = new Map(allAccounts.map((a) => [a.id, a.type]));
+  const statementTxs = txsForClient.filter(
+    (t) => t.bankAccountId && accountTypeById.get(t.bankAccountId) !== "credit_card"
+  );
+  const invoiceTxs = txsForClient.filter(
+    (t) => t.bankAccountId && accountTypeById.get(t.bankAccountId) === "credit_card"
+  );
+  // Transações órfãs (sem conta) caem no extrato por default
+  const orphanTxs = txsForClient.filter((t) => !t.bankAccountId);
+  const allStatementTxs = [...statementTxs, ...orphanTxs];
+
   // Preserva params na navegação
   const preservedParams: Record<string, string | undefined> = {
     status: sp.status,
@@ -211,31 +228,18 @@ export default async function TransacoesPage({
         icon="bag"
         label={activeAccount ? activeAccount.name : "Transações"}
         action={
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ fontSize: 11, color: "var(--muted)" }}>
-              {txs.length} de {totalAll}
-            </span>
-            <Link
-              href="/financeiro/transacoes/nova"
-              style={{
-                fontSize: 11,
-                fontWeight: 700,
-                padding: "4px 10px",
-                borderRadius: 999,
-                background: "color-mix(in oklab, var(--accent) 16%, transparent)",
-                color: "var(--accent)",
-                textDecoration: "none",
-              }}
-            >
-              + nova
-            </Link>
-          </div>
+          <span style={{ fontSize: 11, color: "var(--muted)" }}>
+            {txs.length} de {totalAll}
+          </span>
         }
       />
 
-      {/* Conta = PRIMEIRA ação. Cartões são nível 2, dentro da conta-mãe. */}
+      {/* Conta = PRIMEIRA ação. Modo flat: tudo lado a lado, sem
+          linha separada "cartões" — porque a tela já separa visualmente
+          Extrato e Fatura em blocos distintos abaixo. */}
       <AccountPicker
         basePath="/financeiro/transacoes"
+        flat
         accounts={allAccounts.map((a) => ({
           id: a.id,
           name: a.name,
@@ -277,15 +281,33 @@ export default async function TransacoesPage({
         </Link>
       </div>
 
-      <div style={{ padding: "12px 20px 4px" }}>
-        <div className="ap-num" style={{ fontSize: 28, color: "var(--ink)" }}>
-          − R$ {formatBRL(totalDebit)}
-        </div>
-        <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>
-          em despesas · receitas: R$ {formatBRL(totalCredit)}
-          {activeAccount ? ` · ${activeAccount.name}` : ""}
-        </div>
-      </div>
+      {/* Saldo do período (receitas − despesas). Sinal indica direção:
+          + verde quando sobrou, − padrão quando faltou. Detalhes de
+          receitas e despesas vão no sub. */}
+      {(() => {
+        const saldo = totalCredit - totalDebit;
+        const positive = saldo >= 0;
+        return (
+          <div style={{ padding: "12px 20px 4px" }}>
+            <div
+              className="ap-num"
+              style={{
+                fontSize: 28,
+                color: positive ? "var(--ok)" : "var(--ink)",
+              }}
+            >
+              {positive ? "+" : "−"} R$ {formatBRL(Math.abs(saldo))}
+            </div>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>
+              <span style={{ color: "var(--ok)" }}>+R$ {formatBRL(totalCredit)}</span>
+              {" receitas · "}
+              <span style={{ color: "var(--alert)" }}>−R$ {formatBRL(totalDebit)}</span>
+              {" despesas"}
+              {activeAccount ? ` · ${activeAccount.name}` : ""}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Pills de status */}
       <div style={{ padding: "14px 20px 0", display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -317,12 +339,87 @@ export default async function TransacoesPage({
         })}
       </div>
 
-      <div style={{ marginTop: 8 }}>
-        <TransactionsMultiSelect
-          transactions={txsForClient}
-          categoryOptions={categoryOptions}
-        />
-      </div>
+      {/* EXTRATO — conta corrente/poupança/investimento. Tem sua própria
+          sequência de dias e fluxo, separado da fatura do cartão.
+          Sempre renderiza (mesmo vazio) pra exibir o botão "+ lançar". */}
+      {(() => {
+        const statementAccounts = allAccounts
+          .filter((a) => a.type !== "credit_card")
+          .map((a) => ({ id: a.id, name: a.name, type: a.type }));
+        const statementDefaultAcc = activeAccount && activeAccount.type !== "credit_card"
+          ? activeAccount.id
+          : null;
+        const showStatementBlock = allStatementTxs.length > 0 || statementAccounts.length > 0;
+        if (!showStatementBlock) return null;
+        return (
+          <div style={{ marginTop: 16 }}>
+            <SectionRow
+              icon="bank"
+              label="Extrato"
+              action={
+                <span style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700 }}>
+                  {allStatementTxs.length} lançamento{allStatementTxs.length === 1 ? "" : "s"}
+                </span>
+              }
+            />
+            <div style={{ padding: "0 20px 4px" }}>
+              <InlineNewTransaction
+                accounts={statementAccounts}
+                categoryOptions={categoryOptions}
+                defaultAccountId={statementDefaultAcc}
+                blockLabel="Extrato"
+              />
+            </div>
+            {allStatementTxs.length > 0 && (
+              <TransactionsMultiSelect
+                transactions={allStatementTxs}
+                categoryOptions={categoryOptions}
+              />
+            )}
+          </div>
+        );
+      })()}
+
+      {/* FATURA — cartão de crédito. Separado pra não misturar a sequência
+          de dias do extrato com a do cartão. */}
+      {(() => {
+        const cardAccounts = allAccounts
+          .filter((a) => a.type === "credit_card")
+          .map((a) => ({ id: a.id, name: a.name, type: a.type }));
+        const cardDefaultAcc = activeAccount?.type === "credit_card"
+          ? activeAccount.id
+          : null;
+        const showInvoiceBlock = invoiceTxs.length > 0 || cardAccounts.length > 0;
+        if (!showInvoiceBlock) return null;
+        return (
+          <div style={{ marginTop: 16 }}>
+            <SectionRow
+              icon="bank"
+              label="Fatura"
+              action={
+                <span style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700 }}>
+                  {invoiceTxs.length} lançamento{invoiceTxs.length === 1 ? "" : "s"}
+                </span>
+              }
+            />
+            <div style={{ padding: "0 20px 4px" }}>
+              <InlineNewTransaction
+                accounts={cardAccounts}
+                categoryOptions={categoryOptions}
+                defaultAccountId={cardDefaultAcc}
+                defaultKind="debit"
+                blockLabel="Fatura"
+              />
+            </div>
+            {invoiceTxs.length > 0 && (
+              <TransactionsMultiSelect
+                transactions={invoiceTxs}
+                categoryOptions={categoryOptions}
+              />
+            )}
+          </div>
+        );
+      })()}
     </ScreenShell>
   );
 }

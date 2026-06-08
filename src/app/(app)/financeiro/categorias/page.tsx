@@ -1,4 +1,5 @@
 import { asc, eq, sql } from "drizzle-orm";
+import Link from "next/link";
 
 import { BigNumber, SectionRow } from "@/components/ap/atoms";
 import {
@@ -18,8 +19,18 @@ import { auth } from "@/auth";
 import { db } from "@/db";
 import { categories, transactions, users } from "@/db/schema";
 import { CategoryCard } from "./category-card";
+import { CompactView } from "./compact-view";
 
-export default async function CategoriasPage() {
+type SearchParams = Promise<{ view?: string }>;
+
+export default async function CategoriasPage({
+  searchParams,
+}: {
+  searchParams: SearchParams;
+}) {
+  const sp = await searchParams;
+  const isCompact = sp.view === "compact";
+
   const session = await auth();
   if (!session?.user?.id) return null;
 
@@ -68,6 +79,18 @@ export default async function CategoriasPage() {
       color: c.color,
       parentId: c.parentId,
       txCount: countByCategory.get(c.id) ?? 0,
+    };
+  }
+
+  // Versão "magra" pra serializar e mandar pro client da visão compacta —
+  // sem campos como sortOrder, createdAt etc que não importam ali.
+  function serializeCat(c: typeof all[number]) {
+    return {
+      id: c.id,
+      name: c.name,
+      kind: c.kind,
+      color: c.color,
+      parentId: c.parentId,
     };
   }
 
@@ -152,87 +175,126 @@ export default async function CategoriasPage() {
         </InlineForm>
       </div>
 
-      {/* DESPESAS */}
-      <SectionRow
-        icon="bag"
-        label="Despesas"
-        action={
-          <span
-            style={{
-              fontSize: 11,
-              fontWeight: 700,
-              color: "var(--alert)",
-              padding: "2px 8px",
-              borderRadius: 999,
-              background: "color-mix(in oklab, var(--alert) 18%, transparent)",
-            }}
-          >
-            {expenseParents.length}
-          </span>
-        }
-      />
-      <div style={{ padding: "0 20px" }}>
-        {expenseParents.length > 0 ? (
-          <SortableList
-            action={reorderCategoriasForm}
-            items={expenseParents.map((cat) => ({
-              id: cat.id,
-              content: (
-                <CategoryCard
-                  cat={toCardLite(cat)}
-                  subs={childrenOf(cat.id).map(toCardLite)}
-                  totalCount={totalCount(cat.id)}
-                  mergeOptions={mergeOptionsFor(cat.id, "expense")}
-                />
-              ),
-            }))}
-          />
-        ) : (
-          <EmptyHint text="Sem categorias de despesa ainda." />
-        )}
+      {/* Toggle de visualização */}
+      <div style={{ padding: "0 20px 12px", display: "flex", gap: 4, justifyContent: "flex-end" }}>
+        <Link href="/financeiro/categorias" style={toggleStyle(!isCompact)}>
+          Detalhada
+        </Link>
+        <Link href="/financeiro/categorias?view=compact" style={toggleStyle(isCompact)}>
+          Compacta
+        </Link>
       </div>
 
-      {/* RECEITAS */}
-      <SectionRow
-        icon="bag"
-        label="Receitas"
-        action={
-          <span
-            style={{
-              fontSize: 11,
-              fontWeight: 700,
-              color: "var(--ok)",
-              padding: "2px 8px",
-              borderRadius: 999,
-              background: "color-mix(in oklab, var(--ok) 18%, transparent)",
-            }}
-          >
-            {incomeParents.length}
-          </span>
-        }
-      />
-      <div style={{ padding: "0 20px 20px" }}>
-        {incomeParents.length > 0 ? (
-          <SortableList
-            action={reorderCategoriasForm}
-            items={incomeParents.map((cat) => ({
-              id: cat.id,
-              content: (
-                <CategoryCard
-                  cat={toCardLite(cat)}
-                  subs={childrenOf(cat.id).map(toCardLite)}
-                  totalCount={totalCount(cat.id)}
-                  mergeOptions={mergeOptionsFor(cat.id, "income")}
-                />
-              ),
-            }))}
+      {isCompact ? (
+        <CompactView
+          expenseParents={expenseParents.map(serializeCat)}
+          incomeParents={incomeParents.map(serializeCat)}
+          childrenByParent={Object.fromEntries(
+            [...expenseParents, ...incomeParents].map((p) => [
+              p.id,
+              childrenOf(p.id).map(serializeCat),
+            ])
+          )}
+          countByCategory={Object.fromEntries(countByCategory.entries())}
+        />
+      ) : (
+        <>
+          {/* DESPESAS */}
+          <SectionRow
+            icon="bag"
+            label="Despesas"
+            action={
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: "var(--alert)",
+                  padding: "2px 8px",
+                  borderRadius: 999,
+                  background: "color-mix(in oklab, var(--alert) 18%, transparent)",
+                }}
+              >
+                {expenseParents.length}
+              </span>
+            }
           />
-        ) : (
-          <EmptyHint text="Sem categorias de receita ainda." />
-        )}
-      </div>
+          <div style={{ padding: "0 20px" }}>
+            {expenseParents.length > 0 ? (
+              <SortableList
+                action={reorderCategoriasForm}
+                items={expenseParents.map((cat) => ({
+                  id: cat.id,
+                  content: (
+                    <CategoryCard
+                      cat={toCardLite(cat)}
+                      subs={childrenOf(cat.id).map(toCardLite)}
+                      totalCount={totalCount(cat.id)}
+                      mergeOptions={mergeOptionsFor(cat.id, "expense")}
+                    />
+                  ),
+                }))}
+              />
+            ) : (
+              <EmptyHint text="Sem categorias de despesa ainda." />
+            )}
+          </div>
+
+          {/* RECEITAS */}
+          <SectionRow
+            icon="bag"
+            label="Receitas"
+            action={
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: "var(--ok)",
+                  padding: "2px 8px",
+                  borderRadius: 999,
+                  background: "color-mix(in oklab, var(--ok) 18%, transparent)",
+                }}
+              >
+                {incomeParents.length}
+              </span>
+            }
+          />
+          <div style={{ padding: "0 20px 20px" }}>
+            {incomeParents.length > 0 ? (
+              <SortableList
+                action={reorderCategoriasForm}
+                items={incomeParents.map((cat) => ({
+                  id: cat.id,
+                  content: (
+                    <CategoryCard
+                      cat={toCardLite(cat)}
+                      subs={childrenOf(cat.id).map(toCardLite)}
+                      totalCount={totalCount(cat.id)}
+                      mergeOptions={mergeOptionsFor(cat.id, "income")}
+                    />
+                  ),
+                }))}
+              />
+            ) : (
+              <EmptyHint text="Sem categorias de receita ainda." />
+            )}
+          </div>
+        </>
+      )}
     </ScreenShell>
   );
+}
+
+function toggleStyle(active: boolean): React.CSSProperties {
+  return {
+    padding: "4px 12px",
+    borderRadius: 999,
+    fontSize: 11,
+    fontWeight: 700,
+    background: active ? "var(--ink)" : "transparent",
+    color: active ? "var(--bg)" : "var(--muted-d)",
+    border: active ? "none" : "0.5px solid var(--line-d)",
+    textDecoration: "none",
+  };
 }
 
 function EmptyHint({ text }: { text: string }) {

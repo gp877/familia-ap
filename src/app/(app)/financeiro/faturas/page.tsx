@@ -8,7 +8,9 @@ import { ScreenShell } from "@/components/ap/screen-shell";
 import { createInvoice } from "@/app/actions/invoices";
 import { auth } from "@/auth";
 import { db } from "@/db";
-import { bankAccounts, invoices, transactions, users } from "@/db/schema";
+import { bankAccounts, invoices, transactions, uploads, users } from "@/db/schema";
+
+import { InvoiceActions } from "../_components/upload-actions";
 
 function formatBRL(n: number) {
   return n.toLocaleString("pt-BR", {
@@ -86,6 +88,27 @@ export default async function FaturasPage({
     with: { bankAccount: true },
     orderBy: [desc(invoices.referenceMonth)],
   });
+
+  // Mapa invoiceId → upload vinculado (pra exibir botão Ver PDF). Uma
+  // invoice pode ter 0 ou 1+ uploads — pegamos qualquer um com blob válido.
+  const linkedUploads = await db
+    .select({
+      invoiceId: uploads.invoiceId,
+      blobUrl: uploads.blobUrl,
+    })
+    .from(uploads)
+    .where(
+      and(
+        eq(uploads.householdId, dbUser.householdId),
+        sql`${uploads.invoiceId} IS NOT NULL`
+      )
+    );
+  const uploadByInvoiceId = new Map<string, { blobUrl: string | null }>();
+  for (const u of linkedUploads) {
+    if (u.invoiceId && !uploadByInvoiceId.has(u.invoiceId)) {
+      uploadByInvoiceId.set(u.invoiceId, { blobUrl: u.blobUrl });
+    }
+  }
 
   const itemCountById = new Map<string, { count: number; total: number }>();
   for (const r of itemCounts) {
@@ -222,6 +245,7 @@ export default async function FaturasPage({
                   inv={inv}
                   stats={stats}
                   parentName={parent?.name ?? null}
+                  blobUrl={uploadByInvoiceId.get(inv.id)?.blobUrl ?? null}
                 />
               );
             })}
@@ -244,6 +268,7 @@ export default async function FaturasPage({
                   inv={inv}
                   stats={stats}
                   parentName={parent?.name ?? null}
+                  blobUrl={uploadByInvoiceId.get(inv.id)?.blobUrl ?? null}
                   paid
                 />
               );
@@ -264,11 +289,13 @@ function FaturaCard({
   stats,
   parentName,
   paid,
+  blobUrl,
 }: {
   inv: InvoiceWithBank;
   stats?: { count: number; total: number };
   parentName?: string | null;
   paid?: boolean;
+  blobUrl?: string | null;
 }) {
   const totalAmount = inv.totalAmount
     ? parseFloat(inv.totalAmount)
@@ -372,6 +399,12 @@ function FaturaCard({
             </div>
           </div>
         </div>
+        <InvoiceActions
+          invoiceId={inv.id}
+          blobUrl={blobUrl ?? null}
+          referenceMonth={inv.referenceMonth}
+          txCount={stats?.count ?? 0}
+        />
       </Card>
     </Link>
   );

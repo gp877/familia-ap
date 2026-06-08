@@ -15,21 +15,56 @@ function parseMonthDay(input: string): string {
   throw new Error("Data inválida (use MM-DD ou YYYY-MM-DD)");
 }
 
+/**
+ * Resolve campos de nascimento a partir do form. Aceita:
+ *   - `birthDate` (YYYY-MM-DD) → extrai monthDay + birthYear
+ *   - `monthDay` (legado) + `birthYear` separados
+ *
+ * Retorna `null` em monthDay quando o form não tinha nenhum dos dois.
+ * Retorna birthYear=null quando vier só MM-DD ou birthYear vazio.
+ */
+function readBirthFields(formData: FormData): {
+  monthDay: string | null;
+  birthYear: number | null;
+} {
+  const birthDateRaw = (formData.get("birthDate") as string | null)?.trim();
+  if (birthDateRaw) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(birthDateRaw)) {
+      return {
+        monthDay: birthDateRaw.slice(5),
+        birthYear: parseInt(birthDateRaw.slice(0, 4), 10),
+      };
+    }
+    // ano omitido (formato MM-DD ou --MM-DD)
+    if (/^-?-?\d{2}-\d{2}$/.test(birthDateRaw)) {
+      return {
+        monthDay: birthDateRaw.replace(/^-+/, ""),
+        birthYear: null,
+      };
+    }
+  }
+  const monthDayRaw = (formData.get("monthDay") as string | null)?.trim();
+  const birthYearRaw = (formData.get("birthYear") as string | null)?.trim();
+  return {
+    monthDay: monthDayRaw ? parseMonthDay(monthDayRaw) : null,
+    birthYear: birthYearRaw ? parseInt(birthYearRaw, 10) || null : null,
+  };
+}
+
 export async function createAniversario(formData: FormData) {
   const { householdId, userId } = await requireUserAndHousehold();
   const name = (formData.get("name") as string)?.trim();
-  const monthDayRaw = formData.get("monthDay") as string;
-  if (!name || !monthDayRaw) throw new Error("Nome e data obrigatórios");
+  if (!name) throw new Error("Nome obrigatório");
 
-  const birthYearRaw = (formData.get("birthYear") as string)?.trim();
-  const birthYear = birthYearRaw ? parseInt(birthYearRaw, 10) : null;
+  const { monthDay, birthYear } = readBirthFields(formData);
+  if (!monthDay) throw new Error("Data de nascimento obrigatória");
 
   await db.insert(aniversarios).values({
     householdId,
     createdById: userId,
     name,
-    monthDay: parseMonthDay(monthDayRaw),
-    birthYear: birthYear || null,
+    monthDay,
+    birthYear,
     relation: ((formData.get("relation") as string) || "").trim() || null,
     notes: ((formData.get("notes") as string) || "").trim() || null,
   });
@@ -50,17 +85,17 @@ export async function updateAniversario(formData: FormData) {
   }
 
   const name = (formData.get("name") as string)?.trim();
-  const monthDayRaw = formData.get("monthDay") as string;
-  if (!name || !monthDayRaw) throw new Error("Nome e data obrigatórios");
+  if (!name) throw new Error("Nome obrigatório");
 
-  const birthYearRaw = (formData.get("birthYear") as string)?.trim();
+  const { monthDay, birthYear } = readBirthFields(formData);
+  if (!monthDay) throw new Error("Data de nascimento obrigatória");
 
   await db
     .update(aniversarios)
     .set({
       name,
-      monthDay: parseMonthDay(monthDayRaw),
-      birthYear: birthYearRaw ? parseInt(birthYearRaw, 10) || null : null,
+      monthDay,
+      birthYear,
       relation: ((formData.get("relation") as string) || "").trim() || null,
       notes: ((formData.get("notes") as string) || "").trim() || null,
     })
@@ -83,6 +118,21 @@ export async function patchAniversario(formData: FormData) {
   if (formData.has("name")) {
     const v = ((formData.get("name") as string) || "").trim();
     if (v) patch.name = v;
+  }
+  // Aceita o campo unificado `birthDate` (YYYY-MM-DD) — atualiza monthDay
+  // e birthYear de uma só vez. Mantém também o suporte aos campos antigos
+  // pra retrocompatibilidade com chamadas inline existentes.
+  if (formData.has("birthDate")) {
+    const v = ((formData.get("birthDate") as string) || "").trim();
+    if (v) {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(v)) {
+        patch.monthDay = v.slice(5);
+        patch.birthYear = parseInt(v.slice(0, 4), 10);
+      } else if (/^-?-?\d{2}-\d{2}$/.test(v)) {
+        patch.monthDay = v.replace(/^-+/, "");
+        patch.birthYear = null;
+      }
+    }
   }
   if (formData.has("monthDay")) {
     const v = ((formData.get("monthDay") as string) || "").trim();

@@ -120,6 +120,13 @@
       "when": 1780700000000,
       "tag": "0016_recurring_pix_barcode",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1780750000000,
+      "tag": "0017_travel_drafts",
+      "breakpoints": true
     }
   ]
 }

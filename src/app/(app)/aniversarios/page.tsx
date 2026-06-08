@@ -155,21 +155,9 @@ export default async function AniversariosPage({
             <FormField label="Nome *">
               <input name="name" required autoFocus placeholder="Vó Inês" style={fieldStyle} />
             </FormField>
-            <div style={{ display: "grid", gap: 8, gridTemplateColumns: "1fr 1fr" }}>
-              <FormField label="Nascimento *" hint="usa só dia/mês">
-                <input type="date" name="monthDay" required style={fieldStyle} />
-              </FormField>
-              <FormField label="Ano (opcional)">
-                <input
-                  type="number"
-                  name="birthYear"
-                  placeholder="1948"
-                  min="1900"
-                  max={new Date().getFullYear()}
-                  style={fieldStyle}
-                />
-              </FormField>
-            </div>
+            <FormField label="Data de nascimento *" hint="dia, mês e ano — pra calcular a idade automaticamente">
+              <input type="date" name="birthDate" required style={fieldStyle} />
+            </FormField>
             <FormField label="Relação">
               <input name="relation" placeholder="avó, sobrinho..." style={fieldStyle} />
             </FormField>
@@ -181,7 +169,7 @@ export default async function AniversariosPage({
       {isAnual ? (
         <AnualView byMonth={byMonth} currentMonth={currentMonth} />
       ) : (
-      <div style={{ padding: "16px 16px 0", display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ padding: "10px 16px 0", display: "flex", flexDirection: "column", gap: 4 }}>
         {sorted.map((aniv, idx) => {
           const m = parseInt(aniv.monthDay.split("-")[0], 10);
           const d = parseInt(aniv.monthDay.split("-")[1], 10);
@@ -191,26 +179,27 @@ export default async function AniversariosPage({
               key={aniv.id}
               style={{
                 background: "var(--card)",
-                borderRadius: 16,
+                borderRadius: 10,
                 border: isNext ? "1px solid var(--accent)" : "0.5px solid var(--line-d)",
                 overflow: "hidden",
               }}
             >
-              {/* Header: data + nome editável + dias + delete (fora de qualquer summary) */}
+              {/* Header compacto: data | nome+relação+idade | dias | delete */}
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "56px 1fr auto auto",
+                  gridTemplateColumns: "38px 1fr auto auto",
                   alignItems: "center",
-                  gap: 12,
-                  padding: "12px 14px",
+                  gap: 10,
+                  padding: "6px 10px",
+                  minHeight: 40,
                 }}
               >
-                <div style={{ textAlign: "center" }}>
+                <div style={{ textAlign: "center", lineHeight: 1 }}>
                   <div
                     className="ap-num"
                     style={{
-                      fontSize: 22,
+                      fontSize: 17,
                       fontWeight: 800,
                       lineHeight: 1,
                       color: isNext ? "var(--accent)" : "var(--ink)",
@@ -221,107 +210,84 @@ export default async function AniversariosPage({
                   </div>
                   <div
                     style={{
-                      fontSize: 9,
+                      fontSize: 8.5,
                       fontWeight: 800,
-                      letterSpacing: "0.16em",
+                      letterSpacing: "0.14em",
                       textTransform: "uppercase",
                       color: "var(--muted)",
-                      marginTop: 3,
+                      marginTop: 2,
                     }}
                   >
                     {MONTH_LABEL[m - 1]}
                   </div>
                 </div>
 
-                <div style={{ minWidth: 0 }}>
-                  <InlineEditInput
-                    initialValue={aniv.name}
-                    action={patchAniversario}
-                    hiddenFields={{ id: aniv.id }}
-                    fieldName="name"
-                    fontSize={16}
-                    fontWeight={700}
-                  />
-                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                {/* Nome + idade em destaque na linha 1; relação (se houver)
+                    na linha 2 dim. Edição de ano fica no expandable abaixo
+                    pra não poluir esse header. */}
+                <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 1 }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "baseline",
+                      gap: 6,
+                      flexWrap: "wrap",
+                      rowGap: 0,
+                    }}
+                  >
                     <InlineEditInput
-                      initialValue={aniv.relation ?? ""}
+                      initialValue={aniv.name}
+                      action={patchAniversario}
+                      hiddenFields={{ id: aniv.id }}
+                      fieldName="name"
+                      fontSize={13.5}
+                      fontWeight={700}
+                    />
+                    {aniv.currentAge !== null && (
+                      <span
+                        title={`Vai fazer ${aniv.nextAge} em ${aniv.days === 0 ? "hoje" : `${aniv.days} dia${aniv.days === 1 ? "" : "s"}`}`}
+                        className="ap-num"
+                        style={{
+                          fontSize: 13.5,
+                          fontWeight: 800,
+                          color: "var(--accent)",
+                          letterSpacing: "-0.01em",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {aniv.currentAge}
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 600,
+                            color: "var(--muted)",
+                            marginLeft: 2,
+                            letterSpacing: 0,
+                          }}
+                        >
+                          anos
+                        </span>
+                      </span>
+                    )}
+                  </div>
+                  {aniv.relation && (
+                    <InlineEditInput
+                      initialValue={aniv.relation}
                       action={patchAniversario}
                       hiddenFields={{ id: aniv.id }}
                       fieldName="relation"
-                      placeholder="+ relação"
-                      fontSize={12}
+                      fontSize={10.5}
                       color="var(--muted-d)"
                     />
-                    {aniv.currentAge !== null ? (
-                      <span
-                        title={`Vai fazer ${aniv.nextAge} em ${aniv.days === 0 ? "hoje" : `${aniv.days} dia${aniv.days === 1 ? "" : "s"}`}`}
-                        style={{
-                          fontSize: 10.5,
-                          fontWeight: 700,
-                          padding: "2px 8px",
-                          borderRadius: 999,
-                          background: "color-mix(in oklab, var(--accent) 14%, transparent)",
-                          color: "var(--accent)",
-                          whiteSpace: "nowrap",
-                          letterSpacing: "0.02em",
-                        }}
-                      >
-                        {aniv.currentAge} anos · faz {aniv.nextAge}
-                      </span>
-                    ) : (
-                      <details>
-                        <summary
-                          style={{
-                            cursor: "pointer",
-                            listStyle: "none",
-                            fontSize: 10.5,
-                            color: "var(--muted)",
-                            fontStyle: "italic",
-                          }}
-                        >
-                          + adicionar ano
-                        </summary>
-                        <form action={patchAniversario} style={{ display: "inline-flex", gap: 4, marginTop: 4 }}>
-                          <input type="hidden" name="id" value={aniv.id} />
-                          <input
-                            name="birthYear"
-                            type="number"
-                            placeholder="ex: 1980"
-                            min="1900"
-                            max={new Date().getFullYear()}
-                            style={{
-                              ...fieldStyle,
-                              width: 90,
-                              padding: "2px 6px",
-                              fontSize: 11.5,
-                            }}
-                          />
-                          <button
-                            type="submit"
-                            style={{
-                              padding: "2px 8px",
-                              fontSize: 10.5,
-                              borderRadius: 6,
-                              border: "0.5px solid var(--accent)",
-                              background: "var(--accent)",
-                              color: "var(--accent-on)",
-                              fontWeight: 700,
-                              cursor: "pointer",
-                            }}
-                          >
-                            ok
-                          </button>
-                        </form>
-                      </details>
-                    )}
-                  </div>
+                  )}
                 </div>
 
                 <span
                   style={{
-                    fontSize: 11,
+                    fontSize: 10.5,
                     color: aniv.days < 10 ? "var(--accent)" : "var(--muted)",
                     fontWeight: 700,
+                    whiteSpace: "nowrap",
                   }}
                 >
                   {aniv.days === 0 ? "hoje" : `${aniv.days}d`}
@@ -339,8 +305,8 @@ export default async function AniversariosPage({
                   style={{
                     cursor: "pointer",
                     listStyle: "none",
-                    padding: "8px 14px",
-                    fontSize: 11,
+                    padding: "5px 10px",
+                    fontSize: 10,
                     color: "var(--muted)",
                     fontWeight: 700,
                     letterSpacing: "0.04em",
@@ -348,20 +314,60 @@ export default async function AniversariosPage({
                     userSelect: "none",
                   }}
                 >
-                  + ano, notas, presentes
+                  + data, notas, presentes
                 </summary>
                 <div style={{ padding: "4px 14px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                     <div>
-                      <div className="ap-eyebrow" style={{ fontSize: 9 }}>ano de nascimento</div>
-                      <InlineEditInput
-                        initialValue={aniv.birthYear ? String(aniv.birthYear) : ""}
+                      <div className="ap-eyebrow" style={{ fontSize: 9 }}>data de nascimento</div>
+                      <form
                         action={patchAniversario}
-                        hiddenFields={{ id: aniv.id }}
-                        fieldName="birthYear"
-                        placeholder="ex: 1948"
-                        fontSize={13}
-                      />
+                        style={{ display: "flex", gap: 4, alignItems: "center" }}
+                      >
+                        <input type="hidden" name="id" value={aniv.id} />
+                        <input
+                          type="date"
+                          name="birthDate"
+                          defaultValue={
+                            aniv.birthYear
+                              ? `${aniv.birthYear}-${aniv.monthDay}`
+                              : ""
+                          }
+                          style={{
+                            ...fieldStyle,
+                            padding: "4px 8px",
+                            fontSize: 12.5,
+                            flex: 1,
+                          }}
+                        />
+                        <button
+                          type="submit"
+                          style={{
+                            padding: "4px 10px",
+                            borderRadius: 6,
+                            background: "var(--accent)",
+                            color: "var(--accent-on)",
+                            border: "none",
+                            fontSize: 11,
+                            fontWeight: 700,
+                            cursor: "pointer",
+                          }}
+                        >
+                          ok
+                        </button>
+                      </form>
+                      {!aniv.birthYear && (
+                        <div
+                          style={{
+                            fontSize: 10,
+                            color: "var(--muted)",
+                            marginTop: 3,
+                            fontStyle: "italic",
+                          }}
+                        >
+                          sem ano cadastrado — adicione pra calcular idade
+                        </div>
+                      )}
                     </div>
                     <div>
                       <div className="ap-eyebrow" style={{ fontSize: 9 }}>notas</div>
@@ -465,6 +471,9 @@ function AnualView({
         padding: "20px 16px 0",
         display: "grid",
         gridTemplateColumns: "1fr 1fr",
+        // Linhas com altura uniforme — cards vazios ficam do mesmo tamanho
+        // que os preenchidos. Layout regular vence densidade aqui.
+        gridAutoRows: "1fr",
         gap: 10,
       }}
     >

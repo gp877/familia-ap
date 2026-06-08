@@ -22,7 +22,8 @@ type IconName =
   | "search"
   | "bank"
   | "bell"
-  | "cutlery";
+  | "cutlery"
+  | "card";
 
 type Props = {
   name: IconName;
@@ -179,6 +180,14 @@ const paths: Record<IconName, (c: string) => React.ReactNode> = {
     <>
       <path d="M6 8a6 6 0 0112 0c0 7 3 9 3 9H3s3-2 3-9" />
       <path d="M10 21a2 2 0 004 0" />
+    </>
+  ),
+  // Cartão de crédito — retângulo arredondado com tarja preta no topo.
+  card: () => (
+    <>
+      <rect x="3" y="6" width="18" height="14" rx="2" />
+      <line x1="3" y1="11" x2="21" y2="11" />
+      <line x1="7" y1="16" x2="11" y2="16" />
     </>
   ),
   // Garfo (esquerda) + faca (direita) — ícone do Cardápio.

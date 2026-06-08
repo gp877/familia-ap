@@ -9,6 +9,8 @@ import { auth } from "@/auth";
 import { db } from "@/db";
 import { bankAccounts, transactions, uploads, users } from "@/db/schema";
 
+import { StatementActions } from "../_components/upload-actions";
+
 function formatBRL(n: number) {
   return n.toLocaleString("pt-BR", {
     minimumFractionDigits: 2,
@@ -449,6 +451,12 @@ function ExtratoCard({
             </div>
           </div>
         </div>
+        <StatementActions
+          uploadId={entry.upload.id}
+          blobUrl={entry.upload.blobUrl}
+          filename={entry.upload.filename}
+          txCount={entry.count}
+        />
       </Card>
     </Link>
   );

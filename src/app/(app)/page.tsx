@@ -1,5 +1,6 @@
 import { asc, desc, eq, gte, sql } from "drizzle-orm";
 import Link from "next/link";
+import React from "react";
 
 import { BigNumber, Card, ListRow, SectionRow } from "@/components/ap/atoms";
 import { ScreenShell } from "@/components/ap/screen-shell";
@@ -107,9 +108,13 @@ export default async function InicioPage() {
   const txCount = monthStats?.count ?? 0;
   const pendingCount = monthStats?.pending ?? 0;
   const nextTrip = upcomingTrips[0];
-  const nextAniv = allAniv
+  // Todos os aniversários dentro de 60 dias — não só o mais próximo.
+  // Isso garante que TODOS os próximos aniversários aparecem no feed na
+  // ordem certa (ex: Sarah em 3d antes da Maria em 25d).
+  const upcomingAnivs = allAniv
     .map((a) => ({ ...a, days: daysUntilMD(a.monthDay) }))
-    .sort((a, b) => a.days - b.days)[0];
+    .filter((a) => a.days <= 60)
+    .sort((a, b) => a.days - b.days);
 
   const greeting = (() => {
     const h = new Date().getHours();
@@ -171,87 +176,128 @@ export default async function InicioPage() {
       {/* Pendentes / próximos eventos */}
       <SectionRow icon="cal" label="O que vem por aí" />
 
+      {/* Feed unificado em ordem cronológica: compromissos, viagem e
+          aniversários convivem por proximidade — a Sarah em 3d vem antes
+          do João em 25d, mesmo de tipos diferentes. Pendências (sem data)
+          ficam no final. */}
       <div style={{ padding: "0 20px" }}>
-        {nextCompromissos.length > 0 ? (
-          nextCompromissos.map((c) => {
+        {(() => {
+          type FeedItem = {
+            key: string;
+            days: number;
+            render: (last: boolean) => React.ReactNode;
+          };
+          const items: FeedItem[] = [];
+
+          for (const c of nextCompromissos) {
             const d = daysUntilDate(c.occurredOn);
+            items.push({
+              key: `c-${c.id}`,
+              days: d,
+              render: (last) => (
+                <ListRow
+                  icon="cal"
+                  title={c.title}
+                  sub={
+                    d === 0
+                      ? `hoje${c.time ? ` · ${c.time}` : ""}`
+                      : d === 1
+                        ? "amanhã"
+                        : `em ${d} dias`
+                  }
+                  value={
+                    c.who ? (
+                      <span style={{ fontSize: 11, color: "var(--muted)" }}>{c.who}</span>
+                    ) : undefined
+                  }
+                  last={last}
+                />
+              ),
+            });
+          }
+
+          if (nextTrip?.startDate) {
+            const d = daysUntilDate(nextTrip.startDate);
+            items.push({
+              key: `t-${nextTrip.id}`,
+              days: d,
+              render: (last) => (
+                <ListRow
+                  icon="plane"
+                  title={nextTrip.title}
+                  sub={`próxima viagem · em ${d} dias`}
+                  value={
+                    nextTrip.destinationCountry ? (
+                      <span style={{ fontSize: 11, fontWeight: 700 }}>
+                        {nextTrip.destinationCountry.toUpperCase()}
+                      </span>
+                    ) : undefined
+                  }
+                  last={last}
+                />
+              ),
+            });
+          }
+
+          for (const a of upcomingAnivs) {
+            items.push({
+              key: `a-${a.id}`,
+              days: a.days,
+              render: (last) => (
+                <ListRow
+                  icon="cake"
+                  title={`Aniversário · ${a.name}`}
+                  sub={a.days === 0 ? "hoje" : a.days === 1 ? "amanhã" : `em ${a.days} dias`}
+                  value={
+                    a.birthYear ? (
+                      <span style={{ fontSize: 11, color: "var(--muted)" }}>
+                        faz {new Date().getFullYear() - a.birthYear}
+                      </span>
+                    ) : undefined
+                  }
+                  last={last}
+                />
+              ),
+            });
+          }
+
+          items.sort((x, y) => x.days - y.days);
+
+          if (items.length === 0 && pendingCount === 0) {
             return (
-              <ListRow
-                key={c.id}
-                icon="cal"
-                title={c.title}
-                sub={
-                  d === 0
-                    ? `hoje${c.time ? ` · ${c.time}` : ""}`
-                    : d === 1
-                      ? "amanhã"
-                      : `em ${d} dias`
-                }
-                value={
-                  c.who ? (
-                    <span style={{ fontSize: 11, color: "var(--muted)" }}>{c.who}</span>
-                  ) : undefined
-                }
-              />
+              <ListRow icon="cal" title="Compromissos" sub="sem nada agendado" value="—" last />
             );
-          })
-        ) : (
-          <ListRow icon="cal" title="Compromissos" sub="sem nada agendado" value="—" last />
-        )}
+          }
 
-        {nextTrip && (
-          <ListRow
-            icon="plane"
-            title={nextTrip.title}
-            sub={
-              nextTrip.startDate
-                ? `próxima viagem · em ${daysUntilDate(nextTrip.startDate)} dias`
-                : "próxima viagem"
-            }
-            value={
-              nextTrip.destinationCountry ? (
-                <span style={{ fontSize: 11, fontWeight: 700 }}>
-                  {nextTrip.destinationCountry.toUpperCase()}
-                </span>
-              ) : undefined
-            }
-          />
-        )}
-
-        {nextAniv && nextAniv.days <= 60 && (
-          <ListRow
-            icon="cake"
-            title={`Aniversário · ${nextAniv.name}`}
-            sub={nextAniv.days === 0 ? "hoje" : `em ${nextAniv.days} dias`}
-            value={
-              nextAniv.birthYear ? (
-                <span style={{ fontSize: 11, color: "var(--muted)" }}>
-                  faz {new Date().getFullYear() - nextAniv.birthYear + (nextAniv.days > 0 ? 0 : 0)}
-                </span>
-              ) : undefined
-            }
-            last={!pendingCount}
-          />
-        )}
-
-        {pendingCount > 0 && (
-          <Link
-            href="/financeiro/transacoes?status=pending"
-            style={{ textDecoration: "none", color: "inherit" }}
-          >
-            <ListRow
-              icon="bag"
-              title="Transações pendentes"
-              sub="revisar e classificar"
-              value={
-                <span className="ap-num" style={{ fontSize: 16, color: "var(--accent)" }}>
-                  {pendingCount}
-                </span>
-              }
-              last
-            />
-          </Link>
-        )}
+          const lastFeedIdx = items.length - 1;
+          return (
+            <>
+              {items.map((it, i) => (
+                <React.Fragment key={it.key}>
+                  {it.render(i === lastFeedIdx && pendingCount === 0)}
+                </React.Fragment>
+              ))}
+              {pendingCount > 0 && (
+                <Link
+                  href="/financeiro/transacoes?status=pending"
+                  style={{ textDecoration: "none", color: "inherit" }}
+                >
+                  <ListRow
+                    icon="bag"
+                    title="Transações pendentes"
+                    sub="revisar e classificar"
+                    value={
+                      <span className="ap-num" style={{ fontSize: 16, color: "var(--accent)" }}>
+                        {pendingCount}
+                      </span>
+                    }
+                    last
+                  />
+                </Link>
+              )}
+            </>
+          );
+        })()}
       </div>
 
       {/* Carrossel de sonhos (linha horizontal) */}
