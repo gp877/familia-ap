@@ -3,11 +3,13 @@
 import { useState, useTransition } from "react";
 
 import { DeleteBtn } from "@/components/ap/inline-form";
+import { SortableList } from "@/components/ap/sortable-list";
 import { DragHandle } from "@/components/ap/sortable-list";
 import { InlineEditInput } from "@/components/ap/inline-edit-input";
 import {
   deleteCategoriaWithMerge,
   patchCategoria,
+  reorderCategoriasForm,
 } from "@/app/actions/categorias";
 
 type CatLite = {
@@ -83,16 +85,21 @@ export function CategoryCard({
         <DeleteWithMerge cat={cat} mergeOptions={mergeOptions} />
       </div>
 
-      {/* Subcategorias */}
+      {/* Subcategorias — arrastáveis pra reordenar entre si */}
       {subs.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 4, paddingLeft: 28 }}>
-          {subs.map((sub) => (
-            <SubcategoryRow
-              key={sub.id}
-              sub={sub}
-              mergeOptions={mergeOptions.filter((m) => m.id !== sub.id)}
-            />
-          ))}
+        <div style={{ paddingLeft: 28 }}>
+          <SortableList
+            action={reorderCategoriasForm}
+            items={subs.map((sub) => ({
+              id: sub.id,
+              content: (
+                <SubcategoryRow
+                  sub={sub}
+                  mergeOptions={mergeOptions.filter((m) => m.id !== sub.id)}
+                />
+              ),
+            }))}
+          />
         </div>
       )}
     </div>
@@ -119,6 +126,7 @@ function SubcategoryRow({
         background: "var(--card2)",
       }}
     >
+      <DragHandle />
       <span
         style={{
           width: 8,
