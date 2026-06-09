@@ -58,7 +58,7 @@ export async function patchCategoria(formData: FormData) {
   if (!existing || existing.householdId !== householdId) return;
 
   const patch: Record<string, string | null> = {};
-  for (const key of ["name", "color", "icon"]) {
+  for (const key of ["name", "color", "icon", "notes"]) {
     if (formData.has(key)) {
       const v = ((formData.get(key) as string) || "").trim();
       if (key === "name" && !v) continue;

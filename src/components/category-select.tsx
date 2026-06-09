@@ -17,6 +17,8 @@ export type CategoryOption = {
   parentId: string | null;
   color: string | null;
   kind: "expense" | "income";
+  /** Nota informativa livre — usado como tooltip discreto em /transacoes. */
+  notes?: string | null;
 };
 
 type Props = {
@@ -171,6 +173,7 @@ export function CategorySelect({
         type="button"
         onClick={() => setOpen((v) => !v)}
         disabled={isPending}
+        title={current?.notes ?? undefined}
         style={{
           display: "inline-flex",
           alignItems: "center",
@@ -216,6 +219,23 @@ export function CategorySelect({
         <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
           {isInternal ? "↔ interna" : current ? current.label : "categorizar"}
         </span>
+        {current?.notes && (
+          <span
+            aria-hidden
+            style={{
+              fontSize: 10,
+              fontWeight: 800,
+              fontStyle: "italic",
+              fontFamily: "serif",
+              color: softTone(currentColor!),
+              opacity: 0.6,
+              flexShrink: 0,
+              lineHeight: 1,
+            }}
+          >
+            i
+          </span>
+        )}
       </button>
 
       {open && (

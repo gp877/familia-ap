@@ -2,19 +2,10 @@ import { asc, eq, sql } from "drizzle-orm";
 import Link from "next/link";
 
 import { BigNumber, SectionRow } from "@/components/ap/atoms";
-import {
-  BackButton,
-  FormField,
-  InlineForm,
-  SubmitButton,
-  fieldStyle,
-} from "@/components/ap/inline-form";
+import { BackButton } from "@/components/ap/inline-form";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import { SortableList } from "@/components/ap/sortable-list";
-import {
-  createCategoria,
-  reorderCategoriasForm,
-} from "@/app/actions/categorias";
+import { reorderCategoriasForm } from "@/app/actions/categorias";
 import { auth } from "@/auth";
 import { db } from "@/db";
 import { categories, transactions, users } from "@/db/schema";
@@ -80,6 +71,7 @@ export default async function CategoriasPage({
       color: c.color,
       parentId: c.parentId,
       txCount: countByCategory.get(c.id) ?? 0,
+      notes: c.notes,
     };
   }
 
@@ -92,6 +84,7 @@ export default async function CategoriasPage({
       kind: c.kind,
       color: c.color,
       parentId: c.parentId,
+      notes: c.notes,
     };
   }
 
@@ -144,46 +137,17 @@ export default async function CategoriasPage({
         sub={`${expenseParents.length} despesas · ${incomeParents.length} receitas`}
       />
 
-      <div style={{ padding: "14px 0 0" }}>
-        <InlineForm buttonLabel="Criar categoria">
-          <form action={createCategoria}>
-            <FormField label="Nome *">
-              <input name="name" required placeholder="Ex: Combustível" style={fieldStyle} />
-            </FormField>
-            <div style={{ display: "grid", gap: 8, gridTemplateColumns: "1fr 1fr" }}>
-              <FormField label="Tipo *">
-                <select name="kind" defaultValue="expense" style={fieldStyle}>
-                  <option value="expense">Despesa</option>
-                  <option value="income">Receita</option>
-                </select>
-              </FormField>
-              <FormField label="Cor">
-                <input type="color" name="color" defaultValue="#B8FF5C" style={{ ...fieldStyle, height: 40, padding: 4 }} />
-              </FormField>
-            </div>
-            <FormField label="Subcategoria de…" hint="opcional · deixe vazio pra categoria principal">
-              <select name="parentId" defaultValue="" style={fieldStyle}>
-                <option value="">— principal —</option>
-                {[...expenseParents, ...incomeParents].map((p) => (
-                  <option key={p.id} value={p.id}>
-                    [{p.kind === "income" ? "rec" : "des"}] {p.name}
-                  </option>
-                ))}
-              </select>
-            </FormField>
-            <SubmitButton>Criar categoria</SubmitButton>
-          </form>
-        </InlineForm>
+      {/* Cadastro rápido — único formulário de criação. Suporta principal
+          ou subcategoria (select de pai). Atalho Alt+Enter pra focar. */}
+      <div style={{ marginTop: 14 }}>
+        <QuickAdd
+          parents={[...expenseParents, ...incomeParents].map((p) => ({
+            id: p.id,
+            name: p.name,
+            kind: p.kind,
+          }))}
+        />
       </div>
-
-      {/* Cadastro rápido — sempre visível, atalho N */}
-      <QuickAdd
-        parents={[...expenseParents, ...incomeParents].map((p) => ({
-          id: p.id,
-          name: p.name,
-          kind: p.kind,
-        }))}
-      />
 
       {/* Toggle de visualização */}
       <div style={{ padding: "0 20px 12px", display: "flex", gap: 4, justifyContent: "flex-end" }}>

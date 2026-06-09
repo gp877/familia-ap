@@ -8,12 +8,15 @@ import {
   reorderCategorias,
 } from "@/app/actions/categorias";
 
+import { SubcategoryQuickAdd } from "./subcategory-quick-add";
+
 type Cat = {
   id: string;
   name: string;
   kind: "expense" | "income";
   color: string | null;
   parentId: string | null;
+  notes: string | null;
 };
 
 /**
@@ -82,6 +85,13 @@ function Group({
     setParentOrder(parents.map((p) => p.id));
   }, [parents]);
 
+  async function reparent(draggedId: string, newParentId: string) {
+    const fd = new FormData();
+    fd.set("id", draggedId);
+    fd.set("parentId", newParentId);
+    await patchCategoria(fd);
+  }
+
   return (
     <div>
       <div
@@ -117,6 +127,7 @@ function Group({
         <SortableRows
           orderedIds={parentOrder}
           onReorder={setParentOrder}
+          onReparent={reparent}
           renderRow={(parentId) => {
             const p = parents.find((x) => x.id === parentId);
             if (!p) return null;
@@ -175,6 +186,12 @@ function ParentBlock({
           }}
         />
       )}
+      <SubcategoryQuickAdd
+        parentId={parent.id}
+        parentName={parent.name}
+        kind={parent.kind}
+        indent={16}
+      />
     </div>
   );
 }
@@ -187,14 +204,20 @@ function ParentBlock({
 function SortableRows({
   orderedIds,
   onReorder,
+  onReparent,
   renderRow,
 }: {
   orderedIds: string[];
   onReorder: (next: string[]) => void;
+  /** Se passado, hover no centro de um item vira "reparentar":
+   *  o item arrastado vira filho do item-alvo. */
+  onReparent?: (draggedId: string, newParentId: string) => Promise<void> | void;
   renderRow: (id: string) => React.ReactNode;
 }) {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  // "reorder" = linha indicadora; "reparent" = highlight de fundo (vira filho)
+  const [dropMode, setDropMode] = useState<"reorder" | "reparent">("reorder");
   const dragOverRef = useRef<string | null>(null);
   const [, startTransition] = useTransition();
 
@@ -212,6 +235,15 @@ function SortableRows({
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
     setDropTargetId(overId);
+
+    // Detecta zona Y do cursor pra decidir reorder vs reparent.
+    // Zona central (33%–67% da altura) → reparent. Bordas → reorder.
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const relY = (e.clientY - rect.top) / rect.height;
+    const wantsReparent = !!onReparent && relY > 0.33 && relY < 0.67 && draggingId !== overId;
+    setDropMode(wantsReparent ? "reparent" : "reorder");
+
+    if (wantsReparent) return; // não reorder se for reparent
     if (dragOverRef.current === overId) return;
     dragOverRef.current = overId;
     if (!draggingId || draggingId === overId) return;
@@ -224,10 +256,31 @@ function SortableRows({
     onReorder(next);
   }
 
+  function handleDrop(e: React.DragEvent, overId: string) {
+    e.preventDefault();
+    if (dropMode === "reparent" && onReparent && draggingId && draggingId !== overId) {
+      const draggedId = draggingId;
+      // Não dispara reorder no dragEnd — limpa estado antes.
+      setDraggingId(null);
+      setDropTargetId(null);
+      dragOverRef.current = null;
+      startTransition(async () => {
+        try {
+          await onReparent(draggedId, overId);
+        } catch (err) {
+          console.error("[CompactView] reparent falhou:", err);
+        }
+      });
+    }
+  }
+
   function handleDragEnd() {
+    const wasReparent = dropMode === "reparent";
     setDraggingId(null);
     setDropTargetId(null);
+    setDropMode("reorder");
     dragOverRef.current = null;
+    if (wasReparent) return; // já tratado em handleDrop
     startTransition(async () => {
       try {
         await reorderCategorias(orderedIds);
@@ -242,25 +295,30 @@ function SortableRows({
       {orderedIds.map((id) => {
         const isDragging = draggingId === id;
         const isDropTarget = dropTargetId === id && draggingId !== id;
+        const isReparentTarget = isDropTarget && dropMode === "reparent";
         return (
           <div
             key={id}
             draggable
             onDragStart={(e) => handleDragStart(e, id)}
             onDragOver={(e) => handleDragOver(e, id)}
+            onDrop={(e) => handleDrop(e, id)}
             onDragEnd={handleDragEnd}
-            onDrop={(e) => e.preventDefault()}
             style={{
               opacity: isDragging ? 0.35 : 1,
               background: isDragging
                 ? "color-mix(in oklab, var(--accent) 12%, var(--card))"
-                : isDropTarget
-                  ? "color-mix(in oklab, var(--accent) 6%, transparent)"
-                  : "transparent",
+                : isReparentTarget
+                  ? "color-mix(in oklab, var(--accent) 18%, var(--card))"
+                  : isDropTarget
+                    ? "color-mix(in oklab, var(--accent) 6%, transparent)"
+                    : "transparent",
               borderRadius: 6,
               boxShadow: isDragging
                 ? "0 4px 12px rgba(0,0,0,0.4), 0 0 0 1px var(--accent)"
-                : "none",
+                : isReparentTarget
+                  ? "inset 0 0 0 1.5px var(--accent)"
+                  : "none",
               transform: isDragging ? "scale(0.99)" : "scale(1)",
               transition:
                 "background 100ms ease, box-shadow 120ms ease, transform 120ms ease, opacity 100ms ease",
@@ -268,8 +326,9 @@ function SortableRows({
               position: "relative",
             }}
           >
-            {/* Indicador de drop — linha lima fina no topo */}
-            {isDropTarget && (
+            {/* Indicador de drop — linha lima fina (reorder)
+                ou label "↳ vira sub" centralizado (reparent) */}
+            {isDropTarget && dropMode === "reorder" && (
               <div
                 style={{
                   position: "absolute",
@@ -282,6 +341,27 @@ function SortableRows({
                   pointerEvents: "none",
                 }}
               />
+            )}
+            {isReparentTarget && (
+              <div
+                style={{
+                  position: "absolute",
+                  right: 8,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  fontSize: 10,
+                  fontWeight: 800,
+                  letterSpacing: "0.06em",
+                  textTransform: "uppercase",
+                  color: "var(--accent)",
+                  pointerEvents: "none",
+                  background: "var(--card)",
+                  padding: "2px 6px",
+                  borderRadius: 4,
+                }}
+              >
+                ↳ vira sub
+              </div>
             )}
             {renderRow(id)}
           </div>
@@ -311,12 +391,17 @@ function Row({
   const [name, setName] = useState(cat.name);
   const [moveOpen, setMoveOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [notesValue, setNotesValue] = useState(cat.notes ?? "");
   const [isPending, startTransition] = useTransition();
 
   // Sync com props quando server revalidar
   useEffect(() => {
     setName(cat.name);
   }, [cat.name]);
+  useEffect(() => {
+    setNotesValue(cat.notes ?? "");
+  }, [cat.notes]);
 
   function save() {
     const trimmed = name.trim();
@@ -341,6 +426,21 @@ function Row({
       fd.set("id", cat.id);
       fd.set("parentId", newParentId ?? "");
       await patchCategoria(fd);
+    });
+  }
+
+  function saveNotes() {
+    const trimmed = notesValue.trim();
+    if (trimmed === (cat.notes ?? "")) {
+      setNotesOpen(false);
+      return;
+    }
+    startTransition(async () => {
+      const fd = new FormData();
+      fd.set("id", cat.id);
+      fd.set("notes", trimmed);
+      await patchCategoria(fd);
+      setNotesOpen(false);
     });
   }
 
@@ -471,6 +571,28 @@ function Row({
       </span>
       <button
         type="button"
+        onClick={() => setNotesOpen((v) => !v)}
+        disabled={isPending}
+        title={cat.notes ? cat.notes : "Adicionar nota informativa"}
+        style={{
+          padding: "1px 6px",
+          background: notesOpen ? "var(--card2)" : "transparent",
+          color: cat.notes ? "var(--accent)" : "var(--muted)",
+          border: "none",
+          fontSize: 11,
+          fontWeight: 800,
+          fontStyle: "italic",
+          fontFamily: "serif",
+          cursor: "pointer",
+          lineHeight: 1,
+          borderRadius: 4,
+          flexShrink: 0,
+        }}
+      >
+        i
+      </button>
+      <button
+        type="button"
         onClick={() => setMoveOpen((v) => !v)}
         disabled={isPending}
         title="Mover pra outro pai"
@@ -554,6 +676,106 @@ function Row({
               ))}
             </>
           )}
+        </div>
+      )}
+      {notesOpen && (
+        <div
+          style={{
+            position: "absolute",
+            top: "100%",
+            right: 48,
+            zIndex: 10,
+            background: "var(--card)",
+            border: "0.5px solid var(--line-d)",
+            borderRadius: 8,
+            padding: 8,
+            display: "flex",
+            flexDirection: "column",
+            gap: 6,
+            minWidth: 260,
+            boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
+          }}
+        >
+          <div
+            style={{
+              fontSize: 9,
+              fontWeight: 800,
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              color: "var(--muted)",
+            }}
+          >
+            Nota sobre {cat.name}
+          </div>
+          <textarea
+            autoFocus
+            value={notesValue}
+            onChange={(e) => setNotesValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                saveNotes();
+              }
+              if (e.key === "Escape") {
+                setNotesValue(cat.notes ?? "");
+                setNotesOpen(false);
+              }
+            }}
+            placeholder="Ex: inclui supermercado, padaria e açougue"
+            rows={3}
+            style={{
+              padding: "6px 8px",
+              background: "var(--card2)",
+              color: "var(--ink)",
+              border: "0.5px solid var(--line-d)",
+              borderRadius: 6,
+              fontSize: 12,
+              fontFamily: "inherit",
+              outline: "none",
+              resize: "vertical",
+              minHeight: 50,
+            }}
+          />
+          <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+            <button
+              type="button"
+              onClick={() => {
+                setNotesValue(cat.notes ?? "");
+                setNotesOpen(false);
+              }}
+              style={{
+                padding: "4px 10px",
+                background: "transparent",
+                color: "var(--muted-d)",
+                border: "0.5px solid var(--line-d)",
+                borderRadius: 6,
+                fontSize: 10.5,
+                fontWeight: 600,
+                cursor: "pointer",
+                fontFamily: "inherit",
+              }}
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={saveNotes}
+              disabled={isPending}
+              style={{
+                padding: "4px 10px",
+                background: "var(--accent)",
+                color: "var(--accent-on)",
+                border: "none",
+                borderRadius: 6,
+                fontSize: 10.5,
+                fontWeight: 700,
+                cursor: "pointer",
+                fontFamily: "inherit",
+              }}
+            >
+              Salvar (Ctrl+Enter)
+            </button>
+          </div>
         </div>
       )}
       <button

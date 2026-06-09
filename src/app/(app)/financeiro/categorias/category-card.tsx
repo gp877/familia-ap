@@ -12,6 +12,8 @@ import {
   reorderCategoriasForm,
 } from "@/app/actions/categorias";
 
+import { SubcategoryQuickAdd } from "./subcategory-quick-add";
+
 type CatLite = {
   id: string;
   name: string;
@@ -19,6 +21,7 @@ type CatLite = {
   color: string | null;
   parentId: string | null;
   txCount: number;
+  notes: string | null;
 };
 
 /**
@@ -85,9 +88,25 @@ export function CategoryCard({
         <DeleteWithMerge cat={cat} mergeOptions={mergeOptions} />
       </div>
 
-      {/* Subcategorias — arrastáveis pra reordenar entre si */}
-      {subs.length > 0 && (
-        <div style={{ paddingLeft: 28 }}>
+      {/* Nota informativa — editável inline, aparece discreta abaixo do
+          nome. Vazio mostra placeholder "+ nota" pra dica de existência. */}
+      <div style={{ paddingLeft: 32, marginTop: 4 }}>
+        <InlineEditInput
+          initialValue={cat.notes ?? ""}
+          action={patchCategoria}
+          hiddenFields={{ id: cat.id }}
+          fieldName="notes"
+          placeholder="+ nota informativa"
+          fontSize={11.5}
+          color="var(--muted-d)"
+          italic
+        />
+      </div>
+
+      {/* Subcategorias — arrastáveis pra reordenar entre si.
+          Quick-add inline embaixo pra adicionar mais rápido. */}
+      <div style={{ paddingLeft: 28, display: "flex", flexDirection: "column", gap: 4 }}>
+        {subs.length > 0 && (
           <SortableList
             action={reorderCategoriasForm}
             items={subs.map((sub) => ({
@@ -100,8 +119,13 @@ export function CategoryCard({
               ),
             }))}
           />
-        </div>
-      )}
+        )}
+        <SubcategoryQuickAdd
+          parentId={cat.id}
+          parentName={cat.name}
+          kind={cat.kind}
+        />
+      </div>
     </div>
   );
 }

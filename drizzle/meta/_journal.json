@@ -127,6 +127,13 @@
       "when": 1780750000000,
       "tag": "0017_travel_drafts",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1780900000000,
+      "tag": "0018_category_notes",
+      "breakpoints": true
     }
   ]
 }

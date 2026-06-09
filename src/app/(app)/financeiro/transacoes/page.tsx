@@ -118,6 +118,7 @@ export default async function TransacoesPage({
     parentId: c.parentId,
     color: c.color ?? c.parent?.color ?? null,
     kind: c.kind,
+    notes: c.notes,
   }));
 
   // Totais excluem transferências internas (pagamento de fatura, "Pagamento

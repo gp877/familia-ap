@@ -200,6 +200,9 @@ export const categories = pgTable(
     icon: text("icon"),
     /** Posição entre irmãs (mesmo kind+parent). Mais baixo = primeiro. */
     sortOrder: integer("sort_order").notNull().default(0),
+    /** Nota informativa livre — aparece discreta em /financeiro/transacoes
+     *  como tooltip/hint pra lembrar o que cada categoria abrange. */
+    notes: text("notes"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (c) => [index("category_household_idx").on(c.householdId)]

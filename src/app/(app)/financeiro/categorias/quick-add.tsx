@@ -24,21 +24,24 @@ type Parent = {
 export function QuickAdd({ parents }: { parents: Parent[] }) {
   const [value, setValue] = useState("");
   const [kind, setKind] = useState<"expense" | "income">("expense");
+  // Pai selecionado no select. Vazio = principal. Tem precedência sobre
+  // sintaxe "Nome > Pai" no input. Resetado quando alterna kind.
+  const [parentSelectId, setParentSelectId] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Atalho global: "n" ou "+" foca o input (quando nada está focado em input/textarea)
+  // Pais disponíveis pro kind atual
+  const parentOptions = parents.filter((p) => p.kind === kind);
+
+  // Atalho global: Alt+Enter foca o input (mesmo enquanto digita em outro
+  // input — o atalho ganha prioridade).
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      const isTyping =
-        document.activeElement instanceof HTMLInputElement ||
-        document.activeElement instanceof HTMLTextAreaElement ||
-        document.activeElement instanceof HTMLSelectElement;
-      if (isTyping) return;
-      if (e.key === "n" || e.key === "+") {
+      if (e.altKey && e.key === "Enter") {
         e.preventDefault();
         inputRef.current?.focus();
+        inputRef.current?.select();
       }
     }
     window.addEventListener("keydown", onKey);
@@ -78,6 +81,7 @@ export function QuickAdd({ parents }: { parents: Parent[] }) {
       return;
     }
 
+    // Precedência: sintaxe "Nome > Pai" no input > select de pai.
     let parentId: string | null = null;
     if (parentName) {
       const candidate = parents.find(
@@ -90,6 +94,11 @@ export function QuickAdd({ parents }: { parents: Parent[] }) {
         return;
       }
       parentId = candidate.id;
+    } else if (parentSelectId) {
+      const candidate = parents.find(
+        (p) => p.id === parentSelectId && p.kind === detectedKind
+      );
+      if (candidate) parentId = candidate.id;
     }
 
     startTransition(async () => {
@@ -125,7 +134,11 @@ export function QuickAdd({ parents }: { parents: Parent[] }) {
         {/* Toggle de kind — clique alterna, ou usa "(R)"/"(D)" no input */}
         <button
           type="button"
-          onClick={() => setKind(kind === "expense" ? "income" : "expense")}
+          onClick={() => {
+            setKind(kind === "expense" ? "income" : "expense");
+            // Reset pai ao alternar tipo (pais são por kind)
+            setParentSelectId("");
+          }}
           title="Alternar tipo (ou use '(R)' no fim do nome)"
           style={{
             padding: "5px 10px",
@@ -163,7 +176,11 @@ export function QuickAdd({ parents }: { parents: Parent[] }) {
               inputRef.current?.blur();
             }
           }}
-          placeholder="+ nova categoria · Enter pra criar · pressione N pra focar"
+          placeholder={
+            parentSelectId
+              ? `+ subcategoria de ${parentOptions.find((p) => p.id === parentSelectId)?.name ?? "?"}`
+              : "+ nova categoria · Enter pra criar · Alt+Enter pra focar"
+          }
           disabled={isPending}
           style={{
             flex: 1,
@@ -172,12 +189,44 @@ export function QuickAdd({ parents }: { parents: Parent[] }) {
             borderRadius: 8,
             background: "var(--card2)",
             color: "var(--ink)",
-            border: "0.5px solid var(--line-d)",
+            border: parentSelectId
+              ? "0.5px solid var(--accent)"
+              : "0.5px solid var(--line-d)",
             fontSize: 12.5,
             fontFamily: "inherit",
             outline: "none",
           }}
         />
+        {/* Select de pai — opcional, vira subcategoria daquela cat. */}
+        {parentOptions.length > 0 && (
+          <select
+            value={parentSelectId}
+            onChange={(e) => setParentSelectId(e.target.value)}
+            disabled={isPending}
+            title="Vincular como subcategoria"
+            style={{
+              padding: "5px 8px",
+              borderRadius: 8,
+              background: parentSelectId ? "color-mix(in oklab, var(--accent) 14%, var(--card2))" : "var(--card2)",
+              color: parentSelectId ? "var(--accent)" : "var(--muted-d)",
+              border: parentSelectId
+                ? "0.5px solid var(--accent)"
+                : "0.5px solid var(--line-d)",
+              fontSize: 11.5,
+              fontFamily: "inherit",
+              cursor: "pointer",
+              maxWidth: 130,
+              flexShrink: 0,
+            }}
+          >
+            <option value="">— principal —</option>
+            {parentOptions.map((p) => (
+              <option key={p.id} value={p.id}>
+                ↳ {p.name}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
       {error ? (
         <div style={{ fontSize: 10.5, color: "var(--alert)", paddingLeft: 4 }}>
