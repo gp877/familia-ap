@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import {
+  deleteCategoriaWithMerge,
   patchCategoria,
   reorderCategorias,
 } from "@/app/actions/categorias";
@@ -193,6 +194,7 @@ function SortableRows({
   renderRow: (id: string) => React.ReactNode;
 }) {
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const dragOverRef = useRef<string | null>(null);
   const [, startTransition] = useTransition();
 
@@ -209,6 +211,7 @@ function SortableRows({
   function handleDragOver(e: React.DragEvent, overId: string) {
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
+    setDropTargetId(overId);
     if (dragOverRef.current === overId) return;
     dragOverRef.current = overId;
     if (!draggingId || draggingId === overId) return;
@@ -223,6 +226,7 @@ function SortableRows({
 
   function handleDragEnd() {
     setDraggingId(null);
+    setDropTargetId(null);
     dragOverRef.current = null;
     startTransition(async () => {
       try {
@@ -235,22 +239,54 @@ function SortableRows({
 
   return (
     <>
-      {orderedIds.map((id) => (
-        <div
-          key={id}
-          draggable
-          onDragStart={(e) => handleDragStart(e, id)}
-          onDragOver={(e) => handleDragOver(e, id)}
-          onDragEnd={handleDragEnd}
-          onDrop={(e) => e.preventDefault()}
-          style={{
-            opacity: draggingId === id ? 0.4 : 1,
-            transition: "opacity 80ms",
-          }}
-        >
-          {renderRow(id)}
-        </div>
-      ))}
+      {orderedIds.map((id) => {
+        const isDragging = draggingId === id;
+        const isDropTarget = dropTargetId === id && draggingId !== id;
+        return (
+          <div
+            key={id}
+            draggable
+            onDragStart={(e) => handleDragStart(e, id)}
+            onDragOver={(e) => handleDragOver(e, id)}
+            onDragEnd={handleDragEnd}
+            onDrop={(e) => e.preventDefault()}
+            style={{
+              opacity: isDragging ? 0.35 : 1,
+              background: isDragging
+                ? "color-mix(in oklab, var(--accent) 12%, var(--card))"
+                : isDropTarget
+                  ? "color-mix(in oklab, var(--accent) 6%, transparent)"
+                  : "transparent",
+              borderRadius: 6,
+              boxShadow: isDragging
+                ? "0 4px 12px rgba(0,0,0,0.4), 0 0 0 1px var(--accent)"
+                : "none",
+              transform: isDragging ? "scale(0.99)" : "scale(1)",
+              transition:
+                "background 100ms ease, box-shadow 120ms ease, transform 120ms ease, opacity 100ms ease",
+              cursor: isDragging ? "grabbing" : "default",
+              position: "relative",
+            }}
+          >
+            {/* Indicador de drop — linha lima fina no topo */}
+            {isDropTarget && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: -1,
+                  left: 0,
+                  right: 0,
+                  height: 2,
+                  background: "var(--accent)",
+                  borderRadius: 1,
+                  pointerEvents: "none",
+                }}
+              />
+            )}
+            {renderRow(id)}
+          </div>
+        );
+      })}
     </>
   );
 }
@@ -274,6 +310,7 @@ function Row({
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(cat.name);
   const [moveOpen, setMoveOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   // Sync com props quando server revalidar
@@ -307,6 +344,21 @@ function Row({
     });
   }
 
+  function performDelete(replaceWithId: string | null) {
+    setDeleteOpen(false);
+    const msg = replaceWithId
+      ? `Apagar "${cat.name}" e mover as ${count} transações pra outra categoria?`
+      : `Apagar "${cat.name}"?`;
+    if (!confirm(msg)) return;
+    startTransition(async () => {
+      try {
+        await deleteCategoriaWithMerge(cat.id, replaceWithId);
+      } catch (err) {
+        alert(err instanceof Error ? err.message : String(err));
+      }
+    });
+  }
+
   // Opções pro menu "mover": outras categorias principais do mesmo kind
   // (não pode virar filha de si mesma). Plus opção "Tornar principal".
   const moveOptions = useMemo(
@@ -328,11 +380,14 @@ function Row({
     >
       <span
         style={{
-          color: "var(--muted)",
-          fontSize: 11,
+          color: "var(--muted-d)",
+          fontSize: 13,
+          fontWeight: 900,
+          letterSpacing: -2,
           cursor: "grab",
           flexShrink: 0,
           userSelect: "none",
+          padding: "0 2px",
         }}
         title="Arraste pra reordenar"
         aria-hidden
@@ -439,7 +494,7 @@ function Row({
           style={{
             position: "absolute",
             top: "100%",
-            right: 0,
+            right: 24,
             zIndex: 10,
             background: "var(--card)",
             border: "0.5px solid var(--line-d)",
@@ -482,6 +537,109 @@ function Row({
                   key={p.id}
                   type="button"
                   onClick={() => moveToParent(p.id)}
+                  style={menuItemStyle()}
+                >
+                  <span
+                    style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: 1.5,
+                      background: p.color ?? "var(--muted)",
+                      display: "inline-block",
+                      marginRight: 6,
+                    }}
+                  />
+                  {p.name}
+                </button>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={() => setDeleteOpen((v) => !v)}
+        disabled={isPending}
+        title="Apagar categoria"
+        style={{
+          padding: "1px 6px",
+          background: deleteOpen ? "var(--card2)" : "transparent",
+          color: "var(--alert)",
+          border: "none",
+          fontSize: 12,
+          cursor: "pointer",
+          lineHeight: 1,
+          borderRadius: 4,
+          flexShrink: 0,
+          fontFamily: "inherit",
+          fontWeight: 700,
+        }}
+      >
+        ✕
+      </button>
+      {deleteOpen && (
+        <div
+          style={{
+            position: "absolute",
+            top: "100%",
+            right: 0,
+            zIndex: 10,
+            background: "var(--card)",
+            border: "0.5px solid var(--alert)",
+            borderRadius: 8,
+            padding: 4,
+            display: "flex",
+            flexDirection: "column",
+            minWidth: 200,
+            boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
+            maxHeight: 280,
+            overflowY: "auto",
+          }}
+          onMouseLeave={() => setDeleteOpen(false)}
+        >
+          {count === 0 ? (
+            <>
+              {/* Sem transações vinculadas — apaga direto. */}
+              <button
+                type="button"
+                onClick={() => performDelete(null)}
+                style={{ ...menuItemStyle(), color: "var(--alert)" }}
+              >
+                ✕ Apagar
+              </button>
+            </>
+          ) : moveOptions.length === 0 ? (
+            <div
+              style={{
+                fontSize: 11,
+                color: "var(--muted-d)",
+                padding: "10px 10px",
+                lineHeight: 1.4,
+                fontStyle: "italic",
+              }}
+            >
+              {count} {count === 1 ? "transação está vinculada" : "transações estão vinculadas"}.
+              Cadastre outra categoria do mesmo tipo antes de apagar.
+            </div>
+          ) : (
+            <>
+              <div
+                style={{
+                  fontSize: 9,
+                  fontWeight: 800,
+                  letterSpacing: "0.12em",
+                  textTransform: "uppercase",
+                  color: "var(--alert)",
+                  padding: "6px 8px 2px",
+                }}
+              >
+                Apagar e mover {count} {count === 1 ? "tx pra" : "txs pra"}
+              </div>
+              {moveOptions.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => performDelete(p.id)}
                   style={menuItemStyle()}
                 >
                   <span

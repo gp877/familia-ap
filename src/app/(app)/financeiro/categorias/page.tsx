@@ -20,6 +20,7 @@ import { db } from "@/db";
 import { categories, transactions, users } from "@/db/schema";
 import { CategoryCard } from "./category-card";
 import { CompactView } from "./compact-view";
+import { QuickAdd } from "./quick-add";
 
 type SearchParams = Promise<{ view?: string }>;
 
@@ -174,6 +175,15 @@ export default async function CategoriasPage({
           </form>
         </InlineForm>
       </div>
+
+      {/* Cadastro rápido — sempre visível, atalho N */}
+      <QuickAdd
+        parents={[...expenseParents, ...incomeParents].map((p) => ({
+          id: p.id,
+          name: p.name,
+          kind: p.kind,
+        }))}
+      />
 
       {/* Toggle de visualização */}
       <div style={{ padding: "0 20px 12px", display: "flex", gap: 4, justifyContent: "flex-end" }}>

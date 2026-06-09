@@ -134,6 +134,24 @@ export async function deleteCategoriaWithMerge(id: string, replaceWithId: string
     if (!target || target.householdId !== householdId) {
       throw new Error("Categoria destino não encontrada");
     }
+  } else {
+    // Sem destino → só permite apagar se NÃO houver transações vinculadas.
+    // Isso protege contra órfãos: usuário precisa escolher uma categoria
+    // de destino antes de apagar uma categoria que ainda tem lançamentos.
+    const [{ count }] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.householdId, householdId),
+          eq(transactions.categoryId, id)
+        )
+      );
+    if (count > 0) {
+      throw new Error(
+        `Não dá pra apagar: ${count} transações ainda vinculadas. Escolha outra categoria pra migrar antes.`
+      );
+    }
   }
 
   // Move transações

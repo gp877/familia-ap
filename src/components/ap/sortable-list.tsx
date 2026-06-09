@@ -22,6 +22,7 @@ export function SortableList({
 }) {
   const [order, setOrder] = useState<string[]>(items.map((i) => i.id));
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const dragOverIdRef = useRef<string | null>(null);
   const [, startTransition] = useTransition();
 
@@ -51,11 +52,13 @@ export function SortableList({
   function handleDragOver(e: React.DragEvent, id: string) {
     e.preventDefault();
     dragOverIdRef.current = id;
+    if (draggingId && draggingId !== id) setDropTargetId(id);
   }
   function handleDrop(e: React.DragEvent, id: string) {
     e.preventDefault();
     if (!draggingId || draggingId === id) {
       setDraggingId(null);
+      setDropTargetId(null);
       return;
     }
     const newOrder = [...order];
@@ -63,16 +66,19 @@ export function SortableList({
     const toIdx = newOrder.indexOf(id);
     if (fromIdx < 0 || toIdx < 0) {
       setDraggingId(null);
+      setDropTargetId(null);
       return;
     }
     newOrder.splice(fromIdx, 1);
     newOrder.splice(toIdx, 0, draggingId);
     setOrder(newOrder);
     setDraggingId(null);
+    setDropTargetId(null);
     persist(newOrder);
   }
   function handleDragEnd() {
     setDraggingId(null);
+    setDropTargetId(null);
   }
 
   return (
@@ -80,6 +86,8 @@ export function SortableList({
       {order.map((id) => {
         const content = byId.get(id);
         if (!content) return null;
+        const isDragging = draggingId === id;
+        const isDropTarget = dropTargetId === id && draggingId !== id;
         return (
           <div
             key={id}
@@ -89,11 +97,33 @@ export function SortableList({
             onDrop={(e) => handleDrop(e, id)}
             onDragEnd={handleDragEnd}
             style={{
-              cursor: "grab",
-              opacity: draggingId === id ? 0.4 : 1,
-              transition: "opacity 0.15s",
+              cursor: isDragging ? "grabbing" : "grab",
+              opacity: isDragging ? 0.4 : 1,
+              borderRadius: 14,
+              boxShadow: isDragging
+                ? "0 8px 24px rgba(0,0,0,0.45), 0 0 0 2px var(--accent)"
+                : "none",
+              transform: isDragging ? "scale(0.985)" : "scale(1)",
+              transition:
+                "box-shadow 140ms ease, transform 140ms ease, opacity 120ms ease",
+              position: "relative",
             }}
           >
+            {isDropTarget && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: -3,
+                  left: 0,
+                  right: 0,
+                  height: 3,
+                  background: "var(--accent)",
+                  borderRadius: 2,
+                  pointerEvents: "none",
+                  boxShadow: "0 0 8px var(--accent)",
+                }}
+              />
+            )}
             {content}
           </div>
         );
