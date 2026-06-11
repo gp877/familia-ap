@@ -24,6 +24,9 @@ export function SortableList({
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const dragOverIdRef = useRef<string | null>(null);
+  // Inputs e botões absorvem mousedown — só liberamos o drag se o
+  // mousedown originou num elemento com data-drag-handle.
+  const handleDownRef = useRef(false);
   const [, startTransition] = useTransition();
 
   // Indexa o conteúdo por id pra reordenar sem perder os nodes.
@@ -46,7 +49,17 @@ export function SortableList({
     });
   }
 
-  function handleDragStart(id: string) {
+  function handleMouseDown(e: React.MouseEvent) {
+    const target = e.target as HTMLElement;
+    handleDownRef.current = !!target.closest?.("[data-drag-handle]");
+  }
+  function handleDragStart(e: React.DragEvent, id: string) {
+    if (!handleDownRef.current) {
+      // Mousedown não foi no handle → não permite drag (deixa o input/
+      // botão receber o evento normalmente).
+      e.preventDefault();
+      return;
+    }
     setDraggingId(id);
   }
   function handleDragOver(e: React.DragEvent, id: string) {
@@ -92,10 +105,14 @@ export function SortableList({
           <div
             key={id}
             draggable
-            onDragStart={() => handleDragStart(id)}
+            onMouseDown={handleMouseDown}
+            onDragStart={(e) => handleDragStart(e, id)}
             onDragOver={(e) => handleDragOver(e, id)}
             onDrop={(e) => handleDrop(e, id)}
-            onDragEnd={handleDragEnd}
+            onDragEnd={() => {
+              handleDownRef.current = false;
+              handleDragEnd();
+            }}
             style={{
               cursor: isDragging ? "grabbing" : "grab",
               opacity: isDragging ? 0.4 : 1,
@@ -132,10 +149,16 @@ export function SortableList({
   );
 }
 
-/** Handle visual com ⋮⋮ usado como pega pra drag. */
+/**
+ * Handle visual com ⋮⋮ usado como pega pra drag. Marcado com
+ * `data-drag-handle` pra que o SortableList só permita drag iniciado
+ * desse elemento (inputs e botões absorvem mousedown e bloqueariam
+ * o draggable do wrapper).
+ */
 export function DragHandle() {
   return (
     <span
+      data-drag-handle="true"
       style={{
         color: "var(--muted)",
         fontSize: 14,

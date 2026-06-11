@@ -197,29 +197,67 @@ Regras críticas:
 
 Retorne APENAS o JSON. Sem markdown, sem prefácio.`;
 
+/**
+ * Erros recuperáveis do Gemini (503 sobrecarga, 429 rate limit, 500
+ * interno, timeouts de rede). 400/401/403 NÃO retry — input ruim ou
+ * credencial errada não vai melhorar tentando de novo.
+ */
+function isRetryableError(err: unknown): boolean {
+  if (!err) return false;
+  const msg = err instanceof Error ? err.message : String(err);
+  const code = (err as { code?: number; status?: number }).code ?? (err as { status?: number }).status;
+  if (code === 503 || code === 429 || code === 500 || code === 502 || code === 504) return true;
+  return /503|UNAVAILABLE|429|RESOURCE_EXHAUSTED|500|timeout|ECONNRESET|ETIMEDOUT|socket hang up/i.test(msg);
+}
+
+async function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
 export async function extractFromPdf(pdfBuffer: Buffer): Promise<ExtractionResult> {
-  const response = await ai.models.generateContent({
-    model: "gemini-flash-latest",
-    contents: [
-      {
-        role: "user",
-        parts: [
+  // Retry com backoff exponencial: 1s, 3s, 7s, 15s. Gemini fica
+  // sobrecarregado em horário de pico — a chamada que falha agora
+  // geralmente passa na 2ª tentativa.
+  const delays = [1000, 3000, 7000, 15000];
+  let lastErr: unknown = null;
+  let response: Awaited<ReturnType<typeof ai.models.generateContent>> | null = null;
+  for (let attempt = 0; attempt <= delays.length; attempt++) {
+    try {
+      response = await ai.models.generateContent({
+        model: "gemini-flash-latest",
+        contents: [
           {
-            inlineData: {
-              mimeType: "application/pdf",
-              data: pdfBuffer.toString("base64"),
-            },
+            role: "user",
+            parts: [
+              {
+                inlineData: {
+                  mimeType: "application/pdf",
+                  data: pdfBuffer.toString("base64"),
+                },
+              },
+              { text: SYSTEM_PROMPT },
+            ],
           },
-          { text: SYSTEM_PROMPT },
         ],
-      },
-    ],
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: SCHEMA,
-      temperature: 0,
-    },
-  });
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: SCHEMA,
+          temperature: 0,
+        },
+      });
+      break;
+    } catch (err) {
+      lastErr = err;
+      if (attempt === delays.length || !isRetryableError(err)) throw err;
+      const wait = delays[attempt];
+      console.warn(
+        `[extraction] Gemini falhou (tentativa ${attempt + 1}/${delays.length + 1}). Retentar em ${wait}ms. Erro:`,
+        err instanceof Error ? err.message : err
+      );
+      await sleep(wait);
+    }
+  }
+  if (!response) throw lastErr ?? new Error("Extraction falhou");
 
   const text = response.text;
   if (!text) {

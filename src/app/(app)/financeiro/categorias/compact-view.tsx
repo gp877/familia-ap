@@ -219,9 +219,21 @@ function SortableRows({
   // "reorder" = linha indicadora; "reparent" = highlight de fundo (vira filho)
   const [dropMode, setDropMode] = useState<"reorder" | "reparent">("reorder");
   const dragOverRef = useRef<string | null>(null);
+  // Drag só rola quando o mousedown vem de um [data-drag-handle] —
+  // inputs absorvem mousedown e bloqueiam o draggable.
+  const handleDownRef = useRef(false);
   const [, startTransition] = useTransition();
 
+  function handleMouseDown(e: React.MouseEvent) {
+    const target = e.target as HTMLElement;
+    handleDownRef.current = !!target.closest?.("[data-drag-handle]");
+  }
+
   function handleDragStart(e: React.DragEvent, id: string) {
+    if (!handleDownRef.current) {
+      e.preventDefault();
+      return;
+    }
     setDraggingId(id);
     e.dataTransfer.effectAllowed = "move";
     try {
@@ -300,10 +312,14 @@ function SortableRows({
           <div
             key={id}
             draggable
+            onMouseDown={handleMouseDown}
             onDragStart={(e) => handleDragStart(e, id)}
             onDragOver={(e) => handleDragOver(e, id)}
             onDrop={(e) => handleDrop(e, id)}
-            onDragEnd={handleDragEnd}
+            onDragEnd={() => {
+              handleDownRef.current = false;
+              handleDragEnd();
+            }}
             style={{
               opacity: isDragging ? 0.35 : 1,
               background: isDragging
@@ -479,6 +495,7 @@ function Row({
       }}
     >
       <span
+        data-drag-handle="true"
         style={{
           color: "var(--muted-d)",
           fontSize: 13,
@@ -569,28 +586,31 @@ function Row({
       >
         {count > 0 ? count : "—"}
       </span>
-      <button
-        type="button"
-        onClick={() => setNotesOpen((v) => !v)}
-        disabled={isPending}
-        title={cat.notes ? cat.notes : "Adicionar nota informativa"}
-        style={{
-          padding: "1px 6px",
-          background: notesOpen ? "var(--card2)" : "transparent",
-          color: cat.notes ? "var(--accent)" : "var(--muted)",
-          border: "none",
-          fontSize: 11,
-          fontWeight: 800,
-          fontStyle: "italic",
-          fontFamily: "serif",
-          cursor: "pointer",
-          lineHeight: 1,
-          borderRadius: 4,
-          flexShrink: 0,
-        }}
-      >
-        i
-      </button>
+      {/* Nota — só em subcategorias. Principais não têm. */}
+      {sub && (
+        <button
+          type="button"
+          onClick={() => setNotesOpen((v) => !v)}
+          disabled={isPending}
+          title={cat.notes ? cat.notes : "Adicionar nota informativa"}
+          style={{
+            padding: "1px 6px",
+            background: notesOpen ? "var(--card2)" : "transparent",
+            color: cat.notes ? "var(--accent)" : "var(--muted)",
+            border: "none",
+            fontSize: 11,
+            fontWeight: 800,
+            fontStyle: "italic",
+            fontFamily: "serif",
+            cursor: "pointer",
+            lineHeight: 1,
+            borderRadius: 4,
+            flexShrink: 0,
+          }}
+        >
+          i
+        </button>
+      )}
       <button
         type="button"
         onClick={() => setMoveOpen((v) => !v)}
@@ -678,7 +698,7 @@ function Row({
           )}
         </div>
       )}
-      {notesOpen && (
+      {sub && notesOpen && (
         <div
           style={{
             position: "absolute",

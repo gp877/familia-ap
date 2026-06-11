@@ -88,21 +88,6 @@ export function CategoryCard({
         <DeleteWithMerge cat={cat} mergeOptions={mergeOptions} />
       </div>
 
-      {/* Nota informativa — editável inline, aparece discreta abaixo do
-          nome. Vazio mostra placeholder "+ nota" pra dica de existência. */}
-      <div style={{ paddingLeft: 32, marginTop: 4 }}>
-        <InlineEditInput
-          initialValue={cat.notes ?? ""}
-          action={patchCategoria}
-          hiddenFields={{ id: cat.id }}
-          fieldName="notes"
-          placeholder="+ nota informativa"
-          fontSize={11.5}
-          color="var(--muted-d)"
-          italic
-        />
-      </div>
-
       {/* Subcategorias — arrastáveis pra reordenar entre si.
           Quick-add inline embaixo pra adicionar mais rápido. */}
       <div style={{ paddingLeft: 28, display: "flex", flexDirection: "column", gap: 4 }}>
@@ -161,15 +146,48 @@ function SubcategoryRow({
         }}
       />
       <ColorPicker id={sub.id} currentColor={color} small />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <InlineEditInput
-          initialValue={sub.name}
-          action={patchCategoria}
-          hiddenFields={{ id: sub.id }}
-          fieldName="name"
-          fontSize={12.5}
-          fontWeight={500}
-        />
+      {/* Nome + nota informativa convivem na mesma linha. Nome tem
+          flex base curta; nota é o resto, em itálico cinza bem discreto.
+          Vazia → placeholder ainda mais sutil ("+ nota"). */}
+      <div
+        style={{
+          flex: 1,
+          minWidth: 0,
+          display: "flex",
+          alignItems: "baseline",
+          gap: 8,
+        }}
+      >
+        <div style={{ flexShrink: 0, maxWidth: "50%" }}>
+          <InlineEditInput
+            initialValue={sub.name}
+            action={patchCategoria}
+            hiddenFields={{ id: sub.id }}
+            fieldName="name"
+            fontSize={12.5}
+            fontWeight={500}
+          />
+        </div>
+        <div
+          style={{
+            flex: 1,
+            minWidth: 0,
+            opacity: sub.notes ? 0.85 : 0.4,
+            transition: "opacity 120ms",
+          }}
+          title={sub.notes ?? undefined}
+        >
+          <InlineEditInput
+            initialValue={sub.notes ?? ""}
+            action={patchCategoria}
+            hiddenFields={{ id: sub.id }}
+            fieldName="notes"
+            placeholder="+ nota"
+            fontSize={10.5}
+            color="var(--muted-d)"
+            italic
+          />
+        </div>
       </div>
       {sub.txCount > 0 && (
         <span style={{ fontSize: 10.5, color: accent, fontWeight: 700 }}>

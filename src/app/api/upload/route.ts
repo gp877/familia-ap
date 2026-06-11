@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { NextResponse } from "next/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import { auth } from "@/auth";
 import { db } from "@/db";
@@ -276,12 +276,22 @@ export async function POST(req: Request) {
         // onConflictDoNothing trata a UNIQUE violation graciosamente — se a
         // mesma chave já existir (race condition entre 2 uploads simultâneos),
         // a linha é silenciosamente ignorada em vez de explodir o request.
-        await db
-          .insert(transactions)
-          .values(toInsert)
-          .onConflictDoNothing({
-            target: [transactions.householdId, transactions.dedupeKey],
-          });
+        //
+        // IMPORTANTE: o índice é PARCIAL (WHERE dedupe_key IS NOT NULL) —
+        // Postgres exige que o `WHERE` seja repetido no ON CONFLICT senão
+        // rejeita com "ON CONFLICT cannot target partial unique index".
+        // Insere em batches pra não estourar limite do Neon (~32k params).
+        const BATCH = 50;
+        for (let i = 0; i < toInsert.length; i += BATCH) {
+          const slice = toInsert.slice(i, i + BATCH);
+          await db
+            .insert(transactions)
+            .values(slice)
+            .onConflictDoNothing({
+              target: [transactions.householdId, transactions.dedupeKey],
+              where: sql`dedupe_key IS NOT NULL`,
+            });
+        }
       }
 
       // Pair-matcher: roda DEPOIS de inserir, pra que candidates do upload
@@ -419,11 +429,39 @@ export async function POST(req: Request) {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    await db
-      .update(uploads)
-      .set({ status: "failed", errorMessage: message })
-      .where(eq(uploads.id, upload.id));
 
-    return NextResponse.json({ error: message }, { status: 500 });
+    // Se ainda não há transações vinculadas a esse upload, apaga a row
+    // inteira — assim o user pode subir o MESMO arquivo de novo sem
+    // bloqueio do dedupe (file_hash já estava gravado). Caso típico:
+    // Gemini 503 falhou ANTES de criar qualquer transação.
+    const txsForUpload = await db.query.transactions.findFirst({
+      where: eq(transactions.uploadId, upload.id),
+    });
+
+    if (!txsForUpload) {
+      await db.delete(uploads).where(eq(uploads.id, upload.id));
+    } else {
+      // Já criou alguma transação — preserva pra investigação manual
+      await db
+        .update(uploads)
+        .set({ status: "failed", errorMessage: message })
+        .where(eq(uploads.id, upload.id));
+    }
+
+    // Erro do Gemini 503/429 → mensagem amigável + dica de retry
+    const isOverload =
+      /503|UNAVAILABLE|429|RESOURCE_EXHAUSTED|overload/i.test(message);
+    const friendly = isOverload
+      ? "O Gemini (IA que extrai os PDFs) está sobrecarregado agora. Aguarde 1-2 minutos e tente subir o arquivo de novo — ele não foi salvo, então pode reenviar normalmente."
+      : message;
+
+    return NextResponse.json(
+      {
+        error: friendly,
+        rawError: message,
+        canRetry: !txsForUpload,
+      },
+      { status: 500 }
+    );
   }
 }
