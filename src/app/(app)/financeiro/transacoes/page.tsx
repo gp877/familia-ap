@@ -121,19 +121,71 @@ export default async function TransacoesPage({
     limit: 500,
   });
 
-  // Faturas que têm pelo menos uma tx no mês selecionado — pra mostrar
-  // o card resumo + link na seção "Faturas do mês".
-  const invoiceIdsInTxs = Array.from(
-    new Set(txs.map((t) => t.invoiceId).filter(Boolean) as string[])
-  );
-  const invoicesForMonth = invoiceIdsInTxs.length > 0
-    ? await db.query.invoices.findMany({
-        where: and(
-          eq(invoices.householdId, dbUser.householdId),
-          inArray(invoices.id, invoiceIdsInTxs)
-        ),
-      })
+  // ── Faturas do mês ─────────────────────────────────────────────
+  // CONCEITO: uma fatura tem MÊS DE COMPETÊNCIA (mês das compras).
+  // Quando o user filtra por maio, queremos ver as faturas de competência
+  // MAIO — independentemente de quando algumas tx individuais (parcelas
+  // antigas, ajustes) caem no calendário.
+  //
+  // Antes esse bloco filtrava por "faturas que têm AO MENOS uma tx no mês"
+  // e somava só essas tx — resultado: uma fatura de R$ 8 mil aparecia como
+  // "R$ 30,99 / 2 lançamentos" se só 2 das suas tx caíam no mês visualizado.
+  // Conceitualmente errado: fatura é um documento ÚNICO, não fragmento.
+  //
+  // Filtro por conta: se o user filtrou por uma conta, mostramos as faturas
+  // dos CARTÕES dessa conta (filhos com type='credit_card'), ou da própria
+  // conta se ela já é um cartão.
+  let invoiceAccountIds: string[] | null = null;
+  if (sp.account) {
+    const sel = allAccounts.find((a) => a.id === sp.account);
+    if (sel?.type === "credit_card") {
+      invoiceAccountIds = [sel.id];
+    } else {
+      invoiceAccountIds = allAccounts
+        .filter((a) => a.parentAccountId === sp.account && a.type === "credit_card")
+        .map((a) => a.id);
+    }
+  }
+  const invoiceConds = [
+    eq(invoices.householdId, dbUser.householdId),
+    showAll ? sql`true` : eq(invoices.referenceMonth, selectedMonth),
+  ];
+  if (invoiceAccountIds !== null) {
+    if (invoiceAccountIds.length === 0) {
+      invoiceConds.push(sql`false`);
+    } else {
+      invoiceConds.push(inArray(invoices.bankAccountId, invoiceAccountIds));
+    }
+  }
+  const invoicesForMonth = await db.query.invoices.findMany({
+    where: and(...invoiceConds),
+  });
+
+  // Total + contagem REAL por invoice (todas as tx, não só as do mês
+  // visualizado). Soma só débito não-interno — pagamento recebido e
+  // estornos não inflam o valor da fatura.
+  const invoiceTotalsRows = invoicesForMonth.length > 0
+    ? await db
+        .select({
+          invoiceId: transactions.invoiceId,
+          totalDebit: sql<string>`coalesce(sum(case when ${transactions.kind} = 'debit' and ${transactions.isInternalTransfer} = false then ${transactions.amount} else 0 end), 0)`,
+          countAll: sql<number>`count(*)::int`,
+        })
+        .from(transactions)
+        .where(
+          inArray(
+            transactions.invoiceId,
+            invoicesForMonth.map((i) => i.id)
+          )
+        )
+        .groupBy(transactions.invoiceId)
     : [];
+  const invoiceTotalsById = new Map(
+    invoiceTotalsRows.map((r) => [
+      r.invoiceId ?? "",
+      { total: parseFloat(r.totalDebit), count: r.countAll },
+    ])
+  );
 
   const categoryOptions: CategoryOption[] = allCategories.map((c) => ({
     id: c.id,
@@ -145,15 +197,21 @@ export default async function TransacoesPage({
     notes: c.notes,
   }));
 
-  // Totais excluem transferências internas (pagamento de fatura, "Pagamento
-  // Recebido", estornos, bonificações) — elas só fecham saldo, não são
-  // despesa/receita real.
-  const totalDebit = txs
-    .filter((t) => t.kind === "debit" && t.status !== "ignored" && !t.isInternalTransfer)
-    .reduce((s, t) => s + parseFloat(t.amount), 0);
-  const totalCredit = txs
-    .filter((t) => t.kind === "credit" && t.status !== "ignored" && !t.isInternalTransfer)
-    .reduce((s, t) => s + parseFloat(t.amount), 0);
+  // Totais do header. Calculados DEPOIS de separar statement vs invoice
+  // (logo abaixo em "Prepare data for client component") porque o header
+  // representa só o EXTRATO da conta filtrada — não pode somar as tx das
+  // FATURAS dos cartões filhos (que aparecem em bloco separado abaixo).
+  //
+  // Antes esse cálculo usava `txs` direto, que incluía os cartões filhos
+  // quando o user filtrava pela conta-raiz (UNICRED CC puxava também os
+  // cartões UNICRED VISA, MASTER etc via expandAccountFilter). Isso fazia
+  // o header e o footer da lista discordarem (~5k de diferença).
+  //
+  // Internas (pagamento de fatura, estornos, bonificações) e ignored não
+  // entram em despesa/receita real.
+  // (Movido pra baixo — depende de allStatementTxs)
+  let totalDebit = 0;
+  let totalCredit = 0;
 
   const activeAccount = sp.account
     ? allAccounts.find((a) => a.id === sp.account)
@@ -218,6 +276,16 @@ export default async function TransacoesPage({
   // Transações órfãs (sem conta) caem no extrato por default
   const orphanTxs = txsForClient.filter((t) => !t.bankAccountId);
   const allStatementTxs = [...statementTxs, ...orphanTxs];
+
+  // Agora SIM os totais do header — só do extrato, ignorando ignored e
+  // internas (pagamento de fatura etc).
+  for (const t of allStatementTxs) {
+    if (t.status === "ignored") continue;
+    if (t.isInternalTransfer) continue;
+    const amt = parseFloat(t.amount);
+    if (t.kind === "debit") totalDebit += amt;
+    else totalCredit += amt;
+  }
 
   // Preserva params na navegação
   const preservedParams: Record<string, string | undefined> = {
@@ -406,27 +474,16 @@ export default async function TransacoesPage({
         );
       })()}
 
-      {/* FATURA — cartão de crédito. Aparece como CARD RESUMO com link
-          pra tela própria da fatura. Não lista as transações inline pra
-          não misturar com o extrato. Quando o user quer categorizar,
-          vai pra /financeiro/faturas/[id]. */}
+      {/* FATURAS DO MÊS — cartão resumo POR FATURA INTEIRA (não fragmento).
+          Filtra por COMPETÊNCIA = mês visualizado. Total e contagem vêm
+          de query agregada sobre TODAS as tx da fatura, independente de
+          quando cada tx caiu no calendário. */}
       {(() => {
-        // Agrupa as txs por invoiceId
-        const byInvoice = new Map<string, typeof invoiceTxs>();
-        const orphanCardTxs: typeof invoiceTxs = [];
-        for (const tx of invoiceTxs) {
-          // Buscar invoiceId associado — vamos passar diretamente do server
-          const invId = (tx as { invoiceId?: string | null }).invoiceId;
-          if (invId) {
-            const arr = byInvoice.get(invId) ?? [];
-            arr.push(tx);
-            byInvoice.set(invId, arr);
-          } else {
-            orphanCardTxs.push(tx);
-          }
-        }
+        // Tx órfãs do cartão (sem invoiceId) — sinal de problema. Não inflam
+        // total nem aparecem na lista, só mostram um alerta pra subir a fatura.
+        const orphanCardTxs = invoiceTxs.filter((t) => !t.invoiceId);
 
-        if (invoiceTxs.length === 0 && orphanCardTxs.length === 0) return null;
+        if (invoicesForMonth.length === 0 && orphanCardTxs.length === 0) return null;
 
         return (
           <div style={{ marginTop: 16 }}>
@@ -435,23 +492,20 @@ export default async function TransacoesPage({
               label="Faturas do mês"
               action={
                 <span style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700 }}>
-                  {byInvoice.size + (orphanCardTxs.length > 0 ? 1 : 0)} fatura{byInvoice.size + (orphanCardTxs.length > 0 ? 1 : 0) === 1 ? "" : "s"}
+                  {invoicesForMonth.length} fatura{invoicesForMonth.length === 1 ? "" : "s"}
                 </span>
               }
             />
             <div style={{ padding: "0 20px", display: "flex", flexDirection: "column", gap: 8 }}>
-              {Array.from(byInvoice.entries()).map(([invId, invTxs]) => {
-                const inv = invoicesForMonth.find((i) => i.id === invId);
-                const acc = inv?.bankAccountId
+              {invoicesForMonth.map((inv) => {
+                const acc = inv.bankAccountId
                   ? allAccounts.find((a) => a.id === inv.bankAccountId)
                   : null;
-                const total = invTxs
-                  .filter((t) => t.kind === "debit" && !t.isInternalTransfer)
-                  .reduce((s, t) => s + parseFloat(t.amount), 0);
+                const agg = invoiceTotalsById.get(inv.id) ?? { total: 0, count: 0 };
                 return (
                   <Link
-                    key={invId}
-                    href={`/financeiro/faturas/${invId}`}
+                    key={inv.id}
+                    href={`/financeiro/faturas/${inv.id}`}
                     style={{
                       display: "flex",
                       alignItems: "center",
@@ -469,14 +523,14 @@ export default async function TransacoesPage({
                         {acc?.name ?? "Cartão"}
                       </div>
                       <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
-                        {invTxs.length} lançamento{invTxs.length === 1 ? "" : "s"}
-                        {inv?.referenceMonth ? ` · competência ${inv.referenceMonth.split("-").reverse().join("/")}` : ""}
-                        {inv?.status === "paid" ? " · paga" : inv?.status === "open" ? " · em aberto" : ""}
+                        {agg.count} lançamento{agg.count === 1 ? "" : "s"}
+                        {inv.referenceMonth ? ` · competência ${inv.referenceMonth.split("-").reverse().join("/")}` : ""}
+                        {inv.status === "paid" ? " · paga" : inv.status === "open" ? " · em aberto" : ""}
                       </div>
                     </div>
                     <div style={{ textAlign: "right", flexShrink: 0 }}>
                       <div className="ap-num" style={{ fontSize: 16, fontWeight: 700, color: "var(--alert)" }}>
-                        −R$ {formatBRL(total)}
+                        −R$ {formatBRL(agg.total)}
                       </div>
                       <div style={{ fontSize: 10, color: "var(--accent)", marginTop: 2, fontWeight: 700 }}>
                         ver fatura →

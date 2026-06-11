@@ -175,6 +175,8 @@ export function TransactionsMultiSelect({ transactions, categoryOptions }: Props
     let countReal = 0;
     let countInternal = 0;
     for (const tx of transactions) {
+      // Ignored não conta em lugar nenhum — bate com o header da página.
+      if (tx.status === "ignored") continue;
       if (tx.isInternalTransfer) {
         countInternal++;
         continue;

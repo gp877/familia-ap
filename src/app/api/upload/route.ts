@@ -238,23 +238,35 @@ async function handlePost(req: Request) {
       extracted.documentType === "credit_card_invoice" &&
       bankAccountId
     ) {
-      // referenceMonth = mês de COMPETÊNCIA (quando os gastos aconteceram),
-      // não mês do vencimento. Bancos como UNICRED chamam de "REF: mai/2026"
-      // o mês do vencimento, o que confunde — preferimos a convenção do
-      // usuário ("fatura de maio" = gastos feitos em maio).
+      // referenceMonth = mês de COMPETÊNCIA (quando a maioria das compras
+      // aconteceu), não mês do vencimento. Bancos como UNICRED chamam de
+      // "REF: mai/2026" o mês do vencimento, o que confunde — preferimos
+      // a convenção do usuário ("fatura de maio" = compras feitas em maio).
       //
-      // Calcula pela MEDIANA das datas das tx extraídas (mais robusto que
-      // pegar a média, que pode ser puxada por uma parcela antiga). Se o
-      // Gemini não retornar nada, ainda usa a mediana.
+      // Calculamos pela MODA (mês com MAIS tx). Mediana falhava em fatura
+      // com muitas parcelas antigas: 79 tx no total, sendo 50 em maio e
+      // 29 dispersas entre set/2025 e abr/2026 → mediana caía em fevereiro.
+      // Moda → maio (que é o que o usuário espera ver).
       let computedRef: string | null = null;
-      const txDates = extracted.transactions
-        .map((t) => new Date(t.occurredOn).getTime())
-        .filter((n) => !isNaN(n))
-        .sort((a, b) => a - b);
-      if (txDates.length > 0) {
-        const median = txDates[Math.floor(txDates.length / 2)];
-        const d = new Date(median);
-        computedRef = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      const monthCounts = new Map<string, number>();
+      for (const t of extracted.transactions) {
+        const d = new Date(t.occurredOn);
+        if (isNaN(d.getTime())) continue;
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+        monthCounts.set(key, (monthCounts.get(key) ?? 0) + 1);
+      }
+      if (monthCounts.size > 0) {
+        let best = "";
+        let bestN = -1;
+        for (const [m, n] of monthCounts) {
+          // Empate: prefere o mês MAIS RECENTE (compras costumam concentrar
+          // perto do fechamento do cartão).
+          if (n > bestN || (n === bestN && m > best)) {
+            best = m;
+            bestN = n;
+          }
+        }
+        computedRef = best;
       }
       const effectiveRef = computedRef || extracted.referenceMonth;
 
@@ -345,10 +357,27 @@ async function handlePost(req: Request) {
 
       let soloInternalCount = 0;
       let candidateCount = 0;
+      let saldoFiltered = 0;
+
+      // Filtro defensivo: o prompt do Gemini pede pra ignorar linhas de SALDO
+      // e totais, mas se uma escapar (saldo anterior, saldo do dia, saldo
+      // parcial, total parcial, etc.) ela vira uma "tx" e inflama os totais.
+      // Esse regex bloqueia no servidor mesmo se a IA falhar.
+      const SALDO_RE = /\b(saldo\s+(anterior|inicial|final|atual|do\s+dia|parcial|disponivel|dispon[íi]vel)|s\.\s*anterior|total\s+(parcial|geral|do\s+dia|do\s+m[eê]s)|movimenta[cç][aã]o\s+do\s+dia|limite\s+de\s+cr[eé]dito|limite\s+de\s+cheque|valor\s+m[íi]nimo|pr[oó]ximas\s+faturas)\b/i;
 
       let pdfIdx = -1;
       for (const t of extracted.transactions) {
         pdfIdx++;
+        if (
+          SALDO_RE.test(t.rawDescription || "") ||
+          SALDO_RE.test(t.description || "")
+        ) {
+          saldoFiltered++;
+          console.warn(
+            `[upload] linha bloqueada (saldo/total): "${(t.rawDescription || "").slice(0, 80)}"`
+          );
+          continue;
+        }
         const key = makeKey(bankAccountId, t.occurredOn, t.amount, t.rawDescription);
         if (existingKeys.has(key)) {
           skipped++;
@@ -559,6 +588,7 @@ async function handlePost(req: Request) {
         extractedCount: extracted.transactions.length,
         savedCount: toInsert.length,
         skippedCount: skipped,
+        saldoFilteredCount: saldoFiltered,
         soloInternalCount,
         candidateCount,
         pairedCount: 0, // calculado em after()
