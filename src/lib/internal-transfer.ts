@@ -331,8 +331,16 @@ export async function linkCardPaymentsToInvoices(
       if (Math.abs(invAmount - txAmount) > 0.01) return false;
       const txDate = new Date(tx.occurredOn);
       if (!inv.dueDate) {
+        // Sem dueDate: fatura é paga no MÊS SEGUINTE à competência.
+        // Aceitamos pagamento no mesmo mês (raro) OU no mês seguinte
+        // (caso comum — gastos em maio, pagamento em junho).
         const txMonth = `${txDate.getFullYear()}-${String(txDate.getMonth() + 1).padStart(2, "0")}`;
-        return inv.referenceMonth === txMonth;
+        if (inv.referenceMonth === txMonth) return true;
+        const [yStr, mStr] = inv.referenceMonth.split("-");
+        const refDate = new Date(Number(yStr), Number(mStr) - 1, 1);
+        refDate.setMonth(refDate.getMonth() + 1);
+        const nextMonth = `${refDate.getFullYear()}-${String(refDate.getMonth() + 1).padStart(2, "0")}`;
+        return nextMonth === txMonth;
       }
       const invDue = new Date(inv.dueDate);
       const diffDays = Math.abs(
