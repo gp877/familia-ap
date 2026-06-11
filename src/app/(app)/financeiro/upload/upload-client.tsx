@@ -53,11 +53,36 @@ export function UploadClient({ accounts }: Props) {
       if (bankAccountId) fd.append("bankAccountId", bankAccountId);
 
       const res = await fetch("/api/upload", { method: "POST", body: fd });
-      const data = await res.json();
+      // Parse defensivo: timeout da Vercel devolve HTML ("An error occurred…"),
+      // não JSON. Em vez de explodir com "Unexpected token", mostra mensagem
+      // amigável + sugere reenviar.
+      let data: { error?: string; [k: string]: unknown };
+      const contentType = res.headers.get("content-type") ?? "";
+      if (contentType.includes("application/json")) {
+        data = await res.json();
+      } else {
+        const text = await res.text().catch(() => "");
+        if (text.toLowerCase().includes("error occurred")) {
+          throw new Error(
+            "A Vercel encerrou o processamento (timeout de 60s). O PDF é grande ou o Gemini está lento. Reenvie o arquivo — geralmente passa na 2ª tentativa."
+          );
+        }
+        throw new Error(
+          `Resposta inesperada do servidor (HTTP ${res.status}). Reenvie o arquivo.`
+        );
+      }
       if (!res.ok) throw new Error(data.error || "Falha no upload");
-      setResult(data);
+      setResult(data as Parameters<typeof setResult>[0]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      const msg = err instanceof Error ? err.message : String(err);
+      // Erro de rede genérico ("Failed to fetch") também é típico de timeout
+      if (msg === "Failed to fetch" || /TypeError.*fetch/i.test(msg)) {
+        setError(
+          "A conexão foi interrompida (provável timeout). Reenvie o arquivo."
+        );
+      } else {
+        setError(msg);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -276,7 +301,7 @@ export function UploadClient({ accounts }: Props) {
         >
           {submitting ? (
             <>
-              <Spinner /> Processando (~30s a 1 min)
+              <Spinner /> Processando — pode levar até 1 min, não recarregue
             </>
           ) : (
             "Enviar e extrair"

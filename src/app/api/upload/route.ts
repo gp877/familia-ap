@@ -16,6 +16,8 @@ import {
 } from "@/lib/internal-transfer";
 
 export const runtime = "nodejs";
+// Vercel Hobby suporta até 60s; Pro até 300s. Mantemos 60 mas usamos
+// budget interno bem mais apertado (40s) pra deixar margem pra resposta.
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
@@ -129,7 +131,11 @@ export async function POST(req: Request) {
     .returning();
 
   try {
+    const tExtractStart = Date.now();
     const extracted = await extractFromPdf(buf);
+    console.log(
+      `[upload] extractFromPdf retornou em ${Date.now() - tExtractStart}ms (${extracted.transactions.length} txs)`
+    );
 
     // Persiste IMEDIATAMENTE o raw da IA + warnings + totals reportados.
     // Mesmo que o resto da pipeline falhe depois, temos o output da IA gravado

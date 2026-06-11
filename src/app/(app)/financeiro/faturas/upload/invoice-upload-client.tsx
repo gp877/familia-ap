@@ -47,11 +47,30 @@ export function InvoiceUploadClient({ cards }: { cards: CardOption[] }) {
       if (cardId) fd.append("bankAccountId", cardId);
 
       const res = await fetch("/api/upload", { method: "POST", body: fd });
-      const data = await res.json();
+      let data: { error?: string; [k: string]: unknown };
+      const contentType = res.headers.get("content-type") ?? "";
+      if (contentType.includes("application/json")) {
+        data = await res.json();
+      } else {
+        const text = await res.text().catch(() => "");
+        if (text.toLowerCase().includes("error occurred")) {
+          throw new Error(
+            "A Vercel encerrou o processamento (timeout de 60s). Reenvie o arquivo — geralmente passa na 2ª tentativa."
+          );
+        }
+        throw new Error(
+          `Resposta inesperada do servidor (HTTP ${res.status}). Reenvie o arquivo.`
+        );
+      }
       if (!res.ok) throw new Error(data.error || "Falha no upload");
-      setResult(data);
+      setResult(data as Parameters<typeof setResult>[0]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg === "Failed to fetch" || /TypeError.*fetch/i.test(msg)) {
+        setError("A conexão foi interrompida (provável timeout). Reenvie.");
+      } else {
+        setError(msg);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -324,7 +343,7 @@ export function InvoiceUploadClient({ cards }: { cards: CardOption[] }) {
             gap: 8,
           }}
         >
-          {submitting ? <>Processando (~30s a 1 min)</> : "Enviar e extrair"}
+          {submitting ? <>Processando — pode levar até 1 min, não recarregue</> : "Enviar e extrair"}
         </button>
 
         {submitting && (

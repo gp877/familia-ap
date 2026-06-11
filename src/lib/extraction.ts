@@ -215,16 +215,22 @@ async function sleep(ms: number) {
 }
 
 export async function extractFromPdf(pdfBuffer: Buffer): Promise<ExtractionResult> {
-  // Retry com backoff exponencial: 1s, 3s, 7s, 15s. Gemini fica
-  // sobrecarregado em horário de pico — a chamada que falha agora
-  // geralmente passa na 2ª tentativa.
-  const delays = [1000, 3000, 7000, 15000];
+  // Retry pra 503/429/timeout. Budget apertado (~6s no pior caso) pra
+  // caber no maxDuration de 60s da Vercel — o próprio Gemini já pode
+  // demorar 30-50s pra responder num PDF grande, então não dá pra
+  // gastar muito em retry. Se falhar 2x, o user reenviar manualmente
+  // é mais útil que esperar 30s de backoff.
+  const delays = [1000, 5000];
   let lastErr: unknown = null;
   let response: Awaited<ReturnType<typeof ai.models.generateContent>> | null = null;
   for (let attempt = 0; attempt <= delays.length; attempt++) {
+    const tStart = Date.now();
     try {
       response = await ai.models.generateContent({
-        model: "gemini-flash-latest",
+        // gemini-2.5-flash explícito (em vez de "gemini-flash-latest") porque
+        // o alias "latest" estava resolvendo pra um modelo sobrecarregado
+        // (503 constante). 2.5 é o nome canônico e tem cota separada.
+        model: "gemini-2.5-flash",
         contents: [
           {
             role: "user",
@@ -245,13 +251,23 @@ export async function extractFromPdf(pdfBuffer: Buffer): Promise<ExtractionResul
           temperature: 0,
         },
       });
+      console.log(
+        `[extraction] Gemini ok em ${Date.now() - tStart}ms (tentativa ${attempt + 1}/${delays.length + 1}, PDF ${(pdfBuffer.length / 1024).toFixed(1)} KB)`
+      );
       break;
     } catch (err) {
       lastErr = err;
-      if (attempt === delays.length || !isRetryableError(err)) throw err;
+      const elapsed = Date.now() - tStart;
+      if (attempt === delays.length || !isRetryableError(err)) {
+        console.error(
+          `[extraction] Gemini falhou definitivamente após ${elapsed}ms (tentativa ${attempt + 1}). Erro:`,
+          err instanceof Error ? err.message : err
+        );
+        throw err;
+      }
       const wait = delays[attempt];
       console.warn(
-        `[extraction] Gemini falhou (tentativa ${attempt + 1}/${delays.length + 1}). Retentar em ${wait}ms. Erro:`,
+        `[extraction] Gemini falhou em ${elapsed}ms (tentativa ${attempt + 1}/${delays.length + 1}). Retentar em ${wait}ms. Erro:`,
         err instanceof Error ? err.message : err
       );
       await sleep(wait);
