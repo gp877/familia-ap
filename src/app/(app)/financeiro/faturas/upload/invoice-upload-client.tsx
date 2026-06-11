@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { BigNumber, Card, Pill, SectionRow } from "@/components/ap/atoms";
 import { Icon } from "@/components/ap/icon";
@@ -9,6 +9,14 @@ import { BackButton } from "@/components/ap/inline-form";
 import { ScreenShell } from "@/components/ap/screen-shell";
 
 type CardOption = { id: string; name: string; type: string };
+
+function progressMessage(seconds: number): string {
+  if (seconds < 5) return "Enviando arquivo…";
+  if (seconds < 15) return "Extraindo dados com IA…";
+  if (seconds < 30) return `Processando (${seconds}s) — Gemini lendo a fatura…`;
+  if (seconds < 50) return `Quase lá (${seconds}s) — não recarregue…`;
+  return `${seconds}s — pode demorar mais um pouco, aguarde…`;
+}
 
 /**
  * Upload de fatura de cartão de crédito. Espelha visualmente o upload
@@ -23,7 +31,21 @@ export function InvoiceUploadClient({ cards }: { cards: CardOption[] }) {
   const [file, setFile] = useState<File | null>(null);
   const [cardId, setCardId] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ message: string; canRetry: boolean } | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+  const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    if (!submitting) {
+      setElapsed(0);
+      return;
+    }
+    const start = Date.now();
+    const id = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - start) / 1000));
+    }, 500);
+    return () => clearInterval(id);
+  }, [submitting]);
   const [result, setResult] = useState<{
     extractedCount: number;
     savedCount?: number;
@@ -33,12 +55,15 @@ export function InvoiceUploadClient({ cards }: { cards: CardOption[] }) {
     invoiceId: string | null;
   } | null>(null);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function doUpload() {
     if (!file) return;
     setSubmitting(true);
     setError(null);
     setResult(null);
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const timeout = setTimeout(() => controller.abort(), 80_000);
 
     try {
       const fd = new FormData();
@@ -46,34 +71,69 @@ export function InvoiceUploadClient({ cards }: { cards: CardOption[] }) {
       fd.append("sourceType", "credit_card_invoice");
       if (cardId) fd.append("bankAccountId", cardId);
 
-      const res = await fetch("/api/upload", { method: "POST", body: fd });
-      let data: { error?: string; [k: string]: unknown };
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        body: fd,
+        signal: controller.signal,
+      });
+
       const contentType = res.headers.get("content-type") ?? "";
+      let data: { error?: string; code?: string; canRetry?: boolean; [k: string]: unknown };
       if (contentType.includes("application/json")) {
         data = await res.json();
       } else {
         const text = await res.text().catch(() => "");
         if (text.toLowerCase().includes("error occurred")) {
-          throw new Error(
-            "A Vercel encerrou o processamento (timeout de 60s). Reenvie o arquivo — geralmente passa na 2ª tentativa."
-          );
+          setError({
+            message:
+              "A Vercel encerrou o processamento (timeout de 60s). Tente reenviar — geralmente passa na 2ª tentativa.",
+            canRetry: true,
+          });
+          return;
         }
-        throw new Error(
-          `Resposta inesperada do servidor (HTTP ${res.status}). Reenvie o arquivo.`
-        );
+        setError({
+          message: `Resposta inesperada do servidor (HTTP ${res.status}). Reenvie o arquivo.`,
+          canRetry: true,
+        });
+        return;
       }
-      if (!res.ok) throw new Error(data.error || "Falha no upload");
+      if (!res.ok) {
+        setError({
+          message: data.error || "Falha no upload",
+          canRetry: data.canRetry !== false,
+        });
+        return;
+      }
       setResult(data as Parameters<typeof setResult>[0]);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg === "Failed to fetch" || /TypeError.*fetch/i.test(msg)) {
-        setError("A conexão foi interrompida (provável timeout). Reenvie.");
+      if (controller.signal.aborted) {
+        setError({
+          message: "Tempo esgotado (80s) sem resposta. Tente reenviar.",
+          canRetry: true,
+        });
+      } else if (msg === "Failed to fetch" || /TypeError.*fetch/i.test(msg)) {
+        setError({
+          message: "A conexão foi interrompida. Tente reenviar.",
+          canRetry: true,
+        });
       } else {
-        setError(msg);
+        setError({ message: msg, canRetry: true });
       }
     } finally {
+      clearTimeout(timeout);
+      abortRef.current = null;
       setSubmitting(false);
     }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    await doUpload();
+  }
+
+  function cancelUpload() {
+    abortRef.current?.abort();
   }
 
   if (result) {
@@ -319,7 +379,51 @@ export function InvoiceUploadClient({ cards }: { cards: CardOption[] }) {
               border: "1px solid var(--alert)",
             }}
           >
-            {error}
+            <div style={{ fontWeight: 600, marginBottom: error.canRetry ? 10 : 0 }}>
+              {error.message}
+            </div>
+            {error.canRetry && (
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={doUpload}
+                  disabled={submitting}
+                  style={{
+                    padding: "6px 14px",
+                    borderRadius: 8,
+                    background: "var(--alert)",
+                    color: "var(--accent-on)",
+                    border: "none",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: submitting ? "wait" : "pointer",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  ↻ Tentar de novo (mesmo arquivo)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setError(null);
+                    setFile(null);
+                  }}
+                  style={{
+                    padding: "6px 14px",
+                    borderRadius: 8,
+                    background: "transparent",
+                    color: "var(--muted-d)",
+                    border: "0.5px solid var(--line-d)",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  Escolher outro
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -343,12 +447,27 @@ export function InvoiceUploadClient({ cards }: { cards: CardOption[] }) {
             gap: 8,
           }}
         >
-          {submitting ? <>Processando — pode levar até 1 min, não recarregue</> : "Enviar e extrair"}
+          {submitting ? progressMessage(elapsed) : "Enviar e extrair"}
         </button>
 
         {submitting && (
-          <div style={{ marginTop: 12, fontSize: 11, color: "var(--muted)", textAlign: "center" }}>
-            <Pill tone="accent">processando</Pill>
+          <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 6, alignItems: "center" }}>
+            <Pill tone="accent">{elapsed}s decorridos</Pill>
+            <button
+              type="button"
+              onClick={cancelUpload}
+              style={{
+                background: "transparent",
+                color: "var(--muted-d)",
+                border: "none",
+                fontSize: 11,
+                cursor: "pointer",
+                textDecoration: "underline",
+                fontFamily: "inherit",
+              }}
+            >
+              cancelar
+            </button>
           </div>
         )}
       </form>

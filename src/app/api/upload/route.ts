@@ -21,25 +21,85 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
+  // Envelope geral: TODO erro retorna JSON com { error, code, canRetry }.
+  // Mesmo um catch fatal no fim — sem isso o client recebe HTML do Next
+  // e parser de JSON explode com "Unexpected token".
+  try {
+    return await handlePost(req);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[upload] catch fatal:", err);
+    return NextResponse.json(
+      {
+        error: `Erro inesperado: ${message}. Tente reenviar — se persistir, recarregue a página.`,
+        code: "UNCAUGHT",
+        canRetry: true,
+      },
+      { status: 500 }
+    );
+  }
+}
+
+async function handlePost(req: Request) {
   const session = await auth();
   if (!session?.user?.id) {
-    return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+    return NextResponse.json(
+      {
+        error: "Sua sessão expirou. Recarregue a página e entre de novo.",
+        code: "UNAUTHENTICATED",
+        canRetry: false,
+      },
+      { status: 401 }
+    );
   }
 
   const dbUser = await db.query.users.findFirst({
     where: eq(users.id, session.user.id),
   });
   if (!dbUser?.householdId) {
-    return NextResponse.json({ error: "Sem household" }, { status: 400 });
+    return NextResponse.json(
+      {
+        error: "Sua conta não está vinculada a um household. Contate o suporte.",
+        code: "NO_HOUSEHOLD",
+        canRetry: false,
+      },
+      { status: 400 }
+    );
   }
 
   const formData = await req.formData();
   const file = formData.get("file");
   if (!file || !(file instanceof File)) {
-    return NextResponse.json({ error: "Arquivo não enviado" }, { status: 400 });
+    return NextResponse.json(
+      {
+        error: "Arquivo não enviado. Escolha um PDF e tente de novo.",
+        code: "NO_FILE",
+        canRetry: false,
+      },
+      { status: 400 }
+    );
   }
   if (file.type !== "application/pdf") {
-    return NextResponse.json({ error: "Apenas PDF é aceito" }, { status: 400 });
+    return NextResponse.json(
+      {
+        error: "Apenas PDF é aceito. O arquivo enviado é " + (file.type || "desconhecido"),
+        code: "WRONG_FILE_TYPE",
+        canRetry: false,
+      },
+      { status: 400 }
+    );
+  }
+  // Limite razoável de tamanho — PDFs > 10MB tendem a estourar Gemini
+  // mesmo com 2.5-flash, e a Vercel pode rejeitar antes de chegar aqui.
+  if (file.size > 10 * 1024 * 1024) {
+    return NextResponse.json(
+      {
+        error: `Arquivo muito grande (${(file.size / 1024 / 1024).toFixed(1)} MB). Limite é 10 MB. Tente reduzir as páginas ou re-exportar do banco.`,
+        code: "FILE_TOO_LARGE",
+        canRetry: false,
+      },
+      { status: 413 }
+    );
   }
 
   const bankAccountIdRaw = formData.get("bankAccountId") as string | null;
@@ -75,14 +135,43 @@ export async function POST(req: Request) {
     ),
   });
   if (byFileHash) {
-    return NextResponse.json(
-      {
-        error: `Esse PDF já foi enviado em ${new Date(byFileHash.createdAt).toLocaleDateString("pt-BR")} (arquivo "${byFileHash.filename}"). Se quiser reprocessar, exclua o upload anterior primeiro.`,
-        duplicateUploadId: byFileHash.id,
-        duplicateMatchedOn: "file_hash",
-      },
-      { status: 409 }
-    );
+    // Caso especial: upload preso em "processing" há mais de 5 min →
+    // considera abandonado (Vercel timeout, browser fechou, etc).
+    // Reaproveita o ID e deixa o pipeline rodar de novo.
+    const ageMs = Date.now() - new Date(byFileHash.createdAt).getTime();
+    const isStaleProcessing =
+      byFileHash.status === "processing" && ageMs > 5 * 60 * 1000;
+
+    if (isStaleProcessing) {
+      // Apaga transações órfãs do upload abandonado antes de seguir
+      await db
+        .delete(transactions)
+        .where(eq(transactions.uploadId, byFileHash.id));
+      await db.delete(uploads).where(eq(uploads.id, byFileHash.id));
+    } else if (byFileHash.status === "processing") {
+      // Upload em processamento ATIVO em outra aba/request
+      return NextResponse.json(
+        {
+          error: `Esse arquivo já está sendo processado (iniciado há ${Math.round(ageMs / 1000)}s, em outra aba ou dispositivo). Aguarde até 1 min — se travar, recarregue a página e tente de novo.`,
+          code: "PROCESSING_IN_PROGRESS",
+          duplicateUploadId: byFileHash.id,
+          canRetry: false,
+        },
+        { status: 409 }
+      );
+    } else {
+      // Upload concluído ou falho — bloqueia mesmo
+      return NextResponse.json(
+        {
+          error: `Esse PDF já foi enviado em ${new Date(byFileHash.createdAt).toLocaleDateString("pt-BR")} (arquivo "${byFileHash.filename}"). Se quiser reprocessar, exclua o upload anterior primeiro.`,
+          code: "DUPLICATE_FILE",
+          duplicateUploadId: byFileHash.id,
+          duplicateMatchedOn: "file_hash",
+          canRetry: false,
+        },
+        { status: 409 }
+      );
+    }
   }
 
   // ── Dedupe camada 2: hash do TEXTO normalizado ─────────────
@@ -454,17 +543,39 @@ export async function POST(req: Request) {
         .where(eq(uploads.id, upload.id));
     }
 
-    // Erro do Gemini 503/429 → mensagem amigável + dica de retry
-    const isOverload =
-      /503|UNAVAILABLE|429|RESOURCE_EXHAUSTED|overload/i.test(message);
-    const friendly = isOverload
-      ? "O Gemini (IA que extrai os PDFs) está sobrecarregado agora. Aguarde 1-2 minutos e tente subir o arquivo de novo — ele não foi salvo, então pode reenviar normalmente."
-      : message;
+    // Mensagens específicas por tipo de erro pra dar uma ação clara ao user
+    let friendly: string;
+    let code: string;
+    if (/503|UNAVAILABLE|overload/i.test(message)) {
+      code = "GEMINI_OVERLOADED";
+      friendly =
+        "A IA do Google (Gemini) está sobrecarregada agora. Aguarde 1-2 min e tente reenviar — seu arquivo NÃO foi salvo.";
+    } else if (/429|RESOURCE_EXHAUSTED|quota/i.test(message)) {
+      code = "GEMINI_QUOTA";
+      friendly =
+        "Cota diária da IA esgotada. Aguarde algumas horas ou contate o admin pra renovar a chave do Gemini.";
+    } else if (/timeout|ETIMEDOUT|socket hang up/i.test(message)) {
+      code = "TIMEOUT";
+      friendly =
+        "Tempo esgotado processando o PDF (Vercel limita em 60s). Tente um arquivo menor ou reenvie em horário de menor demanda.";
+    } else if (/JSON|parse/i.test(message)) {
+      code = "GEMINI_BAD_JSON";
+      friendly =
+        "A IA retornou um formato inesperado. Tente reenviar — geralmente passa na 2ª tentativa.";
+    } else if (/Failed query|database/i.test(message)) {
+      code = "DB_ERROR";
+      friendly =
+        "Erro ao salvar as transações no banco. Tente reenviar — se persistir, avise.";
+    } else {
+      code = "EXTRACTION_FAILED";
+      friendly = `Falha ao processar o PDF: ${message}. Tente reenviar.`;
+    }
 
     return NextResponse.json(
       {
         error: friendly,
         rawError: message,
+        code,
         canRetry: !txsForUpload,
       },
       { status: 500 }

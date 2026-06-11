@@ -11,6 +11,7 @@ import { db } from "@/db";
 import { bankAccounts, invoices, transactions, uploads, users } from "@/db/schema";
 
 import { InvoiceActions } from "../_components/upload-actions";
+import { StaleUploadBanner } from "../_components/stale-upload-banner";
 
 function formatBRL(n: number) {
   return n.toLocaleString("pt-BR", {
@@ -91,18 +92,24 @@ export default async function FaturasPage({
 
   // Mapa invoiceId → upload vinculado (pra exibir botão Ver PDF). Uma
   // invoice pode ter 0 ou 1+ uploads — pegamos qualquer um com blob válido.
-  const linkedUploads = await db
+  // Carrega TODOS os uploads de fatura também pra detectar travados/falhos.
+  const allInvoiceUploads = await db
     .select({
+      id: uploads.id,
       invoiceId: uploads.invoiceId,
       blobUrl: uploads.blobUrl,
+      filename: uploads.filename,
+      status: uploads.status,
+      createdAt: uploads.createdAt,
     })
     .from(uploads)
     .where(
       and(
         eq(uploads.householdId, dbUser.householdId),
-        sql`${uploads.invoiceId} IS NOT NULL`
+        eq(uploads.sourceType, "credit_card_invoice")
       )
     );
+  const linkedUploads = allInvoiceUploads.filter((u) => u.invoiceId);
   const uploadByInvoiceId = new Map<string, { blobUrl: string | null }>();
   for (const u of linkedUploads) {
     if (u.invoiceId && !uploadByInvoiceId.has(u.invoiceId)) {
@@ -150,6 +157,27 @@ export default async function FaturasPage({
       </div>
 
       <SectionRow icon="bank" label="Faturas de cartão" action={`${all.length} no total`} />
+
+      {/* Alerta de uploads travados/falhos — sempre antes da lista normal */}
+      <StaleUploadBanner
+        uploadKind="invoice"
+        uploads={allInvoiceUploads
+          .filter((u) => {
+            const ageMin = (Date.now() - new Date(u.createdAt).getTime()) / 60000;
+            return (
+              (u.status === "processing" && ageMin > 5) ||
+              u.status === "failed"
+            );
+          })
+          .map((u) => ({
+            id: u.id,
+            filename: u.filename,
+            status: u.status,
+            createdAt: new Date(u.createdAt).toISOString(),
+            ageMinutes: Math.round((Date.now() - new Date(u.createdAt).getTime()) / 60000),
+            invoiceId: u.invoiceId,
+          }))}
+      />
 
       <AccountPicker
         basePath="/financeiro/faturas"

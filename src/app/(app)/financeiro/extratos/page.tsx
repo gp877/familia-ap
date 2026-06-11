@@ -9,6 +9,7 @@ import { auth } from "@/auth";
 import { db } from "@/db";
 import { bankAccounts, transactions, uploads, users } from "@/db/schema";
 
+import { StaleUploadBanner } from "../_components/stale-upload-banner";
 import { StatementActions } from "../_components/upload-actions";
 
 function formatBRL(n: number) {
@@ -185,6 +186,27 @@ export default async function ExtratosPage({
       </div>
 
       <SectionRow icon="bank" label="Extratos bancários" action={`${enriched.length} no total`} />
+
+      {/* Alerta de uploads travados/falhos — sempre antes da lista normal */}
+      <StaleUploadBanner
+        uploadKind="statement"
+        uploads={allUploads
+          .filter((u) => {
+            const ageMin = (Date.now() - new Date(u.createdAt).getTime()) / 60000;
+            return (
+              (u.status === "processing" && ageMin > 5) ||
+              u.status === "failed"
+            );
+          })
+          .map((u) => ({
+            id: u.id,
+            filename: u.filename,
+            status: u.status,
+            createdAt: new Date(u.createdAt).toISOString(),
+            ageMinutes: Math.round((Date.now() - new Date(u.createdAt).getTime()) / 60000),
+            invoiceId: u.invoiceId,
+          }))}
+      />
 
       {/* Filtro de conta — mesma hierarquia de /transacoes */}
       <AccountPicker
