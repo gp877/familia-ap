@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import Link from "next/link";
 
 import { AccountPicker, expandAccountFilter } from "@/components/ap/account-picker";
@@ -15,6 +15,7 @@ import { db } from "@/db";
 import {
   bankAccounts,
   categories,
+  invoices,
   transactions,
   users,
 } from "@/db/schema";
@@ -104,12 +105,27 @@ export default async function TransacoesPage({
     conds.push(inArray(transactions.bankAccountId, expandedAccountIds));
   }
 
-  // 2ª rodada: transações com filtro resolvido
+  // 2ª rodada: transações com filtro resolvido. ORDEM ASC pra ler de
+  // cima pra baixo na sequência cronológica (dia 1 → dia 31).
   const txs = await db.query.transactions.findMany({
     where: and(...conds),
-    orderBy: [desc(transactions.occurredOn), desc(transactions.createdAt)],
+    orderBy: [asc(transactions.occurredOn), asc(transactions.createdAt)],
     limit: 500,
   });
+
+  // Faturas que têm pelo menos uma tx no mês selecionado — pra mostrar
+  // o card resumo + link na seção "Faturas do mês".
+  const invoiceIdsInTxs = Array.from(
+    new Set(txs.map((t) => t.invoiceId).filter(Boolean) as string[])
+  );
+  const invoicesForMonth = invoiceIdsInTxs.length > 0
+    ? await db.query.invoices.findMany({
+        where: and(
+          eq(invoices.householdId, dbUser.householdId),
+          inArray(invoices.id, invoiceIdsInTxs)
+        ),
+      })
+    : [];
 
   const categoryOptions: CategoryOption[] = allCategories.map((c) => ({
     id: c.id,
@@ -176,6 +192,7 @@ export default async function TransacoesPage({
     categoryId: tx.categoryId,
     status: tx.status,
     bankAccountId: tx.bankAccountId,
+    invoiceId: tx.invoiceId,
     isInternalTransfer: tx.isInternalTransfer,
     internalTransferType: tx.internalTransferType,
     splits: (tx.splits as Array<{ categoryId: string; amount: string; note?: string }> | null) ?? null,
@@ -381,43 +398,100 @@ export default async function TransacoesPage({
         );
       })()}
 
-      {/* FATURA — cartão de crédito. Separado pra não misturar a sequência
-          de dias do extrato com a do cartão. */}
+      {/* FATURA — cartão de crédito. Aparece como CARD RESUMO com link
+          pra tela própria da fatura. Não lista as transações inline pra
+          não misturar com o extrato. Quando o user quer categorizar,
+          vai pra /financeiro/faturas/[id]. */}
       {(() => {
-        const cardAccounts = allAccounts
-          .filter((a) => a.type === "credit_card")
-          .map((a) => ({ id: a.id, name: a.name, type: a.type }));
-        const cardDefaultAcc = activeAccount?.type === "credit_card"
-          ? activeAccount.id
-          : null;
-        const showInvoiceBlock = invoiceTxs.length > 0 || cardAccounts.length > 0;
-        if (!showInvoiceBlock) return null;
+        // Agrupa as txs por invoiceId
+        const byInvoice = new Map<string, typeof invoiceTxs>();
+        const orphanCardTxs: typeof invoiceTxs = [];
+        for (const tx of invoiceTxs) {
+          // Buscar invoiceId associado — vamos passar diretamente do server
+          const invId = (tx as { invoiceId?: string | null }).invoiceId;
+          if (invId) {
+            const arr = byInvoice.get(invId) ?? [];
+            arr.push(tx);
+            byInvoice.set(invId, arr);
+          } else {
+            orphanCardTxs.push(tx);
+          }
+        }
+
+        if (invoiceTxs.length === 0 && orphanCardTxs.length === 0) return null;
+
         return (
           <div style={{ marginTop: 16 }}>
             <SectionRow
               icon="bank"
-              label="Fatura"
+              label="Faturas do mês"
               action={
                 <span style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700 }}>
-                  {invoiceTxs.length} lançamento{invoiceTxs.length === 1 ? "" : "s"}
+                  {byInvoice.size + (orphanCardTxs.length > 0 ? 1 : 0)} fatura{byInvoice.size + (orphanCardTxs.length > 0 ? 1 : 0) === 1 ? "" : "s"}
                 </span>
               }
             />
-            <div style={{ padding: "0 20px 4px" }}>
-              <InlineNewTransaction
-                accounts={cardAccounts}
-                categoryOptions={categoryOptions}
-                defaultAccountId={cardDefaultAcc}
-                defaultKind="debit"
-                blockLabel="Fatura"
-              />
+            <div style={{ padding: "0 20px", display: "flex", flexDirection: "column", gap: 8 }}>
+              {Array.from(byInvoice.entries()).map(([invId, invTxs]) => {
+                const inv = invoicesForMonth.find((i) => i.id === invId);
+                const acc = inv?.bankAccountId
+                  ? allAccounts.find((a) => a.id === inv.bankAccountId)
+                  : null;
+                const total = invTxs
+                  .filter((t) => t.kind === "debit" && !t.isInternalTransfer)
+                  .reduce((s, t) => s + parseFloat(t.amount), 0);
+                return (
+                  <Link
+                    key={invId}
+                    href={`/financeiro/faturas/${invId}`}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 12,
+                      padding: "12px 14px",
+                      background: "var(--card)",
+                      border: "0.5px solid var(--line-d)",
+                      borderRadius: 14,
+                      textDecoration: "none",
+                      color: "inherit",
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--ink)" }}>
+                        {acc?.name ?? "Cartão"}
+                      </div>
+                      <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                        {invTxs.length} lançamento{invTxs.length === 1 ? "" : "s"}
+                        {inv?.referenceMonth ? ` · competência ${inv.referenceMonth.split("-").reverse().join("/")}` : ""}
+                        {inv?.status === "paid" ? " · paga" : inv?.status === "open" ? " · em aberto" : ""}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right", flexShrink: 0 }}>
+                      <div className="ap-num" style={{ fontSize: 16, fontWeight: 700, color: "var(--alert)" }}>
+                        −R$ {formatBRL(total)}
+                      </div>
+                      <div style={{ fontSize: 10, color: "var(--accent)", marginTop: 2, fontWeight: 700 }}>
+                        ver fatura →
+                      </div>
+                    </div>
+                  </Link>
+                );
+              })}
+              {orphanCardTxs.length > 0 && (
+                <div
+                  style={{
+                    padding: "10px 14px",
+                    background: "color-mix(in oklab, var(--alert) 12%, var(--card))",
+                    border: "1px dashed var(--alert)",
+                    borderRadius: 14,
+                    fontSize: 11.5,
+                    color: "var(--alert)",
+                  }}
+                >
+                  {orphanCardTxs.length} lançamento{orphanCardTxs.length === 1 ? "" : "s"} de cartão sem fatura vinculada — suba a fatura em <code>/financeiro/faturas/upload</code>
+                </div>
+              )}
             </div>
-            {invoiceTxs.length > 0 && (
-              <TransactionsMultiSelect
-                transactions={invoiceTxs}
-                categoryOptions={categoryOptions}
-              />
-            )}
           </div>
         );
       })()}

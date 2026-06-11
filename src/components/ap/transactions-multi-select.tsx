@@ -367,7 +367,18 @@ export function TransactionsMultiSelect({ transactions, categoryOptions }: Props
                         whiteSpace: "nowrap",
                       }}
                     >
-                      {formatDate(tx.occurredOn)} ·{" "}
+                      <span
+                        style={{
+                          color: "var(--accent)",
+                          fontWeight: 800,
+                          fontSize: 11,
+                          letterSpacing: "0.02em",
+                          marginRight: 6,
+                          fontVariantNumeric: "tabular-nums",
+                        }}
+                      >
+                        {formatDate(tx.occurredOn)}
+                      </span>
                       <span style={{ opacity: 0.85 }}>{tx.rawDescription.slice(0, 96)}</span>
                       {tx.rawDescription.length > 96 ? "…" : ""}
                     </span>

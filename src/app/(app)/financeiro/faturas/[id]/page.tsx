@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNull, lte, ne } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lte, ne } from "drizzle-orm";
 import { notFound } from "next/navigation";
 
 import { BigNumber, Card, Pill, SectionRow } from "@/components/ap/atoms";
@@ -63,10 +63,10 @@ export default async function FaturaDetailPage({
   });
   if (!inv || inv.householdId !== dbUser.householdId) notFound();
 
-  // Transações da fatura
+  // Transações da fatura — ASC pra ler cronologicamente do dia 1 ao 31.
   const items = await db.query.transactions.findMany({
     where: eq(transactions.invoiceId, inv.id),
-    orderBy: [desc(transactions.occurredOn)],
+    orderBy: [asc(transactions.occurredOn)],
   });
 
   // Categorias pra select

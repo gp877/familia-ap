@@ -236,33 +236,54 @@ async function handlePost(req: Request) {
     let invoiceId: string | null = null;
     if (
       extracted.documentType === "credit_card_invoice" &&
-      bankAccountId &&
-      extracted.referenceMonth
+      bankAccountId
     ) {
-      const existing = await db.query.invoices.findFirst({
-        where: and(
-          eq(invoices.bankAccountId, bankAccountId),
-          eq(invoices.referenceMonth, extracted.referenceMonth)
-        ),
-      });
-      if (existing) {
-        invoiceId = existing.id;
-      } else {
-        const [created] = await db
-          .insert(invoices)
-          .values({
-            householdId: dbUser.householdId,
-            bankAccountId,
-            referenceMonth: extracted.referenceMonth,
-            status: "open",
-          })
-          .returning();
-        invoiceId = created.id;
+      // referenceMonth = mês de COMPETÊNCIA (quando os gastos aconteceram),
+      // não mês do vencimento. Bancos como UNICRED chamam de "REF: mai/2026"
+      // o mês do vencimento, o que confunde — preferimos a convenção do
+      // usuário ("fatura de maio" = gastos feitos em maio).
+      //
+      // Calcula pela MEDIANA das datas das tx extraídas (mais robusto que
+      // pegar a média, que pode ser puxada por uma parcela antiga). Se o
+      // Gemini não retornar nada, ainda usa a mediana.
+      let computedRef: string | null = null;
+      const txDates = extracted.transactions
+        .map((t) => new Date(t.occurredOn).getTime())
+        .filter((n) => !isNaN(n))
+        .sort((a, b) => a - b);
+      if (txDates.length > 0) {
+        const median = txDates[Math.floor(txDates.length / 2)];
+        const d = new Date(median);
+        computedRef = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
       }
-      await db
-        .update(uploads)
-        .set({ invoiceId })
-        .where(eq(uploads.id, upload.id));
+      const effectiveRef = computedRef || extracted.referenceMonth;
+
+      if (effectiveRef) {
+        const existing = await db.query.invoices.findFirst({
+          where: and(
+            eq(invoices.bankAccountId, bankAccountId),
+            eq(invoices.referenceMonth, effectiveRef)
+          ),
+        });
+        if (existing) {
+          invoiceId = existing.id;
+        } else {
+          const [created] = await db
+            .insert(invoices)
+            .values({
+              householdId: dbUser.householdId,
+              bankAccountId,
+              referenceMonth: effectiveRef,
+              status: "open",
+            })
+            .returning();
+          invoiceId = created.id;
+        }
+        await db
+          .update(uploads)
+          .set({ invoiceId })
+          .where(eq(uploads.id, upload.id));
+      }
     }
 
     // ── Dedupe de transações ────────────────────────────────
