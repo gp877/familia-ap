@@ -1,6 +1,6 @@
 "use server";
 
-import { eq } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
 import { auth } from "@/auth";
@@ -25,7 +25,7 @@ export async function setTransactionCategory(
   transactionId: string,
   categoryId: string | null,
   createRule: boolean
-) {
+): Promise<{ ruleCreated: boolean; appliedToOthers: number }> {
   const { householdId } = await requireUser();
 
   const tx = await db.query.transactions.findFirst({
@@ -40,10 +40,22 @@ export async function setTransactionCategory(
     .set({ categoryId, updatedAt: new Date() })
     .where(eq(transactions.id, transactionId));
 
-  // Se categoryId informado E createRule, cria uma regra "contains" pra futuras
+  let ruleCreated = false;
+  let appliedToOthers = 0;
+
+  // Se categoryId informado E createRule:
+  // 1. Cria regra "contains" pra futuros uploads (já existia)
+  // 2. APLICA RETROATIVAMENTE em tx similares JÁ NO BANCO que estão sem
+  //    categoria. Match exato de descrição = decisão óbvia, não pergunta.
+  //    Respeitamos: tx não-internas, status != ignored, sem categoria ainda.
+  //    Se o usuário discordar, descategoriza individualmente OU edita/apaga
+  //    a regra em /financeiro/categorias/regras.
   if (categoryId && createRule) {
     const existing = await db.query.categoryRules.findFirst({
-      where: eq(categoryRules.pattern, tx.description),
+      where: and(
+        eq(categoryRules.householdId, householdId),
+        eq(categoryRules.pattern, tx.description)
+      ),
     });
     if (!existing) {
       await db.insert(categoryRules).values({
@@ -52,10 +64,39 @@ export async function setTransactionCategory(
         pattern: tx.description,
         matchType: "contains",
       });
+      ruleCreated = true;
+    }
+
+    // Aplica em tx já existentes que casem com a descrição (exato), sem
+    // categoria, não-internas, não-ignoradas. Ignora a própria tx (já foi
+    // atualizada acima).
+    const others = await db.query.transactions.findMany({
+      where: and(
+        eq(transactions.householdId, householdId),
+        sql`LOWER(${transactions.description}) = LOWER(${tx.description})`,
+        isNull(transactions.categoryId),
+        eq(transactions.isInternalTransfer, false),
+        ne(transactions.status, "ignored"),
+        ne(transactions.id, transactionId)
+      ),
+      columns: { id: true },
+    });
+    if (others.length > 0) {
+      await db
+        .update(transactions)
+        .set({ categoryId, updatedAt: new Date() })
+        .where(
+          inArray(
+            transactions.id,
+            others.map((o) => o.id)
+          )
+        );
+      appliedToOthers = others.length;
     }
   }
 
   revalidatePath("/financeiro/transacoes");
+  return { ruleCreated, appliedToOthers };
 }
 
 /**

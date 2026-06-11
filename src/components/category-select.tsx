@@ -49,6 +49,9 @@ export function CategorySelect({
   const [drilledParentId, setDrilledParentId] = useState<string | null>(null);
   const [highlightIdx, setHighlightIdx] = useState(0);
   const [isPending, startTransition] = useTransition();
+  // Feedback de aplicação retroativa. Quando o user categoriza e o servidor
+  // aplica em N tx similares, mostra um chip discreto por 3s.
+  const [bulkApplied, setBulkApplied] = useState<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -121,8 +124,12 @@ export function CategorySelect({
       if (isInternal && id) {
         await unmarkAsInternalManually(transactionId);
       }
-      await setTransactionCategory(transactionId, id, createRule);
+      const result = await setTransactionCategory(transactionId, id, createRule);
       setOpen(false);
+      if (result?.appliedToOthers && result.appliedToOthers > 0) {
+        setBulkApplied(result.appliedToOthers);
+        setTimeout(() => setBulkApplied(null), 3000);
+      }
     });
   }
 
@@ -169,6 +176,30 @@ export function CategorySelect({
 
   return (
     <div ref={containerRef} style={{ position: "relative", display: "inline-block" }}>
+      {bulkApplied !== null && (
+        <div
+          role="status"
+          aria-live="polite"
+          style={{
+            position: "absolute",
+            bottom: "calc(100% + 6px)",
+            left: 0,
+            zIndex: 25,
+            padding: "5px 10px",
+            borderRadius: 999,
+            background: "var(--accent)",
+            color: "var(--accent-on)",
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: "0.01em",
+            whiteSpace: "nowrap",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.35)",
+            animation: "ap-fade 0.2s ease-out",
+          }}
+        >
+          ✓ aplicada em {bulkApplied} similar{bulkApplied === 1 ? "" : "es"}
+        </div>
+      )}
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
