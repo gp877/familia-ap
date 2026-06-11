@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
-import { NextResponse } from "next/server";
-import { and, eq, sql } from "drizzle-orm";
+import { NextResponse, after } from "next/server";
+import { and, eq, gte, lte, sql } from "drizzle-orm";
 
 import { auth } from "@/auth";
 import { db } from "@/db";
@@ -279,16 +279,33 @@ async function handlePost(req: Request) {
       ) =>
         `${accountId ?? "_"}|${new Date(date).toISOString().slice(0, 10)}|${parseFloat(amount).toFixed(2)}|${rawDesc.trim().toLowerCase().slice(0, 80)}`;
 
-      // Pega transações existentes do mesmo household + mesmo bankAccount no intervalo
+      // Otimização: filtra existingTxs pelo INTERVALO de datas do PDF.
+      // Antes lia 5000 tx do household inteiro — agora só busca tx do mesmo
+      // bankAccount entre min(extracted) - 7d e max(extracted) + 7d.
+      // Pra extrato típico (1 mês), reduz de 5000 pra <100 linhas.
+      const dateTimestamps = datesInExtraction.map((d) => new Date(d).getTime());
+      const minDate = new Date(Math.min(...dateTimestamps) - 7 * 24 * 60 * 60 * 1000);
+      const maxDate = new Date(Math.max(...dateTimestamps) + 7 * 24 * 60 * 60 * 1000);
+
+      const tStartExisting = Date.now();
       const existingTxs = await db.query.transactions.findMany({
         where: bankAccountId
           ? and(
               eq(transactions.householdId, dbUser.householdId),
-              eq(transactions.bankAccountId, bankAccountId)
+              eq(transactions.bankAccountId, bankAccountId),
+              gte(transactions.occurredOn, minDate),
+              lte(transactions.occurredOn, maxDate)
             )
-          : eq(transactions.householdId, dbUser.householdId),
+          : and(
+              eq(transactions.householdId, dbUser.householdId),
+              gte(transactions.occurredOn, minDate),
+              lte(transactions.occurredOn, maxDate)
+            ),
         limit: 5000,
       });
+      console.log(
+        `[upload] existingTxs query: ${Date.now() - tStartExisting}ms (${existingTxs.length} linhas)`
+      );
       const existingKeys = new Set(
         existingTxs.map((t) =>
           makeKey(t.bankAccountId, t.occurredOn, t.amount, t.rawDescription)
@@ -389,9 +406,11 @@ async function handlePost(req: Request) {
         }
       }
 
-      // Pair-matcher: roda DEPOIS de inserir, pra que candidates do upload
-      // atual possam parear com débitos já no DB (e vice-versa).
-      const pairedCount = await pairInternalCandidates(dbUser.householdId);
+      // Pair-matcher e linker foram movidos pra after() — eles podem
+      // demorar 2-10s cada e não bloqueiam o que o user precisa ver na
+      // resposta (transações já estão salvas). Rodam após response enviada.
+      // pairedCount e linkedCount viram 0 nessa resposta; recálculo do
+      // invoice totalAmount também roda no after().
 
       // Total local pra cross-check: sum de débitos NÃO-internos extraídos
       // do PDF. Não tem como saber agora quais candidates vão parear (já
@@ -433,10 +452,8 @@ async function handlePost(req: Request) {
           .where(eq(invoices.id, invoiceId));
       }
 
-      // Tenta vincular pagamentos no extrato à fatura correspondente — funciona
-      // nos dois sentidos: subiu extrato (acha invoice antiga) OU subiu fatura
-      // (acha pagamento órfão no extrato).
-      const linkedCount = await linkCardPaymentsToInvoices(dbUser.householdId);
+      // Linker movido pra after() — não bloqueia resposta. Roda após.
+      const linkedCount = 0;
 
       // Cross-check: documentTotal (IA leu do PDF) vs computedTotalFromExtracted
       // (sum local dos débitos extraídos). Divergência > 1% ou > R$ 1 → revisar.
@@ -474,6 +491,43 @@ async function handlePost(req: Request) {
         })
         .where(eq(uploads.id, upload.id));
 
+      // Pós-processamento assíncrono: pair-matcher + linker + recálculo
+      // do invoice total. Rodam DEPOIS da resposta ser enviada, então não
+      // contam pro maxDuration de 60s do Vercel.
+      const householdIdForAfter = dbUser.householdId;
+      const invoiceIdForAfter = invoiceId;
+      after(async () => {
+        try {
+          const tAfter = Date.now();
+          const pairedAfter = await pairInternalCandidates(householdIdForAfter);
+          console.log(`[upload:after] pair-matcher: ${Date.now() - tAfter}ms (${pairedAfter} pares)`);
+
+          const tLinker = Date.now();
+          const linkedAfter = await linkCardPaymentsToInvoices(householdIdForAfter);
+          console.log(`[upload:after] linker: ${Date.now() - tLinker}ms (${linkedAfter} vínculos)`);
+
+          // Recálculo do invoice totalAmount agora que pair-matcher rodou.
+          if (invoiceIdForAfter) {
+            const allInvoiceTxs = await db.query.transactions.findMany({
+              where: eq(transactions.invoiceId, invoiceIdForAfter),
+            });
+            const total = allInvoiceTxs
+              .filter((t) => t.kind === "debit" && !t.isInternalTransfer)
+              .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+            const credits = allInvoiceTxs
+              .filter((t) => t.kind === "credit" && !t.isInternalTransfer)
+              .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+            await db
+              .update(invoices)
+              .set({ totalAmount: String(total - credits), updatedAt: new Date() })
+              .where(eq(invoices.id, invoiceIdForAfter));
+            console.log(`[upload:after] invoice total recalculado: R$ ${(total - credits).toFixed(2)}`);
+          }
+        } catch (err) {
+          console.error("[upload:after] falhou:", err);
+        }
+      });
+
       return NextResponse.json({
         ok: true,
         uploadId: upload.id,
@@ -483,14 +537,15 @@ async function handlePost(req: Request) {
         skippedCount: skipped,
         soloInternalCount,
         candidateCount,
-        pairedCount,
-        linkedCount,
+        pairedCount: 0, // calculado em after()
+        linkedCount: 0, // calculado em after()
         bankSlug: extracted.bankSlug,
         documentType: extracted.documentType,
         documentTotal: docTotalNum,
         computedTotal: computedTotalFromExtracted,
         warnings,
         invoiceId,
+        postProcessing: true, // sinaliza pro client que algumas coisas ainda estão sendo calculadas
       });
     }
 

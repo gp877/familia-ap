@@ -215,22 +215,22 @@ async function sleep(ms: number) {
 }
 
 export async function extractFromPdf(pdfBuffer: Buffer): Promise<ExtractionResult> {
-  // Retry pra 503/429/timeout. Budget apertado (~6s no pior caso) pra
-  // caber no maxDuration de 60s da Vercel — o próprio Gemini já pode
-  // demorar 30-50s pra responder num PDF grande, então não dá pra
-  // gastar muito em retry. Se falhar 2x, o user reenviar manualmente
-  // é mais útil que esperar 30s de backoff.
-  const delays = [1000, 5000];
+  // Retry pra 503/429/timeout. Budget super apertado (~2s no pior caso)
+  // — com gemini-2.5-flash-lite a chamada base é só ~2s, então um retry
+  // rápido cabe tranquilo nos 60s do Vercel. Se falhar 2x seguidas,
+  // user reenviando manualmente é mais útil.
+  const delays = [2000];
   let lastErr: unknown = null;
   let response: Awaited<ReturnType<typeof ai.models.generateContent>> | null = null;
   for (let attempt = 0; attempt <= delays.length; attempt++) {
     const tStart = Date.now();
     try {
       response = await ai.models.generateContent({
-        // gemini-2.5-flash explícito (em vez de "gemini-flash-latest") porque
-        // o alias "latest" estava resolvendo pra um modelo sobrecarregado
-        // (503 constante). 2.5 é o nome canônico e tem cota separada.
-        model: "gemini-2.5-flash",
+        // gemini-2.5-flash-lite: 4x mais rápido que flash normal (1.7s vs
+        // 6.7s num PDF típico de extrato), e tem cota MUITO maior. Pra
+        // PDFs de extrato/fatura, lite é mais que suficiente — quando
+        // falhar com erro de qualidade, escalonamos pro flash normal.
+        model: "gemini-2.5-flash-lite",
         contents: [
           {
             role: "user",
