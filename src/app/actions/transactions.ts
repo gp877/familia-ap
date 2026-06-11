@@ -10,6 +10,7 @@ import {
   manuallyMarkInternal,
   manuallyUnmarkInternal,
 } from "@/lib/internal-transfer";
+import { extractMatchPattern } from "@/lib/categorization";
 
 async function requireUser() {
   const session = await auth();
@@ -45,35 +46,40 @@ export async function setTransactionCategory(
 
   // Se categoryId informado E createRule:
   // 1. Cria regra "contains" pra futuros uploads (já existia)
-  // 2. APLICA RETROATIVAMENTE em tx similares JÁ NO BANCO que estão sem
-  //    categoria. Match exato de descrição = decisão óbvia, não pergunta.
+  // 2. APLICA RETROATIVAMENTE em tx similares JÁ NO BANCO (extrato E faturas)
+  //    que estão sem categoria. Match exato de descrição = decisão óbvia.
   //    Respeitamos: tx não-internas, status != ignored, sem categoria ainda.
-  //    Se o usuário discordar, descategoriza individualmente OU edita/apaga
-  //    a regra em /financeiro/categorias/regras.
   if (categoryId && createRule) {
+    // Pattern inteligente: tira o prefixo variável dos bancos e fica só com
+    // o trecho distintivo (nome do destinatário num PIX, etc). Pra faturas
+    // de cartão a descrição já é estável → pattern = descrição inteira.
+    const smartPattern = extractMatchPattern(tx.description);
+    const patternLower = smartPattern.toLowerCase();
+
     const existing = await db.query.categoryRules.findFirst({
       where: and(
         eq(categoryRules.householdId, householdId),
-        eq(categoryRules.pattern, tx.description)
+        eq(categoryRules.pattern, smartPattern)
       ),
     });
     if (!existing) {
       await db.insert(categoryRules).values({
         householdId,
         categoryId,
-        pattern: tx.description,
+        pattern: smartPattern,
         matchType: "contains",
       });
       ruleCreated = true;
     }
 
-    // Aplica em tx já existentes que casem com a descrição (exato), sem
-    // categoria, não-internas, não-ignoradas. Ignora a própria tx (já foi
-    // atualizada acima).
+    // Busca em description E rawDescription (extratos PIX colocam o nome em
+    // raw com formato diferente do description). Aplica em tx do extrato E
+    // de faturas — TransactionsMultiSelect é compartilhado entre as duas
+    // telas, então essa action serve as duas.
     const others = await db.query.transactions.findMany({
       where: and(
         eq(transactions.householdId, householdId),
-        sql`LOWER(${transactions.description}) = LOWER(${tx.description})`,
+        sql`(LOWER(${transactions.description}) LIKE ${"%" + patternLower + "%"} OR LOWER(${transactions.rawDescription}) LIKE ${"%" + patternLower + "%"})`,
         isNull(transactions.categoryId),
         eq(transactions.isInternalTransfer, false),
         ne(transactions.status, "ignored"),

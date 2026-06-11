@@ -4,14 +4,62 @@ import { db } from "@/db";
 import { categoryRules } from "@/db/schema";
 
 /**
- * Aplica regras de auto-categorização ao description.
- * Retorna o categoryId do match (ou null se nenhuma regra bater).
+ * Extrai o trecho MAIS DISTINTIVO de uma descrição pra virar pattern de regra.
+ *
+ * Bancos brasileiros descrevem PIX/TED com prefixos variáveis:
+ *   "Transferência PIX para FULANO"
+ *   "Pagto FULANO 12345678900"
+ *   "PIX-SIM para FULANO"
+ *   "TED de FULANO"
+ *   "DOC-COMP FULANO"
+ *
+ * Match exato perde isso. Match "contains" do prefixo inteiro também (porque
+ * outra tx pode ter prefixo diferente).
+ *
+ * Heurística: se a descrição tem uma preposição/keyword conhecida, pega o
+ * trecho APÓS ela — costuma ser o nome do destinatário/remetente. Caso
+ * contrário, devolve a descrição inteira (faturas de cartão tipo
+ * "POSTO SHELL DO BAIRRO" já são estáveis).
+ *
+ * Conservador: se o trecho resultante ficar muito curto (<3 caracteres),
+ * devolve a descrição inteira pra não criar pattern que casa demais.
+ */
+export function extractMatchPattern(description: string): string {
+  const d = description.trim();
+  if (!d) return d;
+
+  // Ordem importa — pega o trecho mais específico primeiro.
+  const patterns: RegExp[] = [
+    /\b(?:para|de)\s+(.+)$/i, // "Transferência PIX para X" / "TED de X"
+    /^Pagto\s+(.+)$/i, // "Pagto X 12345"
+    /^Pagamento\s+(?:PIX|TED|DOC|BOLETO)\s+(.+)$/i, // "Pagamento PIX X"
+    /^(?:Pix|Ted|Doc|Tef)[-\s]?(?:enviado|sim|recebido)?\s+(?:para|de)\s+(.+)$/i,
+  ];
+
+  for (const re of patterns) {
+    const m = d.match(re);
+    if (m && m[1]) {
+      // Remove identificadores numéricos longos (CPF/CNPJ) no fim — eles
+      // variam por destinatário, mas o nome é estável.
+      const stripped = m[1].replace(/\s+\d{8,}\s*$/, "").trim();
+      if (stripped.length >= 3) return stripped;
+    }
+  }
+
+  return d;
+}
+
+/**
+ * Aplica regras de auto-categorização. Casa contra description E rawDescription
+ * — bancos colocam o destinatário/info-chave em formatos diferentes nos dois
+ * campos (description pode estar limpo, raw tem o texto bruto do banco).
  *
  * Ordem: regras mais específicas primeiro (exact > prefix > contains > regex).
  */
 export async function applyAutoCategorization(
   householdId: string,
-  description: string
+  description: string,
+  rawDescription?: string
 ): Promise<string | null> {
   const rules = await db.query.categoryRules.findMany({
     where: and(
@@ -23,6 +71,7 @@ export async function applyAutoCategorization(
   if (rules.length === 0) return null;
 
   const desc = description.toLowerCase();
+  const raw = (rawDescription ?? "").toLowerCase();
   const priority = { exact: 0, prefix: 1, contains: 2, regex: 3 } as const;
   const sorted = [...rules].sort(
     (a, b) => priority[a.matchType] - priority[b.matchType]
@@ -33,17 +82,18 @@ export async function applyAutoCategorization(
     let match = false;
     switch (rule.matchType) {
       case "exact":
-        match = desc === pattern;
+        match = desc === pattern || (raw.length > 0 && raw === pattern);
         break;
       case "prefix":
-        match = desc.startsWith(pattern);
+        match = desc.startsWith(pattern) || raw.startsWith(pattern);
         break;
       case "contains":
-        match = desc.includes(pattern);
+        match = desc.includes(pattern) || raw.includes(pattern);
         break;
       case "regex":
         try {
-          match = new RegExp(rule.pattern, "i").test(description);
+          const re = new RegExp(rule.pattern, "i");
+          match = re.test(description) || (rawDescription ? re.test(rawDescription) : false);
         } catch {
           match = false;
         }

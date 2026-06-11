@@ -402,7 +402,7 @@ async function handlePost(req: Request) {
         // sobrar como real, o usuário categoriza manualmente).
         const categoryId =
           det.kind === "none"
-            ? await applyAutoCategorization(dbUser.householdId!, t.description)
+            ? await applyAutoCategorization(dbUser.householdId!, t.description, t.rawDescription)
             : null;
 
         if (isSoloInternal) soloInternalCount++;
