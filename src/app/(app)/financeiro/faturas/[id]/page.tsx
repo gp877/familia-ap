@@ -74,14 +74,14 @@ export default async function FaturaDetailPage({
   });
   if (!inv || inv.householdId !== dbUser.householdId) notFound();
 
-  // Transações da fatura — mesma ordem do PDF original (sourceOrder ASC
-  // dentro do upload). Fallback pra data quando criada manualmente.
+  // Cronológico ASC com sourceOrder do PDF como tiebreaker. NÃO usar
+  // uploadId no ordering — se houver re-upload da mesma fatura, separa
+  // as tx numa ordem sem sentido.
   const items = await db.query.transactions.findMany({
     where: eq(transactions.invoiceId, inv.id),
     orderBy: [
-      asc(transactions.uploadId),
-      asc(transactions.sourceOrder),
       asc(transactions.occurredOn),
+      asc(transactions.sourceOrder),
     ],
   });
 

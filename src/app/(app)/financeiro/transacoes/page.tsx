@@ -109,12 +109,13 @@ export default async function TransacoesPage({
   // cima pra baixo na sequência cronológica (dia 1 → dia 31).
   const txs = await db.query.transactions.findMany({
     where: and(...conds),
-    // Ordem do PDF original (sourceOrder ASC dentro de cada upload). Fallback
-    // pra data ASC quando a tx foi criada manualmente (sem upload).
+    // Cronológico ASC (dia 1 no topo, dia 31 embaixo) com sourceOrder do
+    // PDF como tiebreaker pro MESMO dia. Não usar uploadId no ordering —
+    // UUIDs são aleatórios e se houver 2 uploads no mês, separa as tx
+    // numa ordem sem sentido (29/05 antes de 04/05).
     orderBy: [
-      asc(transactions.uploadId),
-      asc(transactions.sourceOrder),
       asc(transactions.occurredOn),
+      asc(transactions.sourceOrder),
       asc(transactions.createdAt),
     ],
     limit: 500,
