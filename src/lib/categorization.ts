@@ -99,7 +99,15 @@ export async function applyAutoCategorization(
         }
         break;
     }
-    if (match) return rule.categoryId;
+    if (match) {
+      // Tracking: marca regra como usada. Útil pra detectar regras mortas
+      // depois (filtro "não usada há 6+ meses" na tela de regras).
+      await db
+        .update(categoryRules)
+        .set({ lastAppliedAt: new Date() })
+        .where(eq(categoryRules.id, rule.id));
+      return rule.categoryId;
+    }
   }
 
   return null;

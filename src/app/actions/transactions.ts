@@ -68,8 +68,15 @@ export async function setTransactionCategory(
         categoryId,
         pattern: smartPattern,
         matchType: "contains",
+        lastAppliedAt: new Date(),
       });
       ruleCreated = true;
+    } else {
+      // Regra já existia — marca como usada agora.
+      await db
+        .update(categoryRules)
+        .set({ lastAppliedAt: new Date() })
+        .where(eq(categoryRules.id, existing.id));
     }
 
     // Busca em description E rawDescription (extratos PIX colocam o nome em

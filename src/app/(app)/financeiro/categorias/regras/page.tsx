@@ -7,7 +7,7 @@ import { auth } from "@/auth";
 import { db } from "@/db";
 import { categories, categoryRules, users } from "@/db/schema";
 
-import { RuleRow } from "./rule-row";
+import { RulesManager } from "./rules-manager";
 
 export default async function CategoryRulesPage() {
   const session = await auth();
@@ -79,8 +79,8 @@ export default async function CategoryRulesPage() {
         }
       />
 
-      <div style={{ padding: "10px 20px" }}>
-        {rules.length === 0 ? (
+      {rules.length === 0 ? (
+        <div style={{ padding: "10px 20px" }}>
           <Card pad={16}>
             <div style={{ fontSize: 13, color: "var(--muted-d)", lineHeight: 1.5 }}>
               <p style={{ marginBottom: 8 }}>Como criar regras:</p>
@@ -92,14 +92,21 @@ export default async function CategoryRulesPage() {
               </ol>
             </div>
           </Card>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {rules.map((r) => (
-              <RuleRow key={r.id} rule={r} categoryOptions={catOptions} />
-            ))}
-          </div>
-        )}
-      </div>
+        </div>
+      ) : (
+        <RulesManager
+          rules={rules.map((r) => ({
+            id: r.id,
+            pattern: r.pattern,
+            matchType: r.matchType,
+            categoryId: r.categoryId,
+            isActive: r.isActive,
+            lastAppliedAt: r.lastAppliedAt ? r.lastAppliedAt.toISOString() : null,
+            createdAt: r.createdAt.toISOString(),
+          }))}
+          categoryOptions={catOptions}
+        />
+      )}
     </ScreenShell>
   );
 }

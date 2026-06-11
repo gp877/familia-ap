@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, gte, inArray, isNull, lte, ne } from "drizzle-orm";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { BigNumber, Card, Pill, SectionRow } from "@/components/ap/atoms";
@@ -377,7 +378,31 @@ export default async function FaturaDetailPage({
         )}
       </div>
 
-      <SectionRow icon="bag" label="Lançamentos da fatura" action={`${items.length}`} />
+      <SectionRow
+        icon="bag"
+        label="Lançamentos da fatura"
+        action={
+          <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <Link
+              href="/financeiro/categorias/regras"
+              style={{
+                padding: "4px 10px",
+                borderRadius: 999,
+                background: "color-mix(in oklab, var(--accent) 14%, transparent)",
+                color: "var(--accent)",
+                fontSize: 10.5,
+                fontWeight: 700,
+                textDecoration: "none",
+                letterSpacing: "0.01em",
+              }}
+              title="Gerenciar regras de categorização"
+            >
+              ⚙ regras
+            </Link>
+            <span style={{ fontSize: 11, color: "var(--muted)" }}>{items.length}</span>
+          </span>
+        }
+      />
       <TransactionsMultiSelect
         transactions={itemsForClient}
         categoryOptions={categoryOptions}

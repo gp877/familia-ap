@@ -322,8 +322,26 @@ export default async function TransacoesPage({
         icon="bag"
         label={activeAccount ? activeAccount.name : "Transações"}
         action={
-          <span style={{ fontSize: 11, color: "var(--muted)" }}>
-            {txs.length} de {totalAll}
+          <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <Link
+              href="/financeiro/categorias/regras"
+              style={{
+                padding: "4px 10px",
+                borderRadius: 999,
+                background: "color-mix(in oklab, var(--accent) 14%, transparent)",
+                color: "var(--accent)",
+                fontSize: 10.5,
+                fontWeight: 700,
+                textDecoration: "none",
+                letterSpacing: "0.01em",
+              }}
+              title="Gerenciar regras de categorização"
+            >
+              ⚙ regras
+            </Link>
+            <span style={{ fontSize: 11, color: "var(--muted)" }}>
+              {txs.length} de {totalAll}
+            </span>
           </span>
         }
       />

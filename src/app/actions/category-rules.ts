@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
 import { auth } from "@/auth";
@@ -60,4 +60,25 @@ export async function deleteCategoryRuleForm(fd: FormData) {
   const id = String(fd.get("id") ?? "");
   if (!id) return;
   await deleteCategoryRule(id);
+}
+
+/**
+ * Apaga várias regras de uma vez. Usado pelo modo de seleção em massa
+ * na tela de regras. Cada regra é validada pelo household pra evitar
+ * que um user apague regras de outro.
+ */
+export async function bulkDeleteRules(ruleIds: string[]): Promise<number> {
+  const { householdId } = await requireUser();
+  if (ruleIds.length === 0) return 0;
+  const result = await db
+    .delete(categoryRules)
+    .where(
+      and(
+        eq(categoryRules.householdId, householdId),
+        inArray(categoryRules.id, ruleIds)
+      )
+    )
+    .returning({ id: categoryRules.id });
+  revalidatePath("/financeiro/categorias/regras");
+  return result.length;
 }
