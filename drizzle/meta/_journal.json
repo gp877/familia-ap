@@ -134,6 +134,13 @@
       "when": 1780900000000,
       "tag": "0018_category_notes",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1781000000000,
+      "tag": "0019_transaction_source_order",
+      "breakpoints": true
     }
   ]
 }

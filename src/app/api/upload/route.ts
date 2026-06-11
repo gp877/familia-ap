@@ -346,7 +346,9 @@ async function handlePost(req: Request) {
       let soloInternalCount = 0;
       let candidateCount = 0;
 
+      let pdfIdx = -1;
       for (const t of extracted.transactions) {
+        pdfIdx++;
         const key = makeKey(bankAccountId, t.occurredOn, t.amount, t.rawDescription);
         if (existingKeys.has(key)) {
           skipped++;
@@ -391,6 +393,7 @@ async function handlePost(req: Request) {
           rawDescription: t.rawDescription,
           installmentCurrent: t.installmentCurrent ?? null,
           installmentTotal: t.installmentTotal ?? null,
+          sourceOrder: pdfIdx,
           status: "pending" as const,
           isInternalTransfer: isSoloInternal,
           internalTransferType: detectedType,

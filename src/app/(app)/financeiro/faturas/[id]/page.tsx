@@ -63,10 +63,15 @@ export default async function FaturaDetailPage({
   });
   if (!inv || inv.householdId !== dbUser.householdId) notFound();
 
-  // Transações da fatura — ASC pra ler cronologicamente do dia 1 ao 31.
+  // Transações da fatura — mesma ordem do PDF original (sourceOrder ASC
+  // dentro do upload). Fallback pra data quando criada manualmente.
   const items = await db.query.transactions.findMany({
     where: eq(transactions.invoiceId, inv.id),
-    orderBy: [asc(transactions.occurredOn)],
+    orderBy: [
+      asc(transactions.uploadId),
+      asc(transactions.sourceOrder),
+      asc(transactions.occurredOn),
+    ],
   });
 
   // Categorias pra select

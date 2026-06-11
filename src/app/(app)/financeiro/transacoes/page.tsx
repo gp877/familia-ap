@@ -109,7 +109,14 @@ export default async function TransacoesPage({
   // cima pra baixo na sequência cronológica (dia 1 → dia 31).
   const txs = await db.query.transactions.findMany({
     where: and(...conds),
-    orderBy: [asc(transactions.occurredOn), asc(transactions.createdAt)],
+    // Ordem do PDF original (sourceOrder ASC dentro de cada upload). Fallback
+    // pra data ASC quando a tx foi criada manualmente (sem upload).
+    orderBy: [
+      asc(transactions.uploadId),
+      asc(transactions.sourceOrder),
+      asc(transactions.occurredOn),
+      asc(transactions.createdAt),
+    ],
     limit: 500,
   });
 

@@ -356,6 +356,10 @@ export const transactions = pgTable(
     sourceAccount: text("source_account"),
     installmentCurrent: integer("installment_current"),
     installmentTotal: integer("installment_total"),
+    // Ordem ORIGINAL no PDF de origem (índice 0-based dentro do upload).
+    // Permite mostrar na tela exatamente como aparece no arquivo.
+    // null pra txs criadas manualmente (sem upload).
+    sourceOrder: integer("source_order"),
     status: transactionStatusEnum("status").notNull().default("confirmed"),
     // Transferência interna: pagamento de fatura no extrato, "Pagamento Recebido"
     // dentro da fatura, estornos PIX pareados, bonificações de anuidade pareadas.

@@ -348,7 +348,7 @@ export function TransactionsMultiSelect({ transactions, categoryOptions }: Props
                     </div>
                   </div>
 
-                  {/* Linha 2: data · raw + override manual (canto direito) */}
+                  {/* Linha 2: [chip da data] descrição + override manual (canto direito) */}
                   <div
                     style={{
                       fontSize: 10.5,
@@ -359,27 +359,36 @@ export function TransactionsMultiSelect({ transactions, categoryOptions }: Props
                       gap: 8,
                     }}
                   >
+                    {/* Chip da DATA — elemento visual separado da descrição,
+                        com background sutil pra ficar nítido na conferência.
+                        Sem aumentar altura: padding compacto + line-height 1. */}
+                    <span
+                      style={{
+                        flexShrink: 0,
+                        display: "inline-block",
+                        padding: "2px 6px",
+                        background: "color-mix(in oklab, var(--accent) 14%, transparent)",
+                        color: "var(--accent)",
+                        borderRadius: 5,
+                        fontWeight: 800,
+                        fontSize: 10.5,
+                        letterSpacing: "0.02em",
+                        fontVariantNumeric: "tabular-nums",
+                        lineHeight: 1.1,
+                      }}
+                    >
+                      {formatDate(tx.occurredOn)}
+                    </span>
                     <span
                       style={{
                         flex: 1,
                         overflow: "hidden",
                         textOverflow: "ellipsis",
                         whiteSpace: "nowrap",
+                        opacity: 0.85,
                       }}
                     >
-                      <span
-                        style={{
-                          color: "var(--accent)",
-                          fontWeight: 800,
-                          fontSize: 11,
-                          letterSpacing: "0.02em",
-                          marginRight: 6,
-                          fontVariantNumeric: "tabular-nums",
-                        }}
-                      >
-                        {formatDate(tx.occurredOn)}
-                      </span>
-                      <span style={{ opacity: 0.85 }}>{tx.rawDescription.slice(0, 96)}</span>
+                      {tx.rawDescription.slice(0, 96)}
                       {tx.rawDescription.length > 96 ? "…" : ""}
                     </span>
                     {!isInternal && (
