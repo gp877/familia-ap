@@ -1,7 +1,7 @@
-import { and, eq, gte, isNull, lte, ne, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lte, ne, sql } from "drizzle-orm";
 
 import { db } from "@/db";
-import { invoices, transactions } from "@/db/schema";
+import { bankAccounts, invoices, transactions } from "@/db/schema";
 
 export type InternalTransferType =
   | "card_payment"
@@ -291,14 +291,40 @@ export async function manuallyUnmarkInternal(transactionId: string): Promise<voi
 export async function linkCardPaymentsToInvoices(
   householdId: string
 ): Promise<number> {
-  // Transações tipo card_payment do household. Aceita também as não-internas
-  // se forem candidates já marcadas via detectInternalTransfer (solo).
-  const allCardPayments = await db.query.transactions.findMany({
+  // Pool de candidatos a pagamento de fatura. Inclui:
+  // 1. Tx com internalTransferType=card_payment (detectadas pelo regex no upload
+  //    via "DEBITO FATURA" etc) — confiança alta, critério ±10 dias.
+  // 2. Tx do extrato (kind=debit, sem invoiceId, conta NÃO-cartão) — pode ser
+  //    pagamento que o detector de texto não pegou. Critério mais apertado
+  //    aplicado no match abaixo (±5 dias do vencimento).
+  const detectedPayments = await db.query.transactions.findMany({
     where: and(
       eq(transactions.householdId, householdId),
       eq(transactions.internalTransferType, "card_payment")
     ),
   });
+  // Conta-corrente IDs (não-cartão) pra filtrar pool expandido
+  const nonCardAccounts = await db.query.bankAccounts.findMany({
+    where: and(
+      eq(bankAccounts.householdId, householdId),
+      ne(bankAccounts.type, "credit_card")
+    ),
+  });
+  const nonCardAccountIds = nonCardAccounts.map((a) => a.id);
+  const extractedDebits = nonCardAccountIds.length > 0
+    ? await db.query.transactions.findMany({
+        where: and(
+          eq(transactions.householdId, householdId),
+          eq(transactions.kind, "debit"),
+          isNull(transactions.invoiceId),
+          eq(transactions.isInternalTransfer, false),
+          inArray(transactions.bankAccountId, nonCardAccountIds)
+        ),
+      })
+    : [];
+  const detectedIds = new Set(detectedPayments.map((t) => t.id));
+  const expandedPool = extractedDebits.filter((t) => !detectedIds.has(t.id));
+  const allCardPayments = [...detectedPayments, ...expandedPool];
 
   if (allCardPayments.length === 0) return 0;
 
@@ -330,6 +356,11 @@ export async function linkCardPaymentsToInvoices(
       const txAmount = parseFloat(tx.amount);
       if (Math.abs(invAmount - txAmount) > 0.01) return false;
       const txDate = new Date(tx.occurredOn);
+      // Critério MAIS APERTADO pro pool expandido (tx que NÃO foi detectada
+      // como card_payment pelo regex). Diminui o risco de bater por acaso
+      // com uma despesa que casualmente tenha o mesmo valor da fatura.
+      const isFromExpandedPool = !detectedIds.has(tx.id);
+      const dueWindowDays = isFromExpandedPool ? 5 : 10;
       if (!inv.dueDate) {
         // Sem dueDate: fatura é paga no MÊS SEGUINTE à competência.
         // Aceitamos pagamento no mesmo mês (raro) OU no mês seguinte
@@ -346,7 +377,7 @@ export async function linkCardPaymentsToInvoices(
       const diffDays = Math.abs(
         (invDue.getTime() - txDate.getTime()) / (1000 * 60 * 60 * 24)
       );
-      return diffDays <= 10;
+      return diffDays <= dueWindowDays;
     });
 
     if (match) {
@@ -358,11 +389,16 @@ export async function linkCardPaymentsToInvoices(
           updatedAt: new Date(),
         })
         .where(eq(invoices.id, inv.id));
-      // Marca como interna se ainda não está
-      if (!match.isInternalTransfer) {
+      // Marca como interna + grava internalTransferType pra auditoria
+      // (importante quando vem do pool expandido, que ainda não tinha tipo)
+      if (!match.isInternalTransfer || !match.internalTransferType) {
         await db
           .update(transactions)
-          .set({ isInternalTransfer: true, updatedAt: new Date() })
+          .set({
+            isInternalTransfer: true,
+            internalTransferType: "card_payment",
+            updatedAt: new Date(),
+          })
           .where(eq(transactions.id, match.id));
       }
       usedTxIds.add(match.id);

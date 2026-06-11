@@ -10,6 +10,7 @@ import {
   linkInvoicePayment,
   unlinkInvoicePaymentForm,
 } from "@/app/actions/invoices";
+import { linkCardPaymentsToInvoices } from "@/lib/internal-transfer";
 import { auth } from "@/auth";
 import type { CategoryOption } from "@/components/category-select";
 import { TransactionsMultiSelect } from "@/components/ap/transactions-multi-select";
@@ -68,11 +69,31 @@ export default async function FaturaDetailPage({
   });
   if (!dbUser?.householdId) return null;
 
+  const initialInv = await db.query.invoices.findFirst({
+    where: eq(invoices.id, id),
+    with: { bankAccount: true },
+  });
+  if (!initialInv || initialInv.householdId !== dbUser.householdId) notFound();
+
+  // Tenta auto-vincular pagamento óbvio (valor exato + data dentro de ±5d
+  // do vencimento) ANTES de renderizar. Idempotente: se já está vinculada,
+  // não faz nada. Roda no SERVER GET — barato e evita o user precisar
+  // clicar em "vincular →" quando a resposta é óbvia.
+  if (!initialInv.paidByTransactionId) {
+    try {
+      await linkCardPaymentsToInvoices(dbUser.householdId);
+    } catch (err) {
+      // Falha silenciosa — não bloqueia a tela.
+      console.error("[fatura] auto-link falhou:", err);
+    }
+  }
+
+  // Re-busca pra pegar paidByTransactionId atualizado
   const inv = await db.query.invoices.findFirst({
     where: eq(invoices.id, id),
     with: { bankAccount: true },
   });
-  if (!inv || inv.householdId !== dbUser.householdId) notFound();
+  if (!inv) notFound();
 
   // Cronológico ASC com sourceOrder do PDF como tiebreaker. NÃO usar
   // uploadId no ordering — se houver re-upload da mesma fatura, separa

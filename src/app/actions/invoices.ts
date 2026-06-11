@@ -63,6 +63,19 @@ export async function linkInvoicePayment(formData: FormData) {
     .set({ paidByTransactionId: transactionId, status: "paid", updatedAt: new Date() })
     .where(eq(invoices.id, invoiceId));
 
+  // Marca o pagamento como interno — não conta como despesa do mês
+  // (a despesa real são as compras DENTRO da fatura).
+  if (!tx.isInternalTransfer || !tx.internalTransferType) {
+    await db
+      .update(transactions)
+      .set({
+        isInternalTransfer: true,
+        internalTransferType: "card_payment",
+        updatedAt: new Date(),
+      })
+      .where(eq(transactions.id, transactionId));
+  }
+
   revalidatePath(`/financeiro/faturas/${invoiceId}`);
   revalidatePath("/financeiro/faturas");
 }
