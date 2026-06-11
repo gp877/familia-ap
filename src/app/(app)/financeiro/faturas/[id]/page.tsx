@@ -37,8 +37,19 @@ function formatMonth(yyyymm: string) {
   });
 }
 
+// Parse YYYY-MM-DD como data LOCAL (não UTC). Sem isso, "2026-05-07" vira
+// 00:00 UTC e no BRT (-3) exibe 06/05 — bug clássico de off-by-one.
+function parseDateLocal(d: string | Date): Date {
+  if (d instanceof Date) {
+    return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  }
+  const iso = d.slice(0, 10);
+  const [y, m, day] = iso.split("-").map((n) => parseInt(n, 10));
+  return new Date(y, (m || 1) - 1, day || 1);
+}
+
 function formatDate(d: string | Date) {
-  return new Date(d).toLocaleDateString("pt-BR", {
+  return parseDateLocal(d).toLocaleDateString("pt-BR", {
     day: "2-digit",
     month: "short",
   });

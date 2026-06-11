@@ -43,11 +43,17 @@ function formatBRL(n: number) {
   });
 }
 
-function formatDate(d: string) {
-  return new Date(d).toLocaleDateString("pt-BR", {
-    day: "2-digit",
-    month: "short",
-  });
+// Parse YYYY-MM-DD como data LOCAL (não UTC). Sem isso, "2026-05-07" vira
+// 00:00 UTC e o navegador em BRT (-3) exibe 06/05 — bug clássico de off-by-one.
+function parseDateLocal(d: string): Date {
+  const iso = d.slice(0, 10);
+  const [y, m, day] = iso.split("-").map((n) => parseInt(n, 10));
+  return new Date(y, (m || 1) - 1, day || 1);
+}
+
+function formatDateNum(d: string) {
+  const dt = parseDateLocal(d);
+  return `${String(dt.getDate()).padStart(2, "0")}/${String(dt.getMonth() + 1).padStart(2, "0")}`;
 }
 
 /**
@@ -249,8 +255,8 @@ export function TransactionsMultiSelect({ transactions, categoryOptions }: Props
                   key={tx.id}
                   style={{
                     display: "flex",
-                    flexDirection: "column",
-                    gap: 4,
+                    alignItems: "stretch",
+                    gap: 10,
                     padding: "10px 8px",
                     borderBottom:
                       i < transactions.length - 1 ? "0.5px solid var(--line-d)" : "none",
@@ -265,7 +271,53 @@ export function TransactionsMultiSelect({ transactions, categoryOptions }: Props
                     transition: "background-color 0.12s",
                   }}
                 >
-                  {/* Linha 1: checkbox + descrição + categoria + status + valor */}
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => toggle(tx.id)}
+                    style={{
+                      accentColor: "var(--accent)",
+                      flexShrink: 0,
+                      alignSelf: "center",
+                    }}
+                  />
+
+                  {/* COLUNA DATA — box dedicado à esquerda, altura total da
+                      linha. Fica visualmente separado da descrição, com cor
+                      accent, número grande, igual à coluna "Data" do PDF. */}
+                  <div
+                    style={{
+                      flexShrink: 0,
+                      width: 54,
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      padding: "4px 6px",
+                      background: "color-mix(in oklab, var(--accent) 16%, transparent)",
+                      border: "0.5px solid color-mix(in oklab, var(--accent) 30%, transparent)",
+                      borderRadius: 8,
+                      color: "var(--accent)",
+                      lineHeight: 1,
+                      fontVariantNumeric: "tabular-nums",
+                    }}
+                  >
+                    <span style={{ fontSize: 15, fontWeight: 800, letterSpacing: "0.01em" }}>
+                      {formatDateNum(tx.occurredOn)}
+                    </span>
+                  </div>
+
+                  <div
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 4,
+                      justifyContent: "center",
+                    }}
+                  >
+                  {/* Linha 1: descrição + categoria + status + valor */}
                   <div
                     style={{
                       display: "flex",
@@ -274,12 +326,6 @@ export function TransactionsMultiSelect({ transactions, categoryOptions }: Props
                       flexWrap: "wrap",
                     }}
                   >
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => toggle(tx.id)}
-                      style={{ accentColor: "var(--accent)", flexShrink: 0 }}
-                    />
                     <div
                       style={{
                         flex: 1,
@@ -348,37 +394,18 @@ export function TransactionsMultiSelect({ transactions, categoryOptions }: Props
                     </div>
                   </div>
 
-                  {/* Linha 2: [chip da data] descrição + override manual (canto direito) */}
+                  {/* Linha 2: raw description + botão split + override manual.
+                      A data NÃO vai mais aqui — ela tem coluna própria à
+                      esquerda agora. */}
                   <div
                     style={{
                       fontSize: 10.5,
                       color: "var(--muted)",
-                      paddingLeft: 28,
                       display: "flex",
                       alignItems: "center",
                       gap: 8,
                     }}
                   >
-                    {/* Chip da DATA — elemento visual separado da descrição,
-                        com background sutil pra ficar nítido na conferência.
-                        Sem aumentar altura: padding compacto + line-height 1. */}
-                    <span
-                      style={{
-                        flexShrink: 0,
-                        display: "inline-block",
-                        padding: "2px 6px",
-                        background: "color-mix(in oklab, var(--accent) 14%, transparent)",
-                        color: "var(--accent)",
-                        borderRadius: 5,
-                        fontWeight: 800,
-                        fontSize: 10.5,
-                        letterSpacing: "0.02em",
-                        fontVariantNumeric: "tabular-nums",
-                        lineHeight: 1.1,
-                      }}
-                    >
-                      {formatDate(tx.occurredOn)}
-                    </span>
                     <span
                       style={{
                         flex: 1,
@@ -424,6 +451,7 @@ export function TransactionsMultiSelect({ transactions, categoryOptions }: Props
                       transactionId={tx.id}
                       isInternal={isInternal}
                     />
+                  </div>
                   </div>
                 </div>
               );
