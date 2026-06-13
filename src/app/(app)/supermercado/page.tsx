@@ -2,7 +2,6 @@ import { and, asc, desc, eq, sql } from "drizzle-orm";
 import Link from "next/link";
 
 import { BigNumber, Card, Pill, SectionRow } from "@/components/ap/atoms";
-import { Icon } from "@/components/ap/icon";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import {
   createContagemAndGo,
@@ -50,12 +49,6 @@ export default async function SupermercadoPage() {
       eq(supermercadoContagens.householdId, householdId),
       eq(supermercadoContagens.status, "open")
     ),
-  });
-
-  const contagensRecentes = await db.query.supermercadoContagens.findMany({
-    where: eq(supermercadoContagens.householdId, householdId),
-    orderBy: [desc(supermercadoContagens.contagemDate)],
-    limit: 3,
   });
 
   const draftPedidos = await db
@@ -296,41 +289,8 @@ export default async function SupermercadoPage() {
         </>
       )}
 
-      {/* Atalhos */}
-      <SectionRow icon="bag" label="Atalhos" />
-      <div
-        style={{
-          padding: "0 20px",
-          display: "grid",
-          gap: 8,
-          gridTemplateColumns: "1fr 1fr",
-        }}
-      >
-        <ShortcutLink
-          href="/supermercado/produtos"
-          icon="bag"
-          label="Produtos"
-          sub={`${items.length} cadastrados`}
-        />
-        <ShortcutLink
-          href="/supermercado/contagens"
-          icon="cal"
-          label="Contagens"
-          sub={`${contagensRecentes.length} recentes`}
-        />
-        <ShortcutLink
-          href="/supermercado/historico"
-          icon="bag"
-          label="Histórico pedidos"
-          sub={`${pedidos.length} registrados`}
-        />
-        <ShortcutLink
-          href="/supermercado/fornecedores"
-          icon="bank"
-          label="Fornecedores"
-          sub="e-mail e whatsapp"
-        />
-      </div>
+      {/* Navegação entre telas do módulo agora é pelos chips no topo —
+          o grid de atalhos duplicava os mesmos destinos. */}
 
       {/* Pedidos recentes */}
       {pedidos.length > 0 && (
@@ -423,34 +383,3 @@ function CycleCard({
   );
 }
 
-function ShortcutLink({
-  href,
-  icon,
-  label,
-  sub,
-}: {
-  href: string;
-  icon: Parameters<typeof Icon>[0]["name"];
-  label: string;
-  sub: string;
-}) {
-  return (
-    <Link href={href} style={{ textDecoration: "none", color: "inherit" }}>
-      <div
-        style={{
-          padding: 12,
-          borderRadius: 14,
-          background: "var(--card)",
-          border: "0.5px solid var(--line-d)",
-          display: "flex",
-          flexDirection: "column",
-          gap: 4,
-        }}
-      >
-        <Icon name={icon} size={16} color="var(--ink)" stroke={1.8} />
-        <div style={{ fontSize: 13, fontWeight: 700 }}>{label}</div>
-        <div style={{ fontSize: 10.5, color: "var(--muted)" }}>{sub}</div>
-      </div>
-    </Link>
-  );
-}

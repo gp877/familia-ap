@@ -2,11 +2,10 @@ import { eq, sql } from "drizzle-orm";
 import Link from "next/link";
 
 import { BigNumber, Card, SectionRow, StackBar } from "@/components/ap/atoms";
-import { Icon } from "@/components/ap/icon";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import { auth } from "@/auth";
 import { db } from "@/db";
-import { bankAccounts, categories, transactions, users } from "@/db/schema";
+import { categories, transactions, users } from "@/db/schema";
 
 function formatBRL(n: number) {
   return n.toLocaleString("pt-BR", {
@@ -53,7 +52,7 @@ export default async function FinanceiroPage() {
   });
 
   // 3 queries em paralelo — antes eram sequenciais
-  const [monthAgg, byCat, accounts] = await Promise.all([
+  const [monthAgg, byCat] = await Promise.all([
     db
       .select({
         totalDebit: sql<string>`coalesce(sum(case when ${transactions.kind} = 'debit' then ${transactions.amount}::numeric else 0 end), 0)::text`,
@@ -77,10 +76,6 @@ export default async function FinanceiroPage() {
         sql`${transactions.householdId} = ${dbUser.householdId} AND ${transactions.kind} = 'debit' AND ${transactions.status} != 'ignored' AND ${transactions.occurredOn} >= ${monthStart.toISOString()} AND ${transactions.occurredOn} < ${monthEnd.toISOString()}`
       )
       .groupBy(categories.name),
-    db.query.bankAccounts.findMany({
-      where: eq(bankAccounts.householdId, dbUser.householdId),
-      limit: 10,
-    }),
   ]);
 
   const totalDebit = parseFloat(monthAgg?.totalDebit ?? "0");
@@ -225,60 +220,30 @@ export default async function FinanceiroPage() {
         </>
       )}
 
-      <SectionRow icon="bag" label="Atalhos" />
-
-      <div style={{ padding: "0 20px", display: "grid", gap: 8, gridTemplateColumns: "1fr 1fr" }}>
-        <Shortcut href="/financeiro/upload" icon="file" label="Subir documento" sub="extrato ou fatura (PDF)" accent />
-        <Shortcut href="/financeiro/documentos" icon="bank" label="Documentos" sub="extratos & faturas por mês" />
-        <Shortcut href="/financeiro/transacoes" icon="bag" label="Transações" sub="ver e classificar" />
-        <Shortcut href="/financeiro/recorrentes" icon="bag" label="Recorrentes" sub="mensais e anuais" />
-        <Shortcut href="/financeiro/dashboard" icon="chart" label="Dashboard" sub="gráficos do ano" />
-        <Shortcut href="/financeiro/dre" icon="chart" label="DRE" sub="receitas e despesas" />
-        <Shortcut href="/financeiro/orcamento" icon="chart" label="Orçamento" sub="planejado anual" />
-        <Shortcut href="/financeiro/categorias" icon="star" label="Categorias" sub="gerenciar" />
-        <Shortcut href="/financeiro/contas" icon="bank" label="Contas" sub={`${accounts.length} cadastradas`} />
+      {/* Navegação entre telas do módulo agora é pelos chips no topo —
+          o grid antigo de atalhos duplicava os mesmos destinos. Sobra só
+          a AÇÃO principal do ritual mensal. */}
+      <div style={{ padding: "14px 20px 0" }}>
+        <Link
+          href="/financeiro/upload"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "14px 16px",
+            borderRadius: 14,
+            background: "var(--accent)",
+            color: "var(--accent-on)",
+            textDecoration: "none",
+            fontSize: 14,
+            fontWeight: 700,
+          }}
+        >
+          <span>Subir documento — extrato ou fatura</span>
+          <span style={{ fontSize: 18, fontWeight: 800 }}>↗</span>
+        </Link>
       </div>
     </ScreenShell>
   );
 }
 
-function Shortcut({
-  href,
-  icon,
-  label,
-  sub,
-  accent,
-}: {
-  href: string;
-  icon: Parameters<typeof Icon>[0]["name"];
-  label: string;
-  sub: string;
-  accent?: boolean;
-}) {
-  return (
-    <Link href={href} style={{ textDecoration: "none", color: "inherit" }}>
-      <div
-        style={{
-          padding: 14,
-          borderRadius: 16,
-          background: accent ? "var(--accent)" : "var(--card)",
-          color: accent ? "var(--accent-on)" : "var(--ink)",
-          display: "flex",
-          flexDirection: "column",
-          gap: 6,
-        }}
-      >
-        <Icon name={icon} size={18} color="currentColor" stroke={1.8} />
-        <div style={{ fontSize: 14, fontWeight: 700 }}>{label}</div>
-        <div
-          style={{
-            fontSize: 10.5,
-            color: accent ? "rgba(0,0,0,0.6)" : "var(--muted)",
-          }}
-        >
-          {sub}
-        </div>
-      </div>
-    </Link>
-  );
-}

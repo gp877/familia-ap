@@ -5,7 +5,6 @@ import { useEffect, useRef, useState } from "react";
 
 import { BigNumber, Card, Pill, SectionRow } from "@/components/ap/atoms";
 import { Icon } from "@/components/ap/icon";
-import { BackButton } from "@/components/ap/inline-form";
 import { ScreenShell } from "@/components/ap/screen-shell";
 
 type AccountOption = { id: string; name: string; type: string };
@@ -247,10 +246,6 @@ export function UploadClient({ accounts }: Props) {
         )
       }
     >
-      <div style={{ padding: "0 20px 8px" }}>
-        <BackButton href="/financeiro/documentos" label="Documentos" />
-      </div>
-
       <SectionRow icon="file" label="Subir documento" />
       <BigNumber
         value="PDF"

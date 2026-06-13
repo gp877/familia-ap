@@ -1,5 +1,4 @@
 import { asc, desc, eq } from "drizzle-orm";
-import Link from "next/link";
 
 import { BigNumber, SectionRow } from "@/components/ap/atoms";
 import { ScreenShell } from "@/components/ap/screen-shell";
@@ -68,27 +67,9 @@ export default async function CardapioPage() {
         )
       }
     >
-      <SectionRow
-        icon="bag"
-        label="Cardápio da semana"
-        action={
-          <Link
-            href="/cardapio/receitas"
-            style={{
-              padding: "5px 12px",
-              borderRadius: 999,
-              background: "var(--card)",
-              color: "var(--ink)",
-              fontSize: 11,
-              fontWeight: 700,
-              textDecoration: "none",
-              border: "1px solid var(--line-d)",
-            }}
-          >
-            livro de receitas →
-          </Link>
-        }
-      />
+      {/* Link pro livro de receitas saiu daqui — os chips do módulo no topo
+          já levam pra lá. */}
+      <SectionRow icon="cutlery" label="Cardápio da semana" action={`${filledCount}/7`} />
 
       <BigNumber
         value={`${filledCount}/7`}

@@ -4,7 +4,6 @@ import { notFound } from "next/navigation";
 
 import { BigNumber, Card, Pill, SectionRow } from "@/components/ap/atoms";
 import { ConfirmSubmitButton } from "@/components/ap/confirm-submit";
-import { BackButton } from "@/components/ap/inline-form";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import {
   deleteInvoiceForm,
@@ -238,10 +237,6 @@ export default async function FaturaDetailPage({
         )
       }
     >
-      <div style={{ padding: "0 20px 8px" }}>
-        <BackButton href="/financeiro/documentos" label="Documentos" />
-      </div>
-
       <SectionRow
         icon="bank"
         label={`${inv.bankAccount?.name ?? "Cartão"} · ${formatMonth(inv.referenceMonth)}`}

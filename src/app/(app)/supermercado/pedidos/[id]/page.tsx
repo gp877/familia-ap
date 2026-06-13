@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 
 import { BigNumber, Pill, SectionRow } from "@/components/ap/atoms";
 import { ConfirmSubmitButton } from "@/components/ap/confirm-submit";
-import { BackButton, DeleteBtn, FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
+import { DeleteBtn, FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import {
   addPedidoItem,
@@ -74,10 +74,6 @@ export default async function PedidoDetailPage({
         )
       }
     >
-      <div style={{ padding: "0 20px 8px" }}>
-        <BackButton href="/supermercado" label="Supermercado" />
-      </div>
-
       <SectionRow
         icon="bag"
         label={pedido.title ?? "Pedido"}

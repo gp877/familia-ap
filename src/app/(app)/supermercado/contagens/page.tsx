@@ -2,7 +2,7 @@ import { desc, eq, sql } from "drizzle-orm";
 import Link from "next/link";
 
 import { BigNumber, Card, Pill, SectionRow } from "@/components/ap/atoms";
-import { BackButton, DeleteBtn } from "@/components/ap/inline-form";
+import { DeleteBtn } from "@/components/ap/inline-form";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import {
   createContagemAndGo,
@@ -65,10 +65,6 @@ export default async function ContagensPage() {
         )
       }
     >
-      <div style={{ padding: "0 20px 8px" }}>
-        <BackButton href="/supermercado" label="Supermercado" />
-      </div>
-
       <SectionRow icon="cal" label="Contagens" action={`${contagens.length}`} />
 
       <BigNumber

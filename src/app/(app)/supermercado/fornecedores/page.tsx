@@ -1,7 +1,7 @@
 import { asc, eq } from "drizzle-orm";
 
 import { BigNumber, SectionRow } from "@/components/ap/atoms";
-import { BackButton, DeleteBtn, FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
+import { DeleteBtn, FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
 import { InlineEditInput } from "@/components/ap/inline-edit-input";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import {
@@ -39,10 +39,6 @@ export default async function FornecedoresPage() {
         )
       }
     >
-      <div style={{ padding: "0 20px 8px" }}>
-        <BackButton href="/supermercado" label="Supermercado" />
-      </div>
-
       <SectionRow icon="bag" label="Fornecedores" action={`${fornecedores.length}`} />
 
       <BigNumber

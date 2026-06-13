@@ -3,7 +3,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { BigNumber, Pill, SectionRow } from "@/components/ap/atoms";
-import { BackButton } from "@/components/ap/inline-form";
 import { InlineEditInput } from "@/components/ap/inline-edit-input";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import {
@@ -92,10 +91,6 @@ export default async function ContagemDetailPage({
         )
       }
     >
-      <div style={{ padding: "0 20px 8px" }}>
-        <BackButton href="/supermercado/contagens" label="Contagens" />
-      </div>
-
       <SectionRow
         icon="cal"
         label={`Contagem · ${formatDate(contagem.contagemDate)}`}

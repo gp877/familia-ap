@@ -114,8 +114,6 @@ export default async function ExamesPage({
         )
       }
     >
-      <SubNav active="exames" />
-
       <PersonPicker
         basePath="/saude-exames"
         activeWho={activeWho}
@@ -637,37 +635,3 @@ function GraficoView({
   );
 }
 
-export function SubNav({ active }: { active: "exames" | "peso" }) {
-  return (
-    <div style={{ padding: "8px 20px 0", display: "flex", gap: 8 }}>
-      <a
-        href="/saude-exames"
-        style={{
-          padding: "6px 14px",
-          borderRadius: 999,
-          fontSize: 12,
-          fontWeight: 600,
-          background: active === "exames" ? "var(--card)" : "transparent",
-          color: active === "exames" ? "var(--ink)" : "var(--muted-d)",
-          textDecoration: "none",
-        }}
-      >
-        Exames
-      </a>
-      <a
-        href="/saude-peso"
-        style={{
-          padding: "6px 14px",
-          borderRadius: 999,
-          fontSize: 12,
-          fontWeight: 600,
-          background: active === "peso" ? "var(--card)" : "transparent",
-          color: active === "peso" ? "var(--ink)" : "var(--muted-d)",
-          textDecoration: "none",
-        }}
-      >
-        Peso
-      </a>
-    </div>
-  );
-}

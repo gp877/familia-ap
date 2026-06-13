@@ -3,7 +3,6 @@ import Link from "next/link";
 
 import { AccountPicker, expandAccountFilter } from "@/components/ap/account-picker";
 import { BigNumber, SectionRow } from "@/components/ap/atoms";
-import { BackButton } from "@/components/ap/inline-form";
 import { MonthChips } from "@/components/ap/month-chips";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import { TransactionsMultiSelect } from "@/components/ap/transactions-multi-select";
@@ -314,10 +313,6 @@ export default async function TransacoesPage({
         </>
       }
     >
-      <div style={{ padding: "0 20px 8px" }}>
-        <BackButton href="/financeiro" label="Financeiro" />
-      </div>
-
       <SectionRow
         icon="bag"
         label={activeAccount ? activeAccount.name : "Transações"}

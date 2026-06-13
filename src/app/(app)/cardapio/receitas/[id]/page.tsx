@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { SectionRow } from "@/components/ap/atoms";
-import { BackButton, DeleteBtn } from "@/components/ap/inline-form";
+import { DeleteBtn } from "@/components/ap/inline-form";
 import { InlineEditInput } from "@/components/ap/inline-edit-input";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import {
@@ -34,10 +34,6 @@ export default async function ReceitaDetailPage({ params }: { params: Params }) 
 
   return (
     <ScreenShell>
-      <div style={{ padding: "0 20px 8px" }}>
-        <BackButton href="/cardapio/receitas" label="Receitas" />
-      </div>
-
       <SectionRow
         icon="bag"
         label="Receita"

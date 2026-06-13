@@ -2,7 +2,6 @@ import { asc, desc, eq } from "drizzle-orm";
 import Link from "next/link";
 
 import { BigNumber, SectionRow } from "@/components/ap/atoms";
-import { BackButton } from "@/components/ap/inline-form";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import { auth } from "@/auth";
 import { db } from "@/db";
@@ -41,10 +40,6 @@ export default async function ReceitasPage() {
         )
       }
     >
-      <div style={{ padding: "0 20px 8px" }}>
-        <BackButton href="/cardapio" label="Cardápio" />
-      </div>
-
       <SectionRow icon="bag" label="Livro de receitas" action={`${all.length}`} />
 
       <BigNumber value={String(all.length)} sub="receitas no total" />

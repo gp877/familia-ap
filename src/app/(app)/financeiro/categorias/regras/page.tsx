@@ -1,7 +1,6 @@
 import { asc, eq } from "drizzle-orm";
 
 import { BigNumber, Card, SectionRow } from "@/components/ap/atoms";
-import { BackButton } from "@/components/ap/inline-form";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import { auth } from "@/auth";
 import { db } from "@/db";
@@ -65,10 +64,6 @@ export default async function CategoryRulesPage() {
         )
       }
     >
-      <div style={{ padding: "0 20px 8px" }}>
-        <BackButton href="/financeiro/categorias" label="Categorias" />
-      </div>
-
       <SectionRow icon="bag" label="Regras de categorização" action={`${rules.length}`} />
       <BigNumber
         value={String(rules.length)}

@@ -1,13 +1,12 @@
 import { asc, eq } from "drizzle-orm";
 import Link from "next/link";
 
-import { BigNumber, Card, SectionRow, Sparkline } from "@/components/ap/atoms";
+import { SectionRow, Sparkline } from "@/components/ap/atoms";
 import { DeleteBtn } from "@/components/ap/inline-form";
 import { InlineEditInput } from "@/components/ap/inline-edit-input";
 import { PersonPicker } from "@/components/ap/person-picker";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import { createPesagem, deletePesagem, patchPesagem } from "@/app/actions/saude";
-import { SubNav } from "@/app/(app)/saude-exames/page";
 import { auth } from "@/auth";
 import { db } from "@/db";
 import { pesagens, users } from "@/db/schema";
@@ -114,8 +113,6 @@ export default async function PesoPage({
         )
       }
     >
-      <SubNav active="peso" />
-
       <PersonPicker
         basePath="/saude-peso"
         activeWho={activeWho}

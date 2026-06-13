@@ -1,7 +1,6 @@
 import { asc, eq } from "drizzle-orm";
 
 import { BigNumber, Card, SectionRow } from "@/components/ap/atoms";
-import { BackButton } from "@/components/ap/inline-form";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import { auth } from "@/auth";
 import { db } from "@/db";
@@ -114,10 +113,6 @@ export default async function NotificacoesPage() {
         )
       }
     >
-      <div style={{ padding: "0 20px 8px" }}>
-        <BackButton href="/configuracoes" label="Configurações" />
-      </div>
-
       <SectionRow icon="spark" label="Notificações" action={`${activeCount}/${rules.length}`} />
       <BigNumber
         value={String(activeCount)}

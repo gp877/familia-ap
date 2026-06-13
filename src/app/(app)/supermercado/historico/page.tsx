@@ -2,7 +2,6 @@ import { desc, eq, sql } from "drizzle-orm";
 import Link from "next/link";
 
 import { BigNumber, Card, Pill, SectionRow } from "@/components/ap/atoms";
-import { BackButton } from "@/components/ap/inline-form";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import { auth } from "@/auth";
 import { db } from "@/db";
@@ -61,10 +60,6 @@ export default async function HistoricoPedidosPage() {
         )
       }
     >
-      <div style={{ padding: "0 20px 8px" }}>
-        <BackButton href="/supermercado" label="Supermercado" />
-      </div>
-
       <SectionRow icon="bag" label="Histórico de pedidos" action={`${pedidos.length}`} />
 
       <BigNumber

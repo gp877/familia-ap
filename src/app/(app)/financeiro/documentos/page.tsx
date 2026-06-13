@@ -2,7 +2,7 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import Link from "next/link";
 
 import { SectionRow } from "@/components/ap/atoms";
-import { BackButton, FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
+import { FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import { createInvoice } from "@/app/actions/invoices";
 import { auth } from "@/auth";
@@ -240,10 +240,6 @@ export default async function DocumentosPage({
           .doc-heat { grid-template-columns: repeat(6, 1fr) !important; }
         }
       `}</style>
-
-      <div style={{ padding: "0 20px 8px" }}>
-        <BackButton href="/financeiro" label="Financeiro" />
-      </div>
 
       <SectionRow
         icon="bank"

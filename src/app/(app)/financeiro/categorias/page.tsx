@@ -2,7 +2,6 @@ import { asc, eq, sql } from "drizzle-orm";
 import Link from "next/link";
 
 import { BigNumber, SectionRow } from "@/components/ap/atoms";
-import { BackButton } from "@/components/ap/inline-form";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import { SortableList } from "@/components/ap/sortable-list";
 import { reorderCategoriasForm } from "@/app/actions/categorias";
@@ -108,10 +107,6 @@ export default async function CategoriasPage({
         </>
       }
     >
-      <div style={{ padding: "0 20px 8px" }}>
-        <BackButton href="/financeiro" label="Financeiro" />
-      </div>
-
       <SectionRow
         icon="bag"
         label="Categorias"

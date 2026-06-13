@@ -2,7 +2,6 @@ import { and, eq, gte, isNotNull, lte, ne, sql } from "drizzle-orm";
 import Link from "next/link";
 
 import { Card, SectionRow } from "@/components/ap/atoms";
-import { BackButton } from "@/components/ap/inline-form";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import { auth } from "@/auth";
 import { db } from "@/db";
@@ -219,10 +218,6 @@ export default async function DashboardPage({
         )
       }
     >
-      <div style={{ padding: "0 20px 8px" }}>
-        <BackButton href="/financeiro" label="Financeiro" />
-      </div>
-
       <SectionRow icon="chart" label="Dashboard" action={`${monthsWithData.length} meses com dados`} />
 
       {/* Seletor de ano */}

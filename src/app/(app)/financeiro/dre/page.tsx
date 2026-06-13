@@ -2,7 +2,6 @@ import { and, eq, sql } from "drizzle-orm";
 import Link from "next/link";
 
 import { BigNumber, Card, Progress, SectionRow, StackBar } from "@/components/ap/atoms";
-import { BackButton } from "@/components/ap/inline-form";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import { auth } from "@/auth";
 import { db } from "@/db";
@@ -193,10 +192,6 @@ export default async function DREPage({
         )
       }
     >
-      <div style={{ padding: "0 20px 8px" }}>
-        <BackButton href="/financeiro" label="Financeiro" />
-      </div>
-
       <SectionRow
         icon="chart"
         label="DRE Familiar"
@@ -578,10 +573,6 @@ async function MonthlyDRE({ householdId, monthStr }: { householdId: string; mont
         </>
       }
     >
-      <div style={{ padding: "0 20px 8px" }}>
-        <BackButton href={`/financeiro/dre?year=${yearN}`} label={`DRE ${yearN}`} />
-      </div>
-
       <SectionRow
         icon="chart"
         label="DRE mensal"

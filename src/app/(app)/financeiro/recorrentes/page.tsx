@@ -1,7 +1,6 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 
 import { BigNumber, SectionRow } from "@/components/ap/atoms";
-import { BackButton } from "@/components/ap/inline-form";
 import { MonthChips } from "@/components/ap/month-chips";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import { auth } from "@/auth";
@@ -212,10 +211,6 @@ export default async function RecorrentesPage({
         )
       }
     >
-      <div style={{ padding: "0 20px 8px" }}>
-        <BackButton href="/financeiro" label="Financeiro" />
-      </div>
-
       <SectionRow
         icon="bag"
         label="Pagamentos recorrentes"

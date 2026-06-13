@@ -2,7 +2,6 @@ import { eq } from "drizzle-orm";
 import Link from "next/link";
 
 import { Card, SectionRow } from "@/components/ap/atoms";
-import { BackButton } from "@/components/ap/inline-form";
 import { InlineEditInput } from "@/components/ap/inline-edit-input";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import {
@@ -50,10 +49,6 @@ export default async function IaConfigPage() {
 
   return (
     <ScreenShell>
-      <div style={{ padding: "0 20px 8px" }}>
-        <BackButton href="/configuracoes" label="Configurações" />
-      </div>
-
       <SectionRow
         icon="spark"
         label="Configurar a AP"
