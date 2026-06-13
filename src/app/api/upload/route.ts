@@ -14,6 +14,7 @@ import {
   detectInternalTransfer,
   linkCardPaymentsToInvoices,
   pairInternalCandidates,
+  reconcileAnnuityOrphans,
 } from "@/lib/internal-transfer";
 
 export const runtime = "nodejs";
@@ -615,6 +616,16 @@ async function handlePost(req: Request) {
           const tLinker = Date.now();
           const linkedAfter = await linkCardPaymentsToInvoices(householdIdForAfter);
           console.log(`[upload:after] linker: ${Date.now() - tLinker}ms (${linkedAfter} vínculos)`);
+
+          // Bonificações órfãs (anuidade bonificada cuja cobrança não foi
+          // extraída) — marca como internas quando explicam exatamente a
+          // diferença pro total oficial do PDF.
+          if (invoiceIdForAfter) {
+            const reconciled = await reconcileAnnuityOrphans(invoiceIdForAfter);
+            if (reconciled > 0) {
+              console.log(`[upload:after] reconcile: ${reconciled} bonificações órfãs marcadas internas`);
+            }
+          }
 
           // Recálculo do invoice totalAmount agora que pair-matcher rodou —
           // mas SÓ quando o PDF não trouxe o total escrito (documentTotal é a

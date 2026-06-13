@@ -10,7 +10,7 @@ import {
   linkInvoicePayment,
   unlinkInvoicePaymentForm,
 } from "@/app/actions/invoices";
-import { linkCardPaymentsToInvoices } from "@/lib/internal-transfer";
+import { linkCardPaymentsToInvoices, reconcileAnnuityOrphans } from "@/lib/internal-transfer";
 import { auth } from "@/auth";
 import type { CategoryOption } from "@/components/category-select";
 import { TransactionsMultiSelect } from "@/components/ap/transactions-multi-select";
@@ -75,17 +75,20 @@ export default async function FaturaDetailPage({
   });
   if (!initialInv || initialInv.householdId !== dbUser.householdId) notFound();
 
-  // Tenta auto-vincular pagamento óbvio (valor exato + data dentro de ±5d
-  // do vencimento) ANTES de renderizar. Idempotente: se já está vinculada,
-  // não faz nada. Roda no SERVER GET — barato e evita o user precisar
-  // clicar em "vincular →" quando a resposta é óbvia.
-  if (!initialInv.paidByTransactionId) {
-    try {
+  // Reconciliação automática ANTES de renderizar (ambas idempotentes):
+  // 1. Bonificações órfãs: se a soma das linhas diverge do total oficial
+  //    exatamente pelo valor de bonificações de anuidade sem par, marca
+  //    elas como internas (cancelam cobranças que o PDF tem mas a extração
+  //    perdeu). Sem isso a tela mostraria divergência falsa.
+  // 2. Auto-vínculo do pagamento óbvio (valor exato ±5d do vencimento).
+  try {
+    await reconcileAnnuityOrphans(initialInv.id);
+    if (!initialInv.paidByTransactionId) {
       await linkCardPaymentsToInvoices(dbUser.householdId);
-    } catch (err) {
-      // Falha silenciosa — não bloqueia a tela.
-      console.error("[fatura] auto-link falhou:", err);
     }
+  } catch (err) {
+    // Falha silenciosa — não bloqueia a tela.
+    console.error("[fatura] reconciliação/auto-link falhou:", err);
   }
 
   // Re-busca pra pegar paidByTransactionId atualizado
@@ -277,9 +280,9 @@ export default async function FaturaDetailPage({
             Os lançamentos extraídos somam{" "}
             <b className="ap-num">R$ {formatBRL(computedTotal)}</b> — diferença de{" "}
             <b className="ap-num">R$ {formatBRL(Math.abs(officialTotal - computedTotal))}</b> pro
-            total cobrado pelo banco. Provavelmente alguma linha do PDF (anuidade, tarifa,
-            encargo) não foi extraída. O total acima é o OFICIAL do PDF; se quiser fechar a
-            conta, lance a linha que falta manualmente.
+            total cobrado pelo banco (o número grande acima, que é o que vale). Geralmente é
+            uma linha do PDF que a extração perdeu (anuidade, tarifa). Não afeta o pagamento
+            nem o vínculo — é só a conferência linha a linha que não fecha.
           </div>
         </div>
       )}

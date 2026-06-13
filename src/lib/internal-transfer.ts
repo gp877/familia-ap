@@ -408,3 +408,67 @@ export async function linkCardPaymentsToInvoices(
 
   return linked;
 }
+
+/**
+ * Reconciliação de bonificações órfãs de uma fatura.
+ *
+ * Cenário real: o PDF tem a COBRANÇA da anuidade (+R$ 15) e a BONIFICAÇÃO
+ * (−R$ 15) em linhas separadas que se cancelam. Se a extração perder a
+ * cobrança, a bonificação fica "real" sem par e a soma das linhas diverge
+ * do total oficial do PDF exatamente pelo valor dela.
+ *
+ * Quando (total oficial − soma das linhas) == soma das bonificações órfãs,
+ * marcamos as bonificações como INTERNAS — elas cancelam cobranças que
+ * existem no PDF (só não foram extraídas). A soma volta a bater sem o
+ * usuário lançar nada manualmente.
+ *
+ * Conservador: só age com match EXATO (±1 centavo) e nunca toca em tx
+ * com markedManuallyAt (override do usuário prevalece).
+ */
+export async function reconcileAnnuityOrphans(invoiceId: string): Promise<number> {
+  const inv = await db.query.invoices.findFirst({
+    where: eq(invoices.id, invoiceId),
+  });
+  if (!inv?.totalAmount) return 0;
+  const official = parseFloat(inv.totalAmount);
+
+  const txs = await db.query.transactions.findMany({
+    where: eq(transactions.invoiceId, invoiceId),
+  });
+  const realDebit = txs
+    .filter((t) => t.kind === "debit" && !t.isInternalTransfer && t.status !== "ignored")
+    .reduce((s, t) => s + parseFloat(t.amount), 0);
+  const realCredit = txs
+    .filter((t) => t.kind === "credit" && !t.isInternalTransfer && t.status !== "ignored")
+    .reduce((s, t) => s + parseFloat(t.amount), 0);
+  const computed = realDebit - realCredit;
+  const diff = official - computed;
+  if (diff < 0.009) return 0; // soma já bate (ou está acima — outro problema)
+
+  // Bonificações órfãs: créditos de anuidade/bonificação que o pair-matcher
+  // NÃO conseguiu parear (sem cobrança extraída) e que o usuário não tocou
+  // manualmente. Pega pelo tipo detectado OU pela descrição — o detector às
+  // vezes perde uma variação ("Anuidade" seco, sem a palavra bonificação).
+  const ANUIDADE_RE = /anuidade|bonifica/i;
+  const orphans = txs.filter(
+    (t) =>
+      t.kind === "credit" &&
+      !t.isInternalTransfer &&
+      (t.internalTransferType === "annuity_bonus" ||
+        ANUIDADE_RE.test(t.description) ||
+        ANUIDADE_RE.test(t.rawDescription)) &&
+      !t.markedManuallyAt &&
+      t.status !== "ignored"
+  );
+  if (orphans.length === 0) return 0;
+  const orphanSum = orphans.reduce((s, t) => s + parseFloat(t.amount), 0);
+  if (Math.abs(orphanSum - diff) > 0.01) return 0; // não explica a diferença — não mexe
+
+  for (const t of orphans) {
+    await db
+      .update(transactions)
+      .set({ isInternalTransfer: true, updatedAt: new Date() })
+      .where(eq(transactions.id, t.id));
+  }
+  return orphans.length;
+}
