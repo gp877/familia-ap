@@ -132,7 +132,29 @@ export function TransactionsMultiSelect({ transactions, categoryOptions }: Props
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkCategoryId, setBulkCategoryId] = useState<string>("");
   const [splittingTxId, setSplittingTxId] = useState<string | null>(null);
+  // Filtro "só não categorizadas" — acelera o ritual de categorização:
+  // mostra só o que falta, preservando a ordem do PDF. Client-side, vale
+  // tanto pro extrato quanto pra fatura (componente compartilhado).
+  const [onlyUncategorized, setOnlyUncategorized] = useState(false);
   const [isPending, startTransition] = useTransition();
+
+  const uncategorizedCount = useMemo(
+    () =>
+      transactions.filter(
+        (t) => !t.categoryId && !t.isInternalTransfer && t.status !== "ignored"
+      ).length,
+    [transactions]
+  );
+
+  const visible = useMemo(
+    () =>
+      onlyUncategorized
+        ? transactions.filter(
+            (t) => !t.categoryId && !t.isInternalTransfer && t.status !== "ignored"
+          )
+        : transactions,
+    [transactions, onlyUncategorized]
+  );
 
   const splittingTx = splittingTxId
     ? transactions.find((t) => t.id === splittingTxId)
@@ -146,10 +168,10 @@ export function TransactionsMultiSelect({ transactions, categoryOptions }: Props
   }
 
   function toggleAll() {
-    if (selected.size === transactions.length) {
+    if (selected.size === visible.length) {
       setSelected(new Set());
     } else {
-      setSelected(new Set(transactions.map((t) => t.id)));
+      setSelected(new Set(visible.map((t) => t.id)));
     }
   }
 
@@ -157,17 +179,17 @@ export function TransactionsMultiSelect({ transactions, categoryOptions }: Props
   // "+N iguais" — seleciona o grupo inteiro sem mexer na ordem da lista.
   const descCounts = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const t of transactions) {
+    for (const t of visible) {
       const k = t.description.toLowerCase();
       counts.set(k, (counts.get(k) ?? 0) + 1);
     }
     return counts;
-  }, [transactions]);
+  }, [visible]);
 
   function selectSameDescription(tx: { id: string; description: string }) {
     const k = tx.description.toLowerCase();
     const next = new Set(selected);
-    for (const t of transactions) {
+    for (const t of visible) {
       if (t.description.toLowerCase() === k) next.add(t.id);
     }
     setSelected(next);
@@ -244,6 +266,32 @@ export function TransactionsMultiSelect({ transactions, categoryOptions }: Props
           </div>
         ) : (
           <>
+            {/* Filtro "só não categorizadas" — acelera a categorização.
+                Só aparece quando ainda há o que categorizar. */}
+            {uncategorizedCount > 0 && (
+              <div style={{ display: "flex", gap: 6, padding: "4px 0 2px" }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOnlyUncategorized((v) => !v);
+                    setSelected(new Set());
+                  }}
+                  style={{
+                    padding: "5px 12px",
+                    borderRadius: 999,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    border: onlyUncategorized ? "none" : "0.5px solid var(--line-d)",
+                    background: onlyUncategorized ? "var(--accent)" : "var(--card)",
+                    color: onlyUncategorized ? "var(--accent-on)" : "var(--muted-d)",
+                  }}
+                >
+                  {onlyUncategorized ? "✓ " : ""}só não categorizadas ({uncategorizedCount})
+                </button>
+              </div>
+            )}
+
             <div
               style={{
                 display: "flex",
@@ -256,18 +304,24 @@ export function TransactionsMultiSelect({ transactions, categoryOptions }: Props
             >
               <input
                 type="checkbox"
-                checked={selected.size === transactions.length}
+                checked={visible.length > 0 && selected.size === visible.length}
                 onChange={toggleAll}
                 style={{ accentColor: "var(--accent)" }}
               />
               <span>
                 {selected.size > 0
                   ? `${selected.size} selecionada${selected.size === 1 ? "" : "s"}`
-                  : `selecionar todas (${transactions.length})`}
+                  : `selecionar todas (${visible.length})`}
               </span>
             </div>
 
-            {transactions.map((tx, i) => {
+            {visible.length === 0 ? (
+              <div style={{ fontSize: 13, color: "var(--ok)", textAlign: "center", padding: "20px 0", fontWeight: 600 }}>
+                Tudo categorizado nesta lista ✓
+              </div>
+            ) : null}
+
+            {visible.map((tx, i) => {
               const amount = parseFloat(tx.amount);
               const isSelected = selected.has(tx.id);
               const isInternal = !!tx.isInternalTransfer;
@@ -280,7 +334,7 @@ export function TransactionsMultiSelect({ transactions, categoryOptions }: Props
                     gap: 10,
                     padding: "10px 8px",
                     borderBottom:
-                      i < transactions.length - 1 ? "0.5px solid var(--line-d)" : "none",
+                      i < visible.length - 1 ? "0.5px solid var(--line-d)" : "none",
                     opacity: tx.status === "ignored" ? 0.5 : isInternal ? 0.7 : 1,
                     background: isSelected
                       ? "var(--card2)"
