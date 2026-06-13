@@ -27,9 +27,30 @@ export default async function FinanceiroPage() {
   if (!dbUser?.householdId) return null;
 
   const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-  const monthLabel = now.toLocaleDateString("pt-BR", { month: "long" });
+
+  // O fluxo da família é subir documentos na VIRADA do mês — durante quase
+  // o mês inteiro o "mês atual" não tem dados e o painel ficava vazio.
+  // Mostramos o mês atual SE tiver transações; senão, o último mês com dados.
+  const [latestRow] = await db
+    .select({
+      month: sql<string | null>`to_char(max(${transactions.occurredOn}), 'YYYY-MM')`,
+    })
+    .from(transactions)
+    .where(
+      sql`${transactions.householdId} = ${dbUser.householdId} AND ${transactions.status} != 'ignored' AND ${transactions.isInternalTransfer} = false`
+    );
+  const currentYm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const displayYm =
+    latestRow?.month && latestRow.month < currentYm ? latestRow.month : currentYm;
+  const [dispY, dispM] = displayYm.split("-").map(Number);
+  const isCurrentMonth = displayYm === currentYm;
+
+  const monthStart = new Date(dispY, dispM - 1, 1);
+  const monthEnd = new Date(dispY, dispM, 1);
+  const monthLabel = monthStart.toLocaleDateString("pt-BR", {
+    month: "long",
+    ...(dispY !== now.getFullYear() ? { year: "numeric" } : {}),
+  });
 
   // 3 queries em paralelo — antes eram sequenciais
   const [monthAgg, byCat, accounts] = await Promise.all([
@@ -104,7 +125,19 @@ export default async function FinanceiroPage() {
         )
       }
     >
-      <SectionRow icon="bank" label={`Visão de ${monthLabel}`} action={`${txCount} transações`} />
+      <SectionRow
+        icon="bank"
+        label={`Visão de ${monthLabel}`}
+        action={
+          isCurrentMonth ? (
+            `${txCount} transações`
+          ) : (
+            <span style={{ fontSize: 11, color: "var(--muted)" }}>
+              último mês com dados · {txCount} transações
+            </span>
+          )
+        }
+      />
 
       <BigNumber
         value={txCount > 0 ? `R$ ${formatBRL(Math.abs(saldo))}` : "—"}
@@ -136,6 +169,32 @@ export default async function FinanceiroPage() {
               </Card>
             </div>
           </div>
+
+          {pendingCount > 0 && (
+            <div style={{ padding: "10px 20px 0" }}>
+              <Link
+                href={`/financeiro/transacoes?status=pending&month=${displayYm}`}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "11px 14px",
+                  borderRadius: 12,
+                  background: "color-mix(in oklab, var(--alert) 12%, var(--card))",
+                  border: "0.5px solid color-mix(in oklab, var(--alert) 40%, transparent)",
+                  color: "var(--alert)",
+                  textDecoration: "none",
+                  fontSize: 12.5,
+                  fontWeight: 700,
+                }}
+              >
+                <span>
+                  {pendingCount} {pendingCount === 1 ? "transação pendente" : "transações pendentes"} de revisão em {monthLabel}
+                </span>
+                <span style={{ fontWeight: 800 }}>revisar →</span>
+              </Link>
+            </div>
+          )}
 
           {named.length > 0 && (
             <div style={{ padding: "14px 20px 0" }}>
