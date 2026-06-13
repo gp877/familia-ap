@@ -2,6 +2,7 @@ import { asc, eq } from "drizzle-orm";
 
 import { BigNumber, SectionRow } from "@/components/ap/atoms";
 import { ScreenShell } from "@/components/ap/screen-shell";
+import { resolveCategoryColor } from "@/lib/category-colors";
 import { auth } from "@/auth";
 import { db } from "@/db";
 import { bankAccounts, categories, users } from "@/db/schema";
@@ -35,7 +36,7 @@ export default async function NewTransactionPage() {
       : c.name,
     name: c.name,
     parentId: c.parentId,
-    color: c.color ?? null,
+    color: resolveCategoryColor(c, c.parentId ? catById.get(c.parentId) ?? null : null),
     kind: c.kind,
   }));
 

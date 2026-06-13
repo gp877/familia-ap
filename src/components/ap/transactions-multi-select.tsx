@@ -14,7 +14,6 @@ import {
 import { CategoryBulkPicker } from "@/components/category-bulk-picker";
 import { CategorySelect, type CategoryOption } from "@/components/category-select";
 import { SplitDialog } from "@/components/split-dialog";
-import { TransactionStatusToggle } from "@/components/transaction-status-toggle";
 
 type TxRow = {
   id: string;
@@ -385,18 +384,14 @@ export function TransactionsMultiSelect({ transactions, categoryOptions }: Props
                         {tx.description}
                       </span>
                     </div>
+                    {/* Status saiu da linha: confirmada = categorizada (automático).
+                        Ignorar continua possível via seleção em massa. */}
                     <CategorySelect
                       transactionId={tx.id}
                       currentCategoryId={tx.categoryId}
                       options={categoryOptions}
                       isInternal={isInternal}
                     />
-                    <div style={{ flexShrink: 0 }}>
-                      <TransactionStatusToggle
-                        transactionId={tx.id}
-                        status={tx.status}
-                      />
-                    </div>
                     <div
                       className="ap-num"
                       style={{

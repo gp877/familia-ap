@@ -459,7 +459,9 @@ async function handlePost(req: Request) {
           installmentCurrent: t.installmentCurrent ?? null,
           installmentTotal: t.installmentTotal ?? null,
           sourceOrder: pdfIdx,
-          status: "pending" as const,
+          // Categorizada (por regra) = confirmada — o usuário já revisou esse
+          // padrão quando criou a regra. Sem categoria = pendente de revisão.
+          status: (categoryId ? "confirmed" : "pending") as "confirmed" | "pending",
           isInternalTransfer: isSoloInternal,
           internalTransferType: detectedType,
           // Camada 3 de dedupe — UNIQUE constraint no banco vai bloquear

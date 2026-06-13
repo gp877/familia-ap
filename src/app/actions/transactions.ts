@@ -36,9 +36,18 @@ export async function setTransactionCategory(
     throw new Error("Transação não encontrada");
   }
 
+  // Categorizar CONFIRMA a transação (revisão implícita: se o usuário deu
+  // categoria, ele olhou pra ela). Descategorizar volta pra pendente.
+  // Ignored é estado deliberado — não mexemos.
+  const nextStatus =
+    tx.status === "ignored" ? undefined : categoryId ? ("confirmed" as const) : ("pending" as const);
   await db
     .update(transactions)
-    .set({ categoryId, updatedAt: new Date() })
+    .set({
+      categoryId,
+      ...(nextStatus ? { status: nextStatus } : {}),
+      updatedAt: new Date(),
+    })
     .where(eq(transactions.id, transactionId));
 
   let ruleCreated = false;
@@ -100,9 +109,10 @@ export async function setTransactionCategory(
         columns: { id: true },
       });
       if (others.length > 0) {
+        // Aplicação retroativa também confirma — categorizada = revisada.
         await db
           .update(transactions)
-          .set({ categoryId, updatedAt: new Date() })
+          .set({ categoryId, status: "confirmed", updatedAt: new Date() })
           .where(
             inArray(
               transactions.id,

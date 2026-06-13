@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
 import { db } from "@/db";
@@ -28,13 +28,31 @@ export async function bulkSetCategory(
     }
   }
 
+  // Categorizar CONFIRMA (revisão implícita); descategorizar volta pra
+  // pendente. Ignoradas ficam como estão (estado deliberado).
+  await db
+    .update(transactions)
+    .set({
+      categoryId,
+      status: categoryId ? "confirmed" : "pending",
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        inArray(transactions.id, transactionIds),
+        eq(transactions.householdId, householdId),
+        ne(transactions.status, "ignored")
+      )
+    );
+  // Ignoradas selecionadas junto: só a categoria muda, status preservado
   await db
     .update(transactions)
     .set({ categoryId, updatedAt: new Date() })
     .where(
       and(
         inArray(transactions.id, transactionIds),
-        eq(transactions.householdId, householdId)
+        eq(transactions.householdId, householdId),
+        eq(transactions.status, "ignored")
       )
     );
 

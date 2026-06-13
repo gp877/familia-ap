@@ -1,5 +1,7 @@
 "use client";
 
+import { fallbackColorFor } from "@/lib/category-colors";
+
 import { useState, useTransition } from "react";
 
 import { DeleteBtn } from "@/components/ap/inline-form";
@@ -405,14 +407,3 @@ function normalizeHex(c: string): string {
   return "#B8FF5C";
 }
 
-/** Cor determinística pra categorias sem cor definida. */
-function fallbackColorFor(id: string, kind: "expense" | "income"): string {
-  const palette =
-    kind === "income"
-      ? ["#7BD86F", "#5DA9FF", "#B8FF5C", "#FFB85C", "#9DDFD3"]
-      : ["#FF7A35", "#FF4FA3", "#B57FFF", "#FFB85C", "#5DA9FF", "#FF8866"];
-  // Hash simples do id pra escolher uma cor da paleta
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
-  return palette[h % palette.length];
-}

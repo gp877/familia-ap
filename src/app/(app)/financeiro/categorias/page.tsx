@@ -5,6 +5,7 @@ import { BigNumber, SectionRow } from "@/components/ap/atoms";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import { SortableList } from "@/components/ap/sortable-list";
 import { reorderCategoriasForm } from "@/app/actions/categorias";
+import { resolveCategoryColor } from "@/lib/category-colors";
 import { auth } from "@/auth";
 import { db } from "@/db";
 import { categories, transactions, users } from "@/db/schema";
@@ -50,6 +51,8 @@ export default async function CategoriasPage({
     if (c.categoryId) countByCategory.set(c.categoryId, c.count);
   }
 
+  const byId = new Map(all.map((c) => [c.id, c]));
+
   const expenseParents = all.filter((c) => c.kind === "expense" && !c.parentId);
   const incomeParents = all.filter((c) => c.kind === "income" && !c.parentId);
 
@@ -67,7 +70,7 @@ export default async function CategoriasPage({
       id: c.id,
       name: c.name,
       kind: c.kind,
-      color: c.color,
+      color: resolveCategoryColor(c, c.parentId ? byId.get(c.parentId) ?? null : null),
       parentId: c.parentId,
       txCount: countByCategory.get(c.id) ?? 0,
       notes: c.notes,
@@ -81,7 +84,7 @@ export default async function CategoriasPage({
       id: c.id,
       name: c.name,
       kind: c.kind,
-      color: c.color,
+      color: resolveCategoryColor(c, c.parentId ? byId.get(c.parentId) ?? null : null),
       parentId: c.parentId,
       notes: c.notes,
     };

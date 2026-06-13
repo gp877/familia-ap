@@ -8,6 +8,7 @@ import { ScreenShell } from "@/components/ap/screen-shell";
 import { TransactionsMultiSelect } from "@/components/ap/transactions-multi-select";
 
 import { InlineNewTransaction } from "./inline-new-transaction";
+import { resolveCategoryColor } from "@/lib/category-colors";
 import { auth } from "@/auth";
 import type { CategoryOption } from "@/components/category-select";
 import { db } from "@/db";
@@ -191,7 +192,7 @@ export default async function TransacoesPage({
     label: c.parent ? `${c.parent.name} › ${c.name}` : c.name,
     name: c.name,
     parentId: c.parentId,
-    color: c.color ?? c.parent?.color ?? null,
+    color: resolveCategoryColor(c, c.parent),
     kind: c.kind,
     notes: c.notes,
   }));

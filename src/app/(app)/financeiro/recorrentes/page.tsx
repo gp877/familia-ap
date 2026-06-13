@@ -3,6 +3,7 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import { BigNumber, SectionRow } from "@/components/ap/atoms";
 import { MonthChips } from "@/components/ap/month-chips";
 import { ScreenShell } from "@/components/ap/screen-shell";
+import { resolveCategoryColor } from "@/lib/category-colors";
 import { auth } from "@/auth";
 import { db } from "@/db";
 import {
@@ -258,7 +259,7 @@ export default async function RecorrentesPage({
             label: parent ? `${parent.name} › ${c.name}` : c.name,
             name: c.name,
             parentId: c.parentId,
-            color: c.color ?? null,
+            color: resolveCategoryColor(c, parent),
             kind: c.kind,
           };
         })}
