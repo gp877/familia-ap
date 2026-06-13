@@ -529,22 +529,33 @@ async function handlePost(req: Request) {
         0
       );
 
-      // Update invoice totalAmount com sum dos débitos NÃO-internos. Pagamento
-      // recebido (interno) é excluído → bate com "TOTAL DESTA FATURA" do PDF.
+      // Update invoice totalAmount. FONTE DA VERDADE: o total ESCRITO no PDF
+      // (documentTotal) — é o valor que o banco cobra de fato. A soma das tx
+      // é fallback/cross-check: se a extração perder alguma linha (ex:
+      // cobrança de anuidade), a soma fica menor que a cobrança real e o
+      // auto-vínculo do pagamento nunca casaria.
       if (invoiceId) {
-        const allInvoiceTxs = await db.query.transactions.findMany({
-          where: eq(transactions.invoiceId, invoiceId),
-        });
-        const total = allInvoiceTxs
-          .filter((t) => t.kind === "debit" && !t.isInternalTransfer)
-          .reduce((sum, t) => sum + parseFloat(t.amount), 0);
-        // Créditos NÃO-internos (ex: bonificação real, se houver) abatem do total
-        const credits = allInvoiceTxs
-          .filter((t) => t.kind === "credit" && !t.isInternalTransfer)
-          .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+        const docTotal = extracted.documentTotal
+          ? parseFloat(extracted.documentTotal)
+          : null;
+        let effectiveTotal: number;
+        if (docTotal !== null && !isNaN(docTotal)) {
+          effectiveTotal = docTotal;
+        } else {
+          const allInvoiceTxs = await db.query.transactions.findMany({
+            where: eq(transactions.invoiceId, invoiceId),
+          });
+          const total = allInvoiceTxs
+            .filter((t) => t.kind === "debit" && !t.isInternalTransfer)
+            .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+          const credits = allInvoiceTxs
+            .filter((t) => t.kind === "credit" && !t.isInternalTransfer)
+            .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+          effectiveTotal = total - credits;
+        }
         await db
           .update(invoices)
-          .set({ totalAmount: String(total - credits), updatedAt: new Date() })
+          .set({ totalAmount: effectiveTotal.toFixed(2), updatedAt: new Date() })
           .where(eq(invoices.id, invoiceId));
       }
 
@@ -594,6 +605,7 @@ async function handlePost(req: Request) {
       // contam pro maxDuration de 60s do Vercel.
       const householdIdForAfter = dbUser.householdId;
       const invoiceIdForAfter = invoiceId;
+      const docTotalForAfter = extracted.documentTotal;
       after(async () => {
         try {
           const tAfter = Date.now();
@@ -604,8 +616,10 @@ async function handlePost(req: Request) {
           const linkedAfter = await linkCardPaymentsToInvoices(householdIdForAfter);
           console.log(`[upload:after] linker: ${Date.now() - tLinker}ms (${linkedAfter} vínculos)`);
 
-          // Recálculo do invoice totalAmount agora que pair-matcher rodou.
-          if (invoiceIdForAfter) {
+          // Recálculo do invoice totalAmount agora que pair-matcher rodou —
+          // mas SÓ quando o PDF não trouxe o total escrito (documentTotal é a
+          // fonte da verdade e já foi gravado no fluxo síncrono).
+          if (invoiceIdForAfter && !docTotalForAfter) {
             const allInvoiceTxs = await db.query.transactions.findMany({
               where: eq(transactions.invoiceId, invoiceIdForAfter),
             });
@@ -617,7 +631,7 @@ async function handlePost(req: Request) {
               .reduce((sum, t) => sum + parseFloat(t.amount), 0);
             await db
               .update(invoices)
-              .set({ totalAmount: String(total - credits), updatedAt: new Date() })
+              .set({ totalAmount: (total - credits).toFixed(2), updatedAt: new Date() })
               .where(eq(invoices.id, invoiceIdForAfter));
             console.log(`[upload:after] invoice total recalculado: R$ ${(total - credits).toFixed(2)}`);
           }

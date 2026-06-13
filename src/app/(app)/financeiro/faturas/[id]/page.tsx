@@ -203,16 +203,22 @@ export default async function FaturaDetailPage({
     splits: (tx.splits as Array<{ categoryId: string; amount: string; note?: string }> | null) ?? null,
   }));
 
-  // Total REAL da fatura: débitos - créditos, ambos excluindo internas.
-  // Bate com o "TOTAL DESTA FATURA" do PDF (que ignora "Pagamento Recebido"
-  // e bonificações).
+  // Soma das linhas extraídas: débitos − créditos, excluindo internas.
   const realDebit = items
     .filter((t) => t.kind === "debit" && !t.isInternalTransfer)
     .reduce((s, t) => s + parseFloat(t.amount), 0);
   const realCredit = items
     .filter((t) => t.kind === "credit" && !t.isInternalTransfer)
     .reduce((s, t) => s + parseFloat(t.amount), 0);
-  const realTotal = realDebit - realCredit;
+  const computedTotal = realDebit - realCredit;
+
+  // Total OFICIAL: o que está escrito no PDF / o que o banco cobra
+  // (inv.totalAmount, que vem do documentTotal). A soma das linhas é
+  // conferência — se divergir, alguma linha não foi extraída (anuidade,
+  // tarifa) e mostramos o aviso abaixo do número.
+  const officialTotal = inv.totalAmount ? parseFloat(inv.totalAmount) : computedTotal;
+  const totalsDiverge = Math.abs(officialTotal - computedTotal) > 0.01;
+  const realTotal = officialTotal;
 
   return (
     <ScreenShell
@@ -254,6 +260,29 @@ export default async function FaturaDetailPage({
         sub={`${items.filter((t) => !t.isInternalTransfer).length} lançamentos reais${inv.dueDate ? ` · vence ${formatDate(inv.dueDate)}` : ""}`}
         accent={inv.status !== "paid"}
       />
+
+      {totalsDiverge && (
+        <div style={{ padding: "0 20px" }}>
+          <div
+            style={{
+              padding: "9px 13px",
+              borderRadius: 12,
+              background: "color-mix(in oklab, var(--alert) 10%, var(--card))",
+              border: "0.5px solid color-mix(in oklab, var(--alert) 40%, transparent)",
+              fontSize: 11.5,
+              color: "var(--alert)",
+              lineHeight: 1.5,
+            }}
+          >
+            Os lançamentos extraídos somam{" "}
+            <b className="ap-num">R$ {formatBRL(computedTotal)}</b> — diferença de{" "}
+            <b className="ap-num">R$ {formatBRL(Math.abs(officialTotal - computedTotal))}</b> pro
+            total cobrado pelo banco. Provavelmente alguma linha do PDF (anuidade, tarifa,
+            encargo) não foi extraída. O total acima é o OFICIAL do PDF; se quiser fechar a
+            conta, lance a linha que falta manualmente.
+          </div>
+        </div>
+      )}
 
       {/* Seção de pagamento */}
       <SectionRow icon="bag" label="Pagamento desta fatura" />

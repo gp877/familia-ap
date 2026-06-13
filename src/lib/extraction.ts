@@ -191,8 +191,11 @@ Regras críticas:
    - Extrato: "DEBITO FATURA- CARTAO VISA" → INCLUA como debit. O sistema marca como transferência interna depois — não é tua tarefa decidir.
    - Fatura: "Pagamento Recebido" (-R$ valor grande) → INCLUA como credit. Idem.
    - Fatura: "Anuidade - bonificação" (-R$ pequeno) → INCLUA como credit.
+   - Fatura: **COBRANÇA de anuidade** ("ANUIDADE", "ANUIDADE DIFERENCIADA 04/12", "Anuidade Parc. X/Y") → INCLUA como debit. CUIDADO: bancos mostram a cobrança (+) e a bonificação (-) em linhas separadas — extraia AMBAS, senão a soma não fecha com o total da fatura.
+   - Fatura: tarifas, encargos e seguros COM valor ("TARIFA", "SEGURO", "AVALIACAO EMERGENCIAL") → INCLUA como debit, mesmo sem data própria (use a data de fechamento).
    - Extrato: "ESTORNO PIX" → INCLUA como credit.
    - Tua regra é simples: se a linha tem data + descrição + valor, EXTRAIA. Quem decide se é "real" vs "neutro" é o código que roda depois.
+   - CONFERÊNCIA FINAL: débitos − créditos (sem "Pagamento Recebido") deve bater com o TOTAL DESTA FATURA. Se não bater, você esqueceu alguma linha — procure de novo, especialmente anuidades/tarifas no fim do documento.
 
 9. **documentType**:
    - Se vê linhas com "Saldo" + valores e tabela com débito/crédito separados → bank_statement
