@@ -179,10 +179,10 @@ export function InvoiceUploadClient({ cards }: { cards: CardOption[] }) {
           ) : (
             <button
               type="button"
-              onClick={() => router.push("/financeiro/faturas")}
+              onClick={() => router.push("/financeiro/documentos")}
               style={primaryButtonStyle}
             >
-              Ver faturas
+              Ver documentos
             </button>
           )}
           <button
@@ -211,12 +211,12 @@ export function InvoiceUploadClient({ cards }: { cards: CardOption[] }) {
             Antes de subir, <b>cadastra um cartão de crédito</b> em <a href="/financeiro/contas" style={{ color: "var(--accent)" }}>/financeiro/contas</a>.
           </>
         ) : (
-          <>Selecione o cartão, mande o PDF da fatura — eu extraio os lançamentos e crio o registro da fatura. <b>Extrato bancário</b> tem fluxo próprio em <a href="/financeiro/upload" style={{ color: "var(--accent)" }}>/financeiro/extratos</a>.</>
+          <>Selecione o cartão, mande o PDF da fatura — eu extraio os lançamentos e crio o registro da fatura. <b>Extrato bancário</b> tem fluxo próprio em <a href="/financeiro/upload" style={{ color: "var(--accent)" }}>/financeiro/upload</a>.</>
         )
       }
     >
       <div style={{ padding: "0 20px 8px" }}>
-        <BackButton href="/financeiro/faturas" label="Faturas" />
+        <BackButton href="/financeiro/documentos" label="Documentos" />
       </div>
 
       <SectionRow icon="file" label="Subir fatura" />

@@ -225,7 +225,7 @@ export function UploadClient({ accounts }: Props) {
       }
     >
       <div style={{ padding: "0 20px 8px" }}>
-        <BackButton href="/financeiro/extratos" label="Extratos" />
+        <BackButton href="/financeiro/documentos" label="Documentos" />
       </div>
 
       <SectionRow icon="file" label="Subir extrato" />

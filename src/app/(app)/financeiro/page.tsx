@@ -171,8 +171,7 @@ export default async function FinanceiroPage() {
       <div style={{ padding: "0 20px", display: "grid", gap: 8, gridTemplateColumns: "1fr 1fr" }}>
         <Shortcut href="/financeiro/upload" icon="file" label="Subir extrato" sub="PDF do banco" accent />
         <Shortcut href="/financeiro/faturas/upload" icon="file" label="Subir fatura" sub="PDF do cartão" accent />
-        <Shortcut href="/financeiro/extratos" icon="bank" label="Extratos" sub="controle mês a mês" />
-        <Shortcut href="/financeiro/faturas" icon="bank" label="Faturas" sub="cartões de crédito" />
+        <Shortcut href="/financeiro/documentos" icon="bank" label="Documentos" sub="extratos & faturas por mês" />
         <Shortcut href="/financeiro/transacoes" icon="bag" label="Transações" sub="ver e classificar" />
         <Shortcut href="/financeiro/recorrentes" icon="bag" label="Recorrentes" sub="mensais e anuais" />
         <Shortcut href="/financeiro/dre" icon="chart" label="DRE" sub="receitas e despesas" />

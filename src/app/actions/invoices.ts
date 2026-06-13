@@ -30,7 +30,7 @@ export async function createInvoice(formData: FormData) {
     notes: ((formData.get("notes") as string) || "").trim() || null,
   });
 
-  revalidatePath("/financeiro/faturas");
+  revalidatePath("/financeiro/documentos");
 }
 
 export async function deleteInvoice(id: string) {
@@ -38,7 +38,7 @@ export async function deleteInvoice(id: string) {
   const inv = await db.query.invoices.findFirst({ where: eq(invoices.id, id) });
   if (!inv || inv.householdId !== householdId) throw new Error("Fatura não encontrada");
   await db.delete(invoices).where(eq(invoices.id, id));
-  revalidatePath("/financeiro/faturas");
+  revalidatePath("/financeiro/documentos");
 }
 
 /**
@@ -77,7 +77,7 @@ export async function linkInvoicePayment(formData: FormData) {
   }
 
   revalidatePath(`/financeiro/faturas/${invoiceId}`);
-  revalidatePath("/financeiro/faturas");
+  revalidatePath("/financeiro/documentos");
 }
 
 export async function unlinkInvoicePayment(invoiceId: string) {

@@ -239,7 +239,7 @@ export default async function FaturaDetailPage({
       }
     >
       <div style={{ padding: "0 20px 8px" }}>
-        <BackButton href="/financeiro/faturas" label="Faturas" />
+        <BackButton href="/financeiro/documentos" label="Documentos" />
       </div>
 
       <SectionRow

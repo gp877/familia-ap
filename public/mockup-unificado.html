@@ -1,0 +1,561 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MOCKUP · Extratos & Faturas unificados</title>
+<style>
+  :root {
+    --bg: #0A0A0A;
+    --card: #1C1C1C;
+    --card2: #262626;
+    --ink: #FAFAFA;
+    --ink-d: #E8E8E8;
+    --muted: #7A7A7A;
+    --muted-d: #9C9C9C;
+    --line: #262626;
+    --line-d: #333333;
+    --accent: #B8FF5C;
+    --accent-on: #0A0A0A;
+    --alert: #FF7A35;
+    --ok: #7BD86F;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, "Segoe UI", Roboto, Inter, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding-bottom: 80px;
+  }
+  .num { font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+  a { color: inherit; text-decoration: none; }
+  .wrap { max-width: 1060px; margin: 0 auto; padding: 0 20px; }
+
+  /* ── banner de mockup ─────────────────────────── */
+  .mocknote {
+    background: repeating-linear-gradient(-45deg, #B8FF5C22, #B8FF5C22 10px, transparent 10px, transparent 20px);
+    border-bottom: 1px solid var(--line-d);
+    text-align: center;
+    padding: 8px 16px;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  /* ── header ───────────────────────────────────── */
+  .backchip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 18px 0 14px;
+    padding: 7px 14px;
+    border-radius: 999px;
+    background: var(--card);
+    border: 0.5px solid var(--line-d);
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--ink-d);
+  }
+  h1 {
+    font-size: 15px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--ink-d);
+  }
+  h1 .cnt { margin-left: auto; font-size: 11px; color: var(--muted); font-weight: 600; }
+
+  /* ── seletor de ano ───────────────────────────── */
+  .yearbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 16px 0 6px;
+  }
+  .yearbar button {
+    background: var(--card);
+    border: 0.5px solid var(--line-d);
+    color: var(--muted-d);
+    width: 34px; height: 34px;
+    border-radius: 999px;
+    font-size: 15px;
+    cursor: pointer;
+  }
+  .yearbar .year {
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    padding: 0 6px;
+  }
+  .yearbar .progress {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--muted-d);
+  }
+  .yearbar .progress b { color: var(--ok); }
+
+  /* ── heatmap de meses (visão geral do ano) ────── */
+  .heat {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 6px;
+    margin: 12px 0 4px;
+  }
+  .heat a {
+    text-align: center;
+    padding: 8px 2px 7px;
+    border-radius: 10px;
+    border: 0.5px solid var(--line-d);
+    background: var(--card);
+    transition: transform .1s;
+  }
+  .heat a:hover { transform: translateY(-2px); }
+  .heat .m { display:block; font-size: 10px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .heat .dot { display: block; width: 8px; height: 8px; border-radius: 4px; margin: 5px auto 0; background: var(--line-d); }
+  .heat a.full   { border-color: color-mix(in oklab, var(--ok) 45%, var(--line-d)); }
+  .heat a.full .dot { background: var(--ok); }
+  .heat a.partial { border-color: color-mix(in oklab, var(--alert) 55%, var(--line-d)); }
+  .heat a.partial .dot { background: var(--alert); }
+  .heat a.current { border-color: var(--accent); }
+  .heat a.current .m { color: var(--accent); }
+  .heat a.current .dot { background: var(--accent); animation: pulse 1.6s infinite; }
+  .heat a.future { opacity: 0.38; }
+  @keyframes pulse { 50% { opacity: 0.35; } }
+
+  /* ── botões de upload ─────────────────────────── */
+  .uploads {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin: 14px 0 8px;
+  }
+  .uploads a {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 13px 16px;
+    border-radius: 14px;
+    font-size: 13.5px;
+    font-weight: 700;
+  }
+  .uploads .primary { background: var(--accent); color: var(--accent-on); }
+  .uploads .secondary { background: var(--card); border: 0.5px solid var(--line-d); color: var(--ink-d); }
+  .uploads span.arrow { font-size: 17px; font-weight: 800; }
+
+  /* ── bloco de mês ─────────────────────────────── */
+  .month {
+    margin-top: 18px;
+    border: 0.5px solid var(--line-d);
+    border-radius: 18px;
+    background: color-mix(in oklab, var(--card) 55%, var(--bg));
+    overflow: hidden;
+  }
+  .month.future { opacity: 0.45; }
+  .mhead {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    border-bottom: 0.5px solid var(--line);
+  }
+  .mhead .name {
+    font-size: 13.5px;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .mhead .chip {
+    margin-left: auto;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    border-radius: 999px;
+  }
+  .chip.ok    { background: color-mix(in oklab, var(--ok) 16%, transparent); color: var(--ok); border: 0.5px solid color-mix(in oklab, var(--ok) 40%, transparent); }
+  .chip.warn  { background: color-mix(in oklab, var(--alert) 14%, transparent); color: var(--alert); border: 0.5px solid color-mix(in oklab, var(--alert) 45%, transparent); }
+  .chip.run   { background: color-mix(in oklab, var(--accent) 14%, transparent); color: var(--accent); border: 0.5px solid color-mix(in oklab, var(--accent) 40%, transparent); }
+  .chip.dim   { background: transparent; color: var(--muted); border: 0.5px solid var(--line-d); }
+
+  .cols {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  .col { padding: 12px 14px 14px; }
+  .col + .col { border-left: 0.5px solid var(--line); }
+  .collabel {
+    font-size: 9.5px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  /* ── mini-cards ───────────────────────────────── */
+  .doc {
+    display: block;
+    background: var(--card);
+    border: 0.5px solid var(--line-d);
+    border-radius: 13px;
+    padding: 11px 13px;
+    transition: border-color .12s, transform .1s;
+  }
+  .doc:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .doc + .doc { margin-top: 8px; }
+  .doc .row1 { display: flex; align-items: baseline; gap: 8px; }
+  .doc .acc { font-size: 13px; font-weight: 700; }
+  .doc .last4 { font-size: 10px; color: var(--muted); }
+  .doc .status { margin-left: auto; font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; }
+  .doc .status.ok { color: var(--ok); }
+  .doc .status.open { color: var(--alert); }
+  .doc .meta { font-size: 10.5px; color: var(--muted); margin-top: 4px; }
+  .doc .vals { display: flex; gap: 12px; margin-top: 7px; align-items: baseline; }
+  .doc .vals .neg { color: var(--alert); font-size: 13px; font-weight: 700; }
+  .doc .vals .pos { color: var(--ok); font-size: 13px; font-weight: 700; }
+  .doc .vals .tot { font-size: 15px; font-weight: 800; }
+  .doc .actions {
+    display: flex; gap: 6px; margin-top: 9px; padding-top: 8px;
+    border-top: 0.5px solid var(--line);
+  }
+  .doc .actions span {
+    font-size: 10px; font-weight: 700; color: var(--muted-d);
+    padding: 3px 9px; border-radius: 999px; border: 0.5px solid var(--line-d);
+  }
+  .doc .actions span.danger { color: var(--alert); border-color: color-mix(in oklab, var(--alert) 40%, transparent); }
+  .doc .actions span.go { margin-left: auto; color: var(--accent); border: none; }
+
+  /* slot vazio */
+  .empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    min-height: 86px;
+    border: 1px dashed var(--line-d);
+    border-radius: 13px;
+    color: var(--muted);
+    font-size: 11.5px;
+  }
+  .empty.alert { border-color: color-mix(in oklab, var(--alert) 50%, transparent); }
+  .empty .cta {
+    font-size: 11px; font-weight: 800;
+    color: var(--alert);
+    padding: 5px 13px; border-radius: 999px;
+    border: 1px solid color-mix(in oklab, var(--alert) 55%, transparent);
+    background: color-mix(in oklab, var(--alert) 10%, transparent);
+  }
+  .empty.calm .cta { color: var(--muted-d); border-color: var(--line-d); background: transparent; font-weight: 700; }
+  .empty .hint { font-size: 10px; color: var(--muted); }
+
+  .future-note {
+    padding: 14px 16px;
+    font-size: 11.5px;
+    color: var(--muted);
+    text-align: center;
+  }
+
+  footer {
+    margin-top: 36px;
+    padding: 16px 20px;
+    border-top: 0.5px solid var(--line);
+    font-size: 11.5px;
+    color: var(--muted-d);
+    line-height: 1.7;
+  }
+  footer b { color: var(--accent); }
+
+  @media (max-width: 700px) {
+    .cols { grid-template-columns: 1fr; }
+    .col + .col { border-left: none; border-top: 0.5px solid var(--line); }
+    .heat { grid-template-columns: repeat(6, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+<div class="mocknote">mockup · dados ilustrativos · aprovação de layout</div>
+
+<div class="wrap">
+
+  <div class="backchip">‹ Financeiro</div>
+
+  <h1>🏦 Documentos do mês — extratos &amp; faturas <span class="cnt">11 documentos em 2026</span></h1>
+
+  <!-- Seletor de ano -->
+  <div class="yearbar">
+    <button>‹</button>
+    <span class="year num">2026</span>
+    <button>›</button>
+    <span class="progress"><b>5 de 6</b> meses completos até junho</span>
+  </div>
+
+  <!-- Heatmap do ano: 1 célula por mês -->
+  <div class="heat">
+    <a href="#m1" class="full"><span class="m">jan</span><span class="dot"></span></a>
+    <a href="#m2" class="full"><span class="m">fev</span><span class="dot"></span></a>
+    <a href="#m3" class="partial"><span class="m">mar</span><span class="dot"></span></a>
+    <a href="#m4" class="full"><span class="m">abr</span><span class="dot"></span></a>
+    <a href="#m5" class="full"><span class="m">mai</span><span class="dot"></span></a>
+    <a href="#m6" class="current"><span class="m">jun</span><span class="dot"></span></a>
+    <a class="future"><span class="m">jul</span><span class="dot"></span></a>
+    <a class="future"><span class="m">ago</span><span class="dot"></span></a>
+    <a class="future"><span class="m">set</span><span class="dot"></span></a>
+    <a class="future"><span class="m">out</span><span class="dot"></span></a>
+    <a class="future"><span class="m">nov</span><span class="dot"></span></a>
+    <a class="future"><span class="m">dez</span><span class="dot"></span></a>
+  </div>
+
+  <!-- Uploads -->
+  <div class="uploads">
+    <a class="primary" href="#"><span>Subir extrato</span><span class="arrow">↗</span></a>
+    <a class="primary" href="#"><span>Subir fatura</span><span class="arrow">↗</span></a>
+  </div>
+
+  <!-- ════════ JUNHO (mês atual) ════════ -->
+  <div class="month" id="m6">
+    <div class="mhead">
+      <span class="name">Junho</span>
+      <span style="font-size:10px;color:var(--accent);font-weight:700">· mês atual</span>
+      <span class="chip run">em andamento</span>
+    </div>
+    <div class="cols">
+      <div class="col">
+        <div class="collabel">🏦 Extrato</div>
+        <div class="empty calm">
+          <span class="hint">o extrato fecha no fim do mês</span>
+          <span class="cta">subir mesmo assim ↗</span>
+        </div>
+      </div>
+      <div class="col">
+        <div class="collabel">💳 Faturas</div>
+        <div class="empty calm">
+          <span class="hint">a fatura de junho fecha ~dia 30</span>
+          <span class="cta">subir mesmo assim ↗</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════ MAIO ════════ -->
+  <div class="month" id="m5">
+    <div class="mhead">
+      <span class="name">Maio</span>
+      <span class="chip ok">✓ completo</span>
+    </div>
+    <div class="cols">
+      <div class="col">
+        <div class="collabel">🏦 Extrato</div>
+        <a class="doc" href="#">
+          <div class="row1">
+            <span class="acc">UNICRED · CC</span>
+            <span class="status ok">processado</span>
+          </div>
+          <div class="meta">33 lançamentos · 04 mai → 11 jun</div>
+          <div class="vals num">
+            <span class="neg">−R$ 71.147,16</span>
+            <span class="pos">+R$ 85.300,00</span>
+          </div>
+          <div class="actions"><span>📄 ver pdf</span><span class="danger">excluir</span><span class="go">abrir →</span></div>
+        </a>
+      </div>
+      <div class="col">
+        <div class="collabel">💳 Faturas</div>
+        <a class="doc" href="#">
+          <div class="row1">
+            <span class="acc">UNICRED Visa Gold</span>
+            <span class="last4">····8204</span>
+            <span class="status open">em aberto</span>
+          </div>
+          <div class="meta">79 lançamentos · vence 11 jun · paga via UNICRED CC</div>
+          <div class="vals num"><span class="tot">R$ 7.588,15</span></div>
+          <div class="actions"><span>📄 ver pdf</span><span class="danger">excluir</span><span class="go">abrir →</span></div>
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════ ABRIL ════════ -->
+  <div class="month" id="m4">
+    <div class="mhead">
+      <span class="name">Abril</span>
+      <span class="chip ok">✓ completo</span>
+    </div>
+    <div class="cols">
+      <div class="col">
+        <div class="collabel">🏦 Extrato</div>
+        <a class="doc" href="#">
+          <div class="row1">
+            <span class="acc">UNICRED · CC</span>
+            <span class="status ok">processado</span>
+          </div>
+          <div class="meta">22 lançamentos · 01 abr → 28 abr</div>
+          <div class="vals num">
+            <span class="neg">−R$ 40.025,16</span>
+            <span class="pos">+R$ 46.879,40</span>
+          </div>
+          <div class="actions"><span>📄 ver pdf</span><span class="danger">excluir</span><span class="go">abrir →</span></div>
+        </a>
+      </div>
+      <div class="col">
+        <div class="collabel">💳 Faturas</div>
+        <a class="doc" href="#">
+          <div class="row1">
+            <span class="acc">UNICRED Visa Gold</span>
+            <span class="last4">····8204</span>
+            <span class="status ok">✓ paga</span>
+          </div>
+          <div class="meta">48 lançamentos · venceu 11 mai</div>
+          <div class="vals num"><span class="tot">R$ 5.025,14</span></div>
+          <div class="actions"><span>📄 ver pdf</span><span class="danger">excluir</span><span class="go">abrir →</span></div>
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════ MARÇO (incompleto — demonstração) ════════ -->
+  <div class="month" id="m3">
+    <div class="mhead">
+      <span class="name">Março</span>
+      <span class="chip warn">⚠ falta fatura</span>
+    </div>
+    <div class="cols">
+      <div class="col">
+        <div class="collabel">🏦 Extrato</div>
+        <a class="doc" href="#">
+          <div class="row1">
+            <span class="acc">UNICRED · CC</span>
+            <span class="status ok">processado</span>
+          </div>
+          <div class="meta">29 lançamentos · 03 mar → 31 mar</div>
+          <div class="vals num">
+            <span class="neg">−R$ 55.529,76</span>
+            <span class="pos">+R$ 15.201,90</span>
+          </div>
+          <div class="actions"><span>📄 ver pdf</span><span class="danger">excluir</span><span class="go">abrir →</span></div>
+        </a>
+      </div>
+      <div class="col">
+        <div class="collabel">💳 Faturas</div>
+        <div class="empty alert">
+          <span class="hint">nenhuma fatura de março lançada</span>
+          <span class="cta">subir fatura ↗</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════ FEVEREIRO (2 cartões — demonstração) ════════ -->
+  <div class="month" id="m2">
+    <div class="mhead">
+      <span class="name">Fevereiro</span>
+      <span class="chip ok">✓ completo</span>
+    </div>
+    <div class="cols">
+      <div class="col">
+        <div class="collabel">🏦 Extrato</div>
+        <a class="doc" href="#">
+          <div class="row1">
+            <span class="acc">UNICRED · CC</span>
+            <span class="status ok">processado</span>
+          </div>
+          <div class="meta">26 lançamentos · 02 fev → 27 fev</div>
+          <div class="vals num">
+            <span class="neg">−R$ 38.412,90</span>
+            <span class="pos">+R$ 42.118,00</span>
+          </div>
+          <div class="actions"><span>📄 ver pdf</span><span class="danger">excluir</span><span class="go">abrir →</span></div>
+        </a>
+      </div>
+      <div class="col">
+        <div class="collabel">💳 Faturas <span style="color:var(--accent)">· 2 cartões</span></div>
+        <a class="doc" href="#">
+          <div class="row1">
+            <span class="acc">UNICRED Visa Gold</span>
+            <span class="last4">····8204</span>
+            <span class="status ok">✓ paga</span>
+          </div>
+          <div class="meta">65 lançamentos · venceu 11 mar</div>
+          <div class="vals num"><span class="tot">R$ 11.737,22</span></div>
+          <div class="actions"><span>📄 ver pdf</span><span class="danger">excluir</span><span class="go">abrir →</span></div>
+        </a>
+        <a class="doc" href="#">
+          <div class="row1">
+            <span class="acc">Master Black</span>
+            <span class="last4">····4412</span>
+            <span class="status ok">✓ paga</span>
+          </div>
+          <div class="meta">18 lançamentos · venceu 09 mar</div>
+          <div class="vals num"><span class="tot">R$ 2.214,80</span></div>
+          <div class="actions"><span>📄 ver pdf</span><span class="danger">excluir</span><span class="go">abrir →</span></div>
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════ JANEIRO ════════ -->
+  <div class="month" id="m1">
+    <div class="mhead">
+      <span class="name">Janeiro</span>
+      <span class="chip ok">✓ completo</span>
+    </div>
+    <div class="cols">
+      <div class="col">
+        <div class="collabel">🏦 Extrato</div>
+        <a class="doc" href="#">
+          <div class="row1">
+            <span class="acc">UNICRED · CC</span>
+            <span class="status ok">processado</span>
+          </div>
+          <div class="meta">31 lançamentos · 02 jan → 30 jan</div>
+          <div class="vals num">
+            <span class="neg">−R$ 44.902,33</span>
+            <span class="pos">+R$ 51.207,75</span>
+          </div>
+          <div class="actions"><span>📄 ver pdf</span><span class="danger">excluir</span><span class="go">abrir →</span></div>
+        </a>
+      </div>
+      <div class="col">
+        <div class="collabel">💳 Faturas</div>
+        <a class="doc" href="#">
+          <div class="row1">
+            <span class="acc">UNICRED Visa Gold</span>
+            <span class="last4">····8204</span>
+            <span class="status ok">✓ paga</span>
+          </div>
+          <div class="meta">51 lançamentos · venceu 11 fev</div>
+          <div class="vals num"><span class="tot">R$ 6.201,85</span></div>
+          <div class="actions"><span>📄 ver pdf</span><span class="danger">excluir</span><span class="go">abrir →</span></div>
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════ MESES FUTUROS (colapsados) ════════ -->
+  <div class="month future">
+    <div class="future-note">julho · agosto · setembro · outubro · novembro · dezembro — meses futuros aparecem aqui conforme chegam</div>
+  </div>
+
+  <footer>
+    <b>Decisões deste layout</b> (tudo discutível):<br>
+    1 · <b>Heatmap do ano</b> no topo — 12 células fixas, uma por mês. Verde = completo, laranja = falta algo, verde-limão pulsando = mês atual, apagado = futuro. Clique rola até o mês.<br>
+    2 · <b>Ordem dos meses: mais recente primeiro</b> (junho no topo). O uso mais comum é mexer no mês corrente — fica a 1 scroll de distância. Dá pra inverter pra ordem de calendário se preferir.<br>
+    3 · <b>Coluna Faturas empilha</b> N cartões no mesmo mês (exemplo em fevereiro).<br>
+    4 · <b>Mês atual não alarma</b> — "em andamento" em vez de aviso laranja, porque os documentos só fecham na virada. Laranja fica reservado pra mês PASSADO com documento faltando (exemplo em março).<br>
+    5 · <b>Meses futuros colapsados</b> numa linha só — não poluem.<br>
+    6 · No celular as duas colunas empilham (Extrato em cima, Faturas embaixo).<br>
+    7 · As telas antigas <code>/extratos</code> e <code>/faturas</code> seriam substituídas por essa única tela (e os links do menu Financeiro apontariam pra cá).
+  </footer>
+
+</div>
+</body>
+</html>

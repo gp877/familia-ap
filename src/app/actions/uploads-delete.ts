@@ -58,7 +58,7 @@ export async function deleteStatementUpload(uploadId: string) {
   // 3) Apaga o upload
   await db.delete(uploads).where(eq(uploads.id, uploadId));
 
-  revalidatePath("/financeiro/extratos");
+  revalidatePath("/financeiro/documentos");
   revalidatePath("/financeiro/transacoes");
 
   return { removedTransactions: removed.length };
@@ -107,7 +107,7 @@ export async function deleteInvoiceCascade(invoiceId: string) {
   // 3) Apaga a fatura
   await db.delete(invoices).where(eq(invoices.id, invoiceId));
 
-  revalidatePath("/financeiro/faturas");
+  revalidatePath("/financeiro/documentos");
   revalidatePath("/financeiro/transacoes");
 
   return { removedTransactions: removed.length, removedUploads: linkedUploads.length };
