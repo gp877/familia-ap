@@ -22,6 +22,11 @@ export type ExtractionResult = {
   referenceMonth: string | null; // YYYY-MM
   // Total escrito no PDF (ex: "TOTAL DESTA FATURA: R$ 4.231,56"). Null se não achou.
   documentTotal: string | null;
+  // Saldos do EXTRATO como escritos no PDF (saldo anterior/inicial e saldo
+  // final). Null pra faturas ou quando o PDF não mostra. Decimal com ponto;
+  // negativo permitido (conta no vermelho).
+  openingBalance: string | null;
+  closingBalance: string | null;
   // Páginas que a IA acha que processou (pra detectar truncamento)
   pagesReported: number | null;
   // Avisos sobre o documento (linhas ilegíveis, suspeita de corte, etc)
@@ -35,6 +40,8 @@ const SCHEMA = {
     "documentType",
     "bankSlug",
     "documentTotal",
+    "openingBalance",
+    "closingBalance",
     "pagesReported",
     "warnings",
     "transactions",
@@ -72,6 +79,18 @@ const SCHEMA = {
       nullable: true,
       description:
         "Valor total ESCRITO NO PDF. Para fatura: 'TOTAL DESTA FATURA' ou equivalente. Para extrato: null (extrato não tem total único). Formato decimal com ponto, ex: '4231.56'. Null se não encontrar.",
+    },
+    openingBalance: {
+      type: Type.STRING,
+      nullable: true,
+      description:
+        "SÓ para extrato bancário: o SALDO ANTERIOR/INICIAL escrito no PDF (antes da primeira transação). Decimal com ponto, negativo permitido (ex: '-1234.56'). Null para fatura ou se não encontrar.",
+    },
+    closingBalance: {
+      type: Type.STRING,
+      nullable: true,
+      description:
+        "SÓ para extrato bancário: o SALDO FINAL escrito no PDF (depois da última transação — coluna 'Saldo' da última linha, ou linha 'SALDO FINAL/ATUAL'). Decimal com ponto, negativo permitido. Null para fatura ou se não encontrar.",
     },
     pagesReported: {
       type: Type.INTEGER,
@@ -185,6 +204,13 @@ Regras críticas:
     - Fatura: linhas como "TOTAL DESTA FATURA", "VALOR TOTAL", "TOTAL A PAGAR" — pegue esse valor.
     - Extrato: extrato não tem "total" único (tem saldo). Retorne null.
     - Formato decimal com ponto. Sem este campo, perdemos a chance de cross-check.
+
+11.b. **openingBalance / closingBalance** (SÓ extrato bancário):
+    - openingBalance: o "SALDO ANTERIOR" / "SALDO INICIAL" escrito no PDF, antes da primeira transação. Se o extrato só tem coluna "Saldo" por linha, use o saldo mostrado ANTES da primeira movimentação.
+    - closingBalance: o "SALDO FINAL" / "SALDO ATUAL" escrito no PDF, ou o valor da coluna "Saldo" na ÚLTIMA linha de movimentação.
+    - Decimal com ponto, NEGATIVO permitido se a conta estiver no vermelho (ex: "-532.10").
+    - Você NÃO deve extrair linhas de saldo como transações (regra 8) — mas DEVE reportar os valores nesses dois campos.
+    - Fatura de cartão: ambos null.
 
 12. **pagesReported**: Conte quantas páginas você efetivamente analisou. Se o PDF tem indicação "página X de Y" e Y > pages que você viu, AVISE em warnings.
 

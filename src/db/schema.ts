@@ -309,6 +309,11 @@ export const uploads = pgTable(
     documentTotal: numeric("document_total", { precision: 14, scale: 2 }),
     // Total recalculado em código (sum de débitos) — pra cross-check
     computedTotal: numeric("computed_total", { precision: 14, scale: 2 }),
+    // Saldos do EXTRATO como escritos no PDF (saldo anterior e saldo final).
+    // Null pra faturas. Permitem mostrar "saldo da conta no fim do mês" e
+    // cross-check: opening + créditos − débitos ≈ closing.
+    openingBalance: numeric("opening_balance", { precision: 14, scale: 2 }),
+    closingBalance: numeric("closing_balance", { precision: 14, scale: 2 }),
     // Avisos da IA (ex: ["páginas pareciam cortadas", "linha com data ilegível"])
     extractionWarnings: jsonb("extraction_warnings"),
     // Páginas que a IA diz ter processado, pra detectar truncamento silencioso

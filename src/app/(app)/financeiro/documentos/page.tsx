@@ -599,13 +599,21 @@ function MonthBlock({
                       ? ` · ${formatDayMonth(e.minDate)} → ${formatDayMonth(e.maxDate)}`
                       : ""}
                   </div>
-                  <div className="ap-num" style={{ display: "flex", gap: 12, marginTop: 7, alignItems: "baseline" }}>
+                  <div className="ap-num" style={{ display: "flex", gap: 12, marginTop: 7, alignItems: "baseline", flexWrap: "wrap" }}>
                     <span style={{ color: "var(--alert)", fontSize: 13, fontWeight: 700 }}>
                       −R$ {formatBRL(e.debit)}
                     </span>
                     <span style={{ color: "var(--ok)", fontSize: 13, fontWeight: 700 }}>
                       +R$ {formatBRL(e.credit)}
                     </span>
+                    {e.upload.closingBalance && (
+                      <span
+                        style={{ fontSize: 11, color: "var(--muted-d)", fontWeight: 700 }}
+                        title="Saldo final como escrito no PDF do extrato"
+                      >
+                        saldo final R$ {formatBRL(parseFloat(e.upload.closingBalance))}
+                      </span>
+                    )}
                   </div>
                   <StatementActions
                     uploadId={e.upload.id}

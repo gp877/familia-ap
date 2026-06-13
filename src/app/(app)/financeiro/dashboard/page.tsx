@@ -1,4 +1,4 @@
-import { and, eq, gte, lte, ne, sql } from "drizzle-orm";
+import { and, eq, gte, isNotNull, lte, ne, sql } from "drizzle-orm";
 import Link from "next/link";
 
 import { Card, SectionRow } from "@/components/ap/atoms";
@@ -6,7 +6,7 @@ import { BackButton } from "@/components/ap/inline-form";
 import { ScreenShell } from "@/components/ap/screen-shell";
 import { auth } from "@/auth";
 import { db } from "@/db";
-import { categories, invoices, transactions, users } from "@/db/schema";
+import { categories, invoices, transactions, uploads, users } from "@/db/schema";
 
 function formatBRL(n: number) {
   return n.toLocaleString("pt-BR", {
@@ -102,6 +102,23 @@ export default async function DashboardPage({
       .groupBy(invoices.referenceMonth),
   ]);
 
+  // Saldo final em conta (extraído do PDF do extrato). refMonth do upload =
+  // mês da primeira movimentação dele (mesma convenção de /documentos).
+  // Soma os saldos quando há mais de uma conta no mesmo mês.
+  const balanceRows = await db
+    .select({
+      closing: uploads.closingBalance,
+      refMonth: sql<string | null>`(select to_char(min(t.occurred_on), 'YYYY-MM') from transaction t where t.upload_id = ${uploads.id})`,
+    })
+    .from(uploads)
+    .where(
+      and(
+        eq(uploads.householdId, hh),
+        eq(uploads.sourceType, "bank_statement"),
+        isNotNull(uploads.closingBalance)
+      )
+    );
+
   // ── Série mensal ────────────────────────────────────────────────
   const byMonth = new Map(monthlyRows.map((r) => [r.month, r]));
   const months = Array.from({ length: 12 }, (_, i) => {
@@ -172,6 +189,16 @@ export default async function DashboardPage({
     fatura: invoiceByMonth.get(m.ym) ?? 0,
   }));
   const hasInvoices = invoiceSeries.some((m) => m.fatura > 0);
+
+  // Saldo por mês do ano selecionado (soma das contas)
+  const balanceByMonth = new Map<string, number>();
+  for (const r of balanceRows) {
+    if (!r.refMonth || !r.refMonth.startsWith(`${year}-`) || !r.closing) continue;
+    balanceByMonth.set(r.refMonth, (balanceByMonth.get(r.refMonth) ?? 0) + parseFloat(r.closing));
+  }
+  const balanceSeries = months
+    .filter((m) => balanceByMonth.has(m.ym))
+    .map((m) => ({ i: m.i, value: balanceByMonth.get(m.ym)! }));
 
   // KPIs
   const resultado = totalReceitas - totalDespesas;
@@ -318,6 +345,22 @@ export default async function DashboardPage({
           )}
         </Card>
       </div>
+
+      {/* Saldo em conta no fim do mês — extraído do PDF do extrato */}
+      {balanceSeries.length > 0 && (
+        <>
+          <SectionRow icon="bank" label="Saldo em conta ao fim de cada extrato" />
+          <div style={{ padding: "0 20px" }}>
+            <Card pad={16}>
+              <BalanceLine months={balanceSeries} />
+              <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 8 }}>
+                Saldo final escrito no PDF de cada extrato (soma das contas quando há mais de
+                uma). Extratos antigos não têm o dado — aparece a partir dos uploads novos.
+              </div>
+            </Card>
+          </div>
+        </>
+      )}
 
       {/* Fatura do cartão por mês */}
       {hasInvoices && (
@@ -522,6 +565,66 @@ function CumulativeLine({
           fill={d.i <= lastIdx ? "var(--muted-d)" : "var(--line-d)"}
         >
           {MONTH_SHORT[d.i]}
+        </text>
+      ))}
+    </svg>
+  );
+}
+
+/** Linha do saldo em conta — pontos esparsos (só meses com extrato salvo),
+ * suporta saldo negativo (zero-line tracejada). */
+function BalanceLine({ months }: { months: Array<{ i: number; value: number }> }) {
+  const W = 480;
+  const H = 150;
+  const PAD_B = 18;
+  const PAD_T = 16;
+  const chartH = H - PAD_B - PAD_T;
+  const vals = months.map((m) => m.value);
+  const maxV = Math.max(...vals, 0, 1);
+  const minV = Math.min(...vals, 0);
+  const range = maxV - minV || 1;
+  const slot = W / 12;
+  const yOf = (v: number) => PAD_T + chartH - ((v - minV) / range) * chartH;
+  const xOf = (i: number) => i * slot + slot / 2;
+  const zeroY = yOf(0);
+  const pts = months.map((m) => `${xOf(m.i)},${yOf(m.value)}`).join(" ");
+  const present = new Set(months.map((m) => m.i));
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block" }}>
+      <line x1={0} y1={zeroY} x2={W} y2={zeroY} stroke="var(--line-d)" strokeWidth={0.5} strokeDasharray="3 3" />
+      {months.length > 1 && (
+        <polyline points={pts} fill="none" stroke="var(--ok)" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+      )}
+      {months.map((m) => (
+        <g key={m.i}>
+          <circle cx={xOf(m.i)} cy={yOf(m.value)} r={3.5} fill={m.value >= 0 ? "var(--ok)" : "var(--alert)"}>
+            <title>{`${MONTH_SHORT[m.i]}: R$ ${formatBRL(m.value)}`}</title>
+          </circle>
+          <text
+            x={xOf(m.i)}
+            y={yOf(m.value) - 7}
+            textAnchor="middle"
+            fontSize={7.5}
+            fontWeight={700}
+            fill="var(--muted-d)"
+            className="ap-num"
+          >
+            {formatBRLCompact(m.value)}
+          </text>
+        </g>
+      ))}
+      {Array.from({ length: 12 }, (_, i) => (
+        <text
+          key={i}
+          x={xOf(i)}
+          y={H - 4}
+          textAnchor="middle"
+          fontSize={8.5}
+          fontWeight={700}
+          fill={present.has(i) ? "var(--muted-d)" : "var(--line-d)"}
+        >
+          {MONTH_SHORT[i]}
         </text>
       ))}
     </svg>

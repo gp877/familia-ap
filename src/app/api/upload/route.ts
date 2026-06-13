@@ -21,6 +21,14 @@ export const runtime = "nodejs";
 // budget interno bem mais apertado (40s) pra deixar margem pra resposta.
 export const maxDuration = 60;
 
+/** "1234.56" / "-532.10" → string numeric válida pro Drizzle, ou null. */
+function parseBalance(v: string | null | undefined): string | null {
+  if (!v) return null;
+  const n = parseFloat(v);
+  if (isNaN(n)) return null;
+  return n.toFixed(2);
+}
+
 export async function POST(req: Request) {
   // Envelope geral: TODO erro retorna JSON com { error, code, canRetry }.
   // Mesmo um catch fatal no fim — sem isso o client recebe HTML do Next
@@ -573,6 +581,8 @@ async function handlePost(req: Request) {
           extractedJson: extracted as unknown as Record<string, unknown>,
           documentTotal: docTotalNum !== null ? docTotalNum.toFixed(2) : null,
           computedTotal: computedTotalFromExtracted.toFixed(2),
+          openingBalance: parseBalance(extracted.openingBalance),
+          closingBalance: parseBalance(extracted.closingBalance),
           extractionWarnings: warnings,
           pagesReported: extracted.pagesReported ?? null,
           processedAt: new Date(),
@@ -648,6 +658,8 @@ async function handlePost(req: Request) {
         sourceType:
           extracted.documentType === "unknown" ? "other" : extracted.documentType,
         extractedJson: extracted as unknown as Record<string, unknown>,
+        openingBalance: parseBalance(extracted.openingBalance),
+        closingBalance: parseBalance(extracted.closingBalance),
         extractionWarnings: warnings,
         pagesReported: extracted.pagesReported ?? null,
         processedAt: new Date(),
