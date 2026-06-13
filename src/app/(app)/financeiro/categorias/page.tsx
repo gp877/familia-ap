@@ -198,6 +198,7 @@ export default async function CategoriasPage({
                   id: cat.id,
                   content: (
                     <CategoryCard
+                      key={cat.id}
                       cat={toCardLite(cat)}
                       subs={childrenOf(cat.id).map(toCardLite)}
                       totalCount={totalCount(cat.id)}
@@ -238,6 +239,7 @@ export default async function CategoriasPage({
                   id: cat.id,
                   content: (
                     <CategoryCard
+                      key={cat.id}
                       cat={toCardLite(cat)}
                       subs={childrenOf(cat.id).map(toCardLite)}
                       totalCount={totalCount(cat.id)}
