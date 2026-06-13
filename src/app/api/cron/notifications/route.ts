@@ -73,9 +73,11 @@ function shouldRunToday(rule: { frequency: string; lastSentAt: Date | null }, no
 }
 
 export async function GET(req: Request) {
-  // Auth — Vercel Cron manda Bearer com CRON_SECRET
+  // Auth — Vercel Cron manda Bearer com CRON_SECRET. O segredo é
+  // OBRIGATÓRIO: sem ele configurado, o endpoint recusa tudo (fail-closed).
+  // Antes era fail-open: se a env sumisse, qualquer um disparava o cron.
   const auth = req.headers.get("authorization");
-  if (process.env.CRON_SECRET && auth !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!process.env.CRON_SECRET || auth !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

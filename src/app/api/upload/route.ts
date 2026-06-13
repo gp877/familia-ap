@@ -1,13 +1,14 @@
 import { createHash } from "node:crypto";
 
 import { NextResponse, after } from "next/server";
-import { and, eq, gte, lte, sql } from "drizzle-orm";
+import { put } from "@vercel/blob";
+import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
 
 import { auth } from "@/auth";
 import { db } from "@/db";
-import { bankAccounts, invoices, transactions, uploads, users } from "@/db/schema";
+import { bankAccounts, categoryRules, invoices, transactions, uploads, users } from "@/db/schema";
 import { extractFromPdf } from "@/lib/extraction";
-import { applyAutoCategorization } from "@/lib/categorization";
+import { loadActiveRules, matchRules } from "@/lib/categorization";
 import { computeContentHash, computeDedupeKey } from "@/lib/dedupe";
 import {
   detectInternalTransfer,
@@ -199,6 +200,22 @@ async function handlePost(req: Request) {
     }
   }
 
+  // Persiste o PDF ORIGINAL no Vercel Blob antes de qualquer processamento.
+  // É o documento-fonte do histórico financeiro — se a extração falhar ou
+  // precisar de conferência futura, o arquivo existe. Falha de Blob não
+  // bloqueia o upload (blobUrl fica "" e o pipeline segue), mas avisa no log.
+  let blobUrl = "";
+  try {
+    const blob = await put(
+      `documentos/${dbUser.householdId}/${fileHash.slice(0, 12)}-${file.name}`,
+      buf,
+      { access: "public", contentType: "application/pdf" }
+    );
+    blobUrl = blob.url;
+  } catch (err) {
+    console.error("[upload] put no Vercel Blob falhou (segue sem arquivo):", err);
+  }
+
   // Registra upload como processing
   const [upload] = await db
     .insert(uploads)
@@ -206,7 +223,7 @@ async function handlePost(req: Request) {
       householdId: dbUser.householdId,
       uploadedById: dbUser.id,
       bankAccountId,
-      blobUrl: "",
+      blobUrl,
       filename: file.name,
       fileHash,
       contentHash,
@@ -359,6 +376,12 @@ async function handlePost(req: Request) {
       let candidateCount = 0;
       let saldoFiltered = 0;
 
+      // Regras carregadas UMA vez — antes era 1 query (+1 update) POR
+      // transação, ~200 round-trips no Neon pra um PDF de 100 linhas.
+      // Agora: 1 query antes do loop, match em memória, 1 update em batch.
+      const activeRules = await loadActiveRules(dbUser.householdId!);
+      const usedRuleIds = new Set<string>();
+
       // Filtro defensivo: o prompt do Gemini pede pra ignorar linhas de SALDO
       // e totais, mas se uma escapar (saldo anterior, saldo do dia, saldo
       // parcial, total parcial, etc.) ela vira uma "tx" e inflama os totais.
@@ -400,10 +423,14 @@ async function handlePost(req: Request) {
         // Sem categoria pra solo interno OU pra candidate (a categorização
         // espera o pair-matcher decidir; se virar interno, fica sem cat; se
         // sobrar como real, o usuário categoriza manualmente).
-        const categoryId =
-          det.kind === "none"
-            ? await applyAutoCategorization(dbUser.householdId!, t.description, t.rawDescription)
-            : null;
+        let categoryId: string | null = null;
+        if (det.kind === "none") {
+          const hit = matchRules(activeRules, t.description, t.rawDescription);
+          if (hit) {
+            categoryId = hit.categoryId;
+            usedRuleIds.add(hit.id);
+          }
+        }
 
         if (isSoloInternal) soloInternalCount++;
         if (det.kind === "pair_candidate") candidateCount++;
@@ -457,6 +484,14 @@ async function handlePost(req: Request) {
               where: sql`dedupe_key IS NOT NULL`,
             });
         }
+      }
+
+      // lastAppliedAt das regras usadas — 1 update em batch (era 1 por tx)
+      if (usedRuleIds.size > 0) {
+        await db
+          .update(categoryRules)
+          .set({ lastAppliedAt: new Date() })
+          .where(inArray(categoryRules.id, Array.from(usedRuleIds)));
       }
 
       // Pair-matcher e linker foram movidos pra after() — eles podem

@@ -154,6 +154,26 @@ export function TransactionsMultiSelect({ transactions, categoryOptions }: Props
     }
   }
 
+  // Quantas tx têm a mesma descrição (case-insensitive)? Alimenta o botão
+  // "+N iguais" — seleciona o grupo inteiro sem mexer na ordem da lista.
+  const descCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const t of transactions) {
+      const k = t.description.toLowerCase();
+      counts.set(k, (counts.get(k) ?? 0) + 1);
+    }
+    return counts;
+  }, [transactions]);
+
+  function selectSameDescription(tx: { id: string; description: string }) {
+    const k = tx.description.toLowerCase();
+    const next = new Set(selected);
+    for (const t of transactions) {
+      if (t.description.toLowerCase() === k) next.add(t.id);
+    }
+    setSelected(next);
+  }
+
   const totals = useMemo(() => {
     let debit = 0;
     let credit = 0;
@@ -420,6 +440,27 @@ export function TransactionsMultiSelect({ transactions, categoryOptions }: Props
                       {tx.rawDescription.slice(0, 96)}
                       {tx.rawDescription.length > 96 ? "…" : ""}
                     </span>
+                    {!isInternal &&
+                      (descCounts.get(tx.description.toLowerCase()) ?? 0) > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => selectSameDescription(tx)}
+                          title={`Selecionar todas as transações "${tx.description}" pra categorizar de uma vez`}
+                          style={{
+                            flexShrink: 0,
+                            background: "transparent",
+                            border: "0.5px solid color-mix(in oklab, var(--accent) 45%, transparent)",
+                            color: "var(--accent)",
+                            fontSize: 9.5,
+                            fontWeight: 700,
+                            padding: "2px 8px",
+                            borderRadius: 999,
+                            cursor: "pointer",
+                          }}
+                        >
+                          ⊕ {descCounts.get(tx.description.toLowerCase())} iguais
+                        </button>
+                      )}
                     {!isInternal && (
                       <button
                         type="button"

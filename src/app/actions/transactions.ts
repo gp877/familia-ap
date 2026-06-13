@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 
 import { auth } from "@/auth";
 import { db } from "@/db";
-import { categoryRules, transactions, users } from "@/db/schema";
+import { bankAccounts, categories, categoryRules, transactions, users } from "@/db/schema";
 import {
   manuallyMarkInternal,
   manuallyUnmarkInternal,
@@ -83,28 +83,34 @@ export async function setTransactionCategory(
     // raw com formato diferente do description). Aplica em tx do extrato E
     // de faturas — TransactionsMultiSelect é compartilhado entre as duas
     // telas, então essa action serve as duas.
-    const others = await db.query.transactions.findMany({
-      where: and(
-        eq(transactions.householdId, householdId),
-        sql`(LOWER(${transactions.description}) LIKE ${"%" + patternLower + "%"} OR LOWER(${transactions.rawDescription}) LIKE ${"%" + patternLower + "%"})`,
-        isNull(transactions.categoryId),
-        eq(transactions.isInternalTransfer, false),
-        ne(transactions.status, "ignored"),
-        ne(transactions.id, transactionId)
-      ),
-      columns: { id: true },
-    });
-    if (others.length > 0) {
-      await db
-        .update(transactions)
-        .set({ categoryId, updatedAt: new Date() })
-        .where(
-          inArray(
-            transactions.id,
-            others.map((o) => o.id)
-          )
-        );
-      appliedToOthers = others.length;
+    //
+    // Guardas: padrão < 4 chars não propaga (curto demais casa coisa errada);
+    // % e _ são escapados senão viram coringa no LIKE ("50%" casaria tudo).
+    const likeSafe = patternLower.replace(/[\\%_]/g, (c) => "\\" + c);
+    if (patternLower.length >= 4) {
+      const others = await db.query.transactions.findMany({
+        where: and(
+          eq(transactions.householdId, householdId),
+          sql`(LOWER(${transactions.description}) LIKE ${"%" + likeSafe + "%"} OR LOWER(${transactions.rawDescription}) LIKE ${"%" + likeSafe + "%"})`,
+          isNull(transactions.categoryId),
+          eq(transactions.isInternalTransfer, false),
+          ne(transactions.status, "ignored"),
+          ne(transactions.id, transactionId)
+        ),
+        columns: { id: true },
+      });
+      if (others.length > 0) {
+        await db
+          .update(transactions)
+          .set({ categoryId, updatedAt: new Date() })
+          .where(
+            inArray(
+              transactions.id,
+              others.map((o) => o.id)
+            )
+          );
+        appliedToOthers = others.length;
+      }
     }
   }
 
@@ -178,6 +184,25 @@ export async function createManualTransaction(input: {
     throw new Error("Valor inválido");
   }
 
+  // Posse: conta e categoria precisam ser DESTE household. Sem isso, um id
+  // forjado criaria tx em conta alheia ou com categoria de outro household.
+  const acc = await db.query.bankAccounts.findFirst({
+    where: and(
+      eq(bankAccounts.id, input.bankAccountId),
+      eq(bankAccounts.householdId, householdId)
+    ),
+  });
+  if (!acc) throw new Error("Conta não encontrada");
+  if (input.categoryId) {
+    const cat = await db.query.categories.findFirst({
+      where: and(
+        eq(categories.id, input.categoryId),
+        eq(categories.householdId, householdId)
+      ),
+    });
+    if (!cat) throw new Error("Categoria não encontrada");
+  }
+
   let categoryId: string | null = input.categoryId ?? null;
   if (!categoryId) {
     const { applyAutoCategorization } = await import("@/lib/categorization");
@@ -236,11 +261,14 @@ export async function setTransactionSplits(
     return;
   }
 
-  const expected = parseFloat(tx.amount);
-  const sum = splits.reduce((s, p) => s + parseFloat(p.amount), 0);
-  if (Math.abs(sum - expected) > 0.01) {
+  // Soma em CENTAVOS (inteiros) — somar floats acumula erro de arredondamento
+  // (10 × R$ 1,11 = 11.099999... e falharia na tolerância).
+  const toCents = (v: string) => Math.round(parseFloat(v) * 100);
+  const expectedCents = toCents(tx.amount);
+  const sumCents = splits.reduce((s, p) => s + toCents(p.amount), 0);
+  if (Math.abs(sumCents - expectedCents) > 1) {
     throw new Error(
-      `Soma dos splits (R$ ${sum.toFixed(2)}) não bate com o total (R$ ${expected.toFixed(2)})`
+      `Soma dos splits (R$ ${(sumCents / 100).toFixed(2)}) não bate com o total (R$ ${(expectedCents / 100).toFixed(2)})`
     );
   }
 

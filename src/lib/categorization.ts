@@ -49,32 +49,37 @@ export function extractMatchPattern(description: string): string {
   return d;
 }
 
+export type MatchableRule = {
+  id: string;
+  pattern: string;
+  matchType: "exact" | "prefix" | "contains" | "regex";
+  categoryId: string;
+};
+
 /**
- * Aplica regras de auto-categorização. Casa contra description E rawDescription
- * — bancos colocam o destinatário/info-chave em formatos diferentes nos dois
- * campos (description pode estar limpo, raw tem o texto bruto do banco).
+ * Casa UMA descrição contra uma lista de regras já carregadas. Função PURA
+ * (sem I/O) — permite ao upload carregar as regras uma vez e casar centenas
+ * de tx em memória, em vez de 1 query por transação.
  *
- * Ordem: regras mais específicas primeiro (exact > prefix > contains > regex).
+ * Ordem de prioridade:
+ *   1. matchType: exact > prefix > contains > regex
+ *   2. empate no tipo: padrão MAIS LONGO primeiro ("Mercado Livre" ganha de
+ *      "Mercado" — o mais específico decide).
  */
-export async function applyAutoCategorization(
-  householdId: string,
+export function matchRules(
+  rules: MatchableRule[],
   description: string,
   rawDescription?: string
-): Promise<string | null> {
-  const rules = await db.query.categoryRules.findMany({
-    where: and(
-      eq(categoryRules.householdId, householdId),
-      eq(categoryRules.isActive, true)
-    ),
-  });
-
+): MatchableRule | null {
   if (rules.length === 0) return null;
 
   const desc = description.toLowerCase();
   const raw = (rawDescription ?? "").toLowerCase();
   const priority = { exact: 0, prefix: 1, contains: 2, regex: 3 } as const;
   const sorted = [...rules].sort(
-    (a, b) => priority[a.matchType] - priority[b.matchType]
+    (a, b) =>
+      priority[a.matchType] - priority[b.matchType] ||
+      b.pattern.length - a.pattern.length
   );
 
   for (const rule of sorted) {
@@ -99,16 +104,41 @@ export async function applyAutoCategorization(
         }
         break;
     }
-    if (match) {
-      // Tracking: marca regra como usada. Útil pra detectar regras mortas
-      // depois (filtro "não usada há 6+ meses" na tela de regras).
-      await db
-        .update(categoryRules)
-        .set({ lastAppliedAt: new Date() })
-        .where(eq(categoryRules.id, rule.id));
-      return rule.categoryId;
-    }
+    if (match) return rule;
   }
 
   return null;
+}
+
+/** Carrega as regras ativas do household (uma query). */
+export async function loadActiveRules(householdId: string): Promise<MatchableRule[]> {
+  return db.query.categoryRules.findMany({
+    where: and(
+      eq(categoryRules.householdId, householdId),
+      eq(categoryRules.isActive, true)
+    ),
+  });
+}
+
+/**
+ * Aplica regras de auto-categorização a UMA descrição (conveniência pra
+ * fluxos de tx única, como criação manual). Pra lotes, use loadActiveRules +
+ * matchRules e atualize lastAppliedAt em batch.
+ */
+export async function applyAutoCategorization(
+  householdId: string,
+  description: string,
+  rawDescription?: string
+): Promise<string | null> {
+  const rules = await loadActiveRules(householdId);
+  const hit = matchRules(rules, description, rawDescription);
+  if (!hit) return null;
+
+  // Tracking: marca regra como usada — alimenta o filtro "não usada há
+  // 6+ meses" na tela de regras.
+  await db
+    .update(categoryRules)
+    .set({ lastAppliedAt: new Date() })
+    .where(eq(categoryRules.id, hit.id));
+  return hit.categoryId;
 }

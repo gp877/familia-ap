@@ -32,15 +32,21 @@ function progressMessage(seconds: number): string {
 }
 
 /**
- * Upload de extrato bancário (CC, poupança, investimento, outros).
- * Faturas de cartão têm fluxo próprio em /financeiro/faturas/upload —
- * essa tela rejeita cartões na lista e fixa sourceType="bank_statement".
+ * Upload UNIFICADO de documentos: extrato bancário OU fatura de cartão.
+ * O usuário não precisa saber a diferença de fluxo — escolhe a conta/cartão
+ * e o tipo é derivado dela: conta corrente/poupança → extrato; cartão de
+ * crédito → fatura. Uma tela só, um botão só.
  */
 export function UploadClient({ accounts }: Props) {
   const router = useRouter();
-  const accountsForStatement = accounts.filter((a) => isCheckingLike(a.type));
+  const checkingAccounts = accounts.filter((a) => isCheckingLike(a.type));
+  const cardAccounts = accounts.filter((a) => a.type === "credit_card");
   const [file, setFile] = useState<File | null>(null);
   const [bankAccountId, setBankAccountId] = useState<string>("");
+
+  const selectedAccount = accounts.find((a) => a.id === bankAccountId) ?? null;
+  const isCard = selectedAccount?.type === "credit_card";
+  const sourceType = isCard ? "credit_card_invoice" : "bank_statement";
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<{ message: string; canRetry: boolean } | null>(null);
   const [elapsed, setElapsed] = useState(0); // segundos
@@ -83,7 +89,7 @@ export function UploadClient({ accounts }: Props) {
     try {
       const fd = new FormData();
       fd.append("file", file);
-      fd.append("sourceType", "bank_statement");
+      fd.append("sourceType", sourceType);
       if (bankAccountId) fd.append("bankAccountId", bankAccountId);
 
       const res = await fetch("/api/upload", {
@@ -181,19 +187,36 @@ export function UploadClient({ accounts }: Props) {
         <div style={{ padding: "14px 20px 0" }}>
           <Card raised pad={16}>
             <Row label="Banco" value={result.bankSlug} />
-            <Row label="Tipo" value="Extrato bancário" />
+            <Row
+              label="Tipo"
+              value={
+                result.documentType === "credit_card_invoice"
+                  ? "Fatura de cartão"
+                  : "Extrato bancário"
+              }
+            />
             <Row label="Transações" value={String(result.extractedCount)} />
           </Card>
         </div>
 
         <div style={{ padding: "16px 20px 0", display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <button
-            type="button"
-            onClick={() => router.push("/financeiro/transacoes")}
-            style={primaryButtonStyle}
-          >
-            Ver transações
-          </button>
+          {result.invoiceId ? (
+            <button
+              type="button"
+              onClick={() => router.push(`/financeiro/faturas/${result.invoiceId}`)}
+              style={primaryButtonStyle}
+            >
+              Ver fatura
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => router.push("/financeiro/transacoes")}
+              style={primaryButtonStyle}
+            >
+              Ver transações
+            </button>
+          )}
           <button
             type="button"
             onClick={() => {
@@ -209,18 +232,18 @@ export function UploadClient({ accounts }: Props) {
     );
   }
 
-  const needsAccount = accountsForStatement.length === 0;
+  const needsAccount = accounts.length === 0;
 
   return (
     <ScreenShell
-      userQ="Quero subir um extrato"
+      userQ="Quero subir um extrato ou fatura"
       insight={
         needsAccount ? (
           <>
-            Antes de subir, <b>cadastra uma conta corrente ou poupança</b> em <a href="/financeiro/contas" style={{ color: "var(--accent)" }}>/financeiro/contas</a> — fatura de cartão é em <a href="/financeiro/faturas/upload" style={{ color: "var(--accent)" }}>/financeiro/faturas</a>.
+            Antes de subir, <b>cadastra uma conta ou cartão</b> em <a href="/financeiro/contas" style={{ color: "var(--accent)" }}>/financeiro/contas</a>.
           </>
         ) : (
-          <>Selecione a conta, mande o PDF do extrato — eu extraio e categorizo automaticamente. <b>Fatura de cartão</b> tem fluxo próprio em <a href="/financeiro/faturas/upload" style={{ color: "var(--accent)" }}>/financeiro/faturas</a>.</>
+          <>Escolha a conta ou cartão e mande o PDF — eu detecto o tipo: conta vira <b>extrato</b>, cartão vira <b>fatura</b>. Extraio e categorizo automaticamente.</>
         )
       }
     >
@@ -228,8 +251,17 @@ export function UploadClient({ accounts }: Props) {
         <BackButton href="/financeiro/documentos" label="Documentos" />
       </div>
 
-      <SectionRow icon="file" label="Subir extrato" />
-      <BigNumber value="PDF" sub="extrato bancário (CC, poupança, investimento)" />
+      <SectionRow icon="file" label="Subir documento" />
+      <BigNumber
+        value="PDF"
+        sub={
+          selectedAccount
+            ? isCard
+              ? `fatura de cartão · ${selectedAccount.name}`
+              : `extrato bancário · ${selectedAccount.name}`
+            : "extrato bancário ou fatura de cartão"
+        }
+      />
 
       <form onSubmit={handleSubmit} style={{ padding: "14px 20px 0" }}>
         <label
@@ -276,7 +308,7 @@ export function UploadClient({ accounts }: Props) {
                 Clique pra escolher um PDF
               </div>
               <div style={{ fontSize: 11, color: "var(--muted)" }}>
-                até 10 MB · extrato bancário
+                até 10 MB · extrato ou fatura
               </div>
             </>
           )}
@@ -291,7 +323,7 @@ export function UploadClient({ accounts }: Props) {
           />
         </label>
 
-        {/* Seleção de conta — só CC/poupança/investimento (cartões têm fluxo próprio) */}
+        {/* Seleção de conta/cartão — define o TIPO do documento */}
         <div style={{ marginTop: 18 }}>
           <label
             style={{
@@ -304,9 +336,9 @@ export function UploadClient({ accounts }: Props) {
               marginBottom: 6,
             }}
           >
-            Conta *
+            Conta ou cartão *
           </label>
-          {accountsForStatement.length === 0 ? (
+          {needsAccount ? (
             <div
               style={{
                 padding: "12px 14px",
@@ -316,19 +348,37 @@ export function UploadClient({ accounts }: Props) {
                 color: "var(--muted-d)",
               }}
             >
-              Nenhuma conta corrente/poupança cadastrada. Vá em{" "}
+              Nenhuma conta cadastrada. Vá em{" "}
               <a href="/financeiro/contas" style={{ color: "var(--accent)" }}>
                 /financeiro/contas
               </a>{" "}
               primeiro.
             </div>
           ) : (
-            <AccountList
-              accounts={accountsForStatement}
-              value={bankAccountId}
-              onChange={setBankAccountId}
-              disabled={submitting}
-            />
+            <>
+              {checkingAccounts.length > 0 && (
+                <>
+                  <GroupCaption text="🏦 contas — PDF entra como extrato" />
+                  <AccountList
+                    accounts={checkingAccounts}
+                    value={bankAccountId}
+                    onChange={setBankAccountId}
+                    disabled={submitting}
+                  />
+                </>
+              )}
+              {cardAccounts.length > 0 && (
+                <>
+                  <GroupCaption text="💳 cartões — PDF entra como fatura" />
+                  <AccountList
+                    accounts={cardAccounts}
+                    value={bankAccountId}
+                    onChange={setBankAccountId}
+                    disabled={submitting}
+                  />
+                </>
+              )}
+            </>
           )}
         </div>
 
@@ -446,9 +496,23 @@ export function UploadClient({ accounts }: Props) {
   );
 }
 
-/**
- * Lista de contas (sem cartões — esses têm fluxo próprio em /financeiro/faturas/upload).
- */
+function GroupCaption({ text }: { text: string }) {
+  return (
+    <div
+      style={{
+        fontSize: 10,
+        fontWeight: 700,
+        letterSpacing: "0.06em",
+        color: "var(--muted)",
+        margin: "10px 0 6px",
+      }}
+    >
+      {text}
+    </div>
+  );
+}
+
+/** Lista de contas selecionáveis (botões-rádio estilizados). */
 function AccountList({
   accounts,
   value,

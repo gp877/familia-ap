@@ -334,21 +334,10 @@ export default async function DocumentosPage({
         })}
       </div>
 
-      {/* ── Uploads ──────────────────────────────────────────────── */}
-      <div
-        style={{
-          padding: "14px 20px 0",
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: 10,
-        }}
-      >
+      {/* ── Upload unificado: a conta escolhida define o tipo ────── */}
+      <div style={{ padding: "14px 20px 0" }}>
         <Link href="/financeiro/upload" style={uploadBtnStyle}>
-          <span>Subir extrato</span>
-          <span style={{ fontSize: 17, fontWeight: 800 }}>↗</span>
-        </Link>
-        <Link href="/financeiro/faturas/upload" style={uploadBtnStyle}>
-          <span>Subir fatura</span>
+          <span>Subir documento — extrato ou fatura</span>
           <span style={{ fontSize: 17, fontWeight: 800 }}>↗</span>
         </Link>
       </div>
@@ -408,10 +397,43 @@ export default async function DocumentosPage({
             label={`${preMonths.map((x) => monthShort(x.m)).join(" · ")} — antes do início do controle`}
           />
         )}
+
+        {/* Backup — deletes no app são permanentes; baixar o arquivo de vez
+            em quando é a rede de segurança do histórico financeiro. */}
+        <div
+          style={{
+            marginTop: 18,
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            justifyContent: "center",
+            fontSize: 11.5,
+            color: "var(--muted)",
+            flexWrap: "wrap",
+          }}
+        >
+          <span>Backup dos dados:</span>
+          <a href="/api/export" style={backupLinkStyle}>
+            ⬇ completo (JSON)
+          </a>
+          <a href="/api/export?format=csv" style={backupLinkStyle}>
+            ⬇ transações (CSV/Excel)
+          </a>
+        </div>
       </div>
     </ScreenShell>
   );
 }
+
+const backupLinkStyle: React.CSSProperties = {
+  padding: "5px 12px",
+  borderRadius: 999,
+  border: "0.5px solid var(--line-d)",
+  color: "var(--muted-d)",
+  textDecoration: "none",
+  fontWeight: 700,
+  fontSize: 11,
+};
 
 /* ════════════════════════ componentes ════════════════════════ */
 
@@ -612,7 +634,7 @@ function MonthBlock({
                   : `nenhuma fatura de ${monthName(info.ym)} lançada`
               }
               ctaLabel={info.state === "current" ? "subir mesmo assim ↗" : "subir fatura ↗"}
-              href="/financeiro/faturas/upload"
+              href="/financeiro/upload"
             />
           ) : (
             info.faturas.map((inv) => {
