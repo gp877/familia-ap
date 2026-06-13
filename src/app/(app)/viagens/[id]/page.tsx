@@ -159,13 +159,14 @@ export default async function ViagemDetail({
         accent={viagem.status !== "past"}
       />
 
-      {/* Cards de resumo de custo */}
+      {/* Cards de resumo de custo — auto-fit: 3 colunas no desktop,
+          empilha no celular em vez de espremer */}
       <div
         style={{
           padding: "14px 20px 0",
           display: "grid",
           gap: 10,
-          gridTemplateColumns: "1fr 1fr 1fr",
+          gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
         }}
       >
         <Card pad={12}>

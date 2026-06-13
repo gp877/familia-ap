@@ -397,7 +397,7 @@ export default async function InicioPage() {
       >
         <QuickLink href="/financeiro/upload" label="Subir extrato" sub="PDF" accent />
         <QuickLink href="/compromissos" label="Compromissos" sub="agendar" />
-        <QuickLink href="/finais-de-semana" label="Fins de semana" sub="programar" />
+        <QuickLink href="/compromissos" label="Fins de semana" sub="programar" />
         <QuickLink href="/supermercado" label="Supermercado" sub="estoque" />
       </div>
     </ScreenShell>

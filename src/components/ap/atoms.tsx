@@ -279,7 +279,14 @@ export function Sparkline({
     .join(" ");
   const last = pts[pts.length - 1];
   return (
-    <svg width={w} height={h} style={{ overflow: "visible" }} aria-hidden>
+    // viewBox + width 100% (cap em w): escala pra caixas menores no celular
+    // em vez de estourar a tela — w grande (ex: 520 no gráfico de peso)
+    // virava overflow horizontal em viewport de 480px.
+    <svg
+      viewBox={`0 0 ${w} ${h}`}
+      style={{ width: "100%", maxWidth: w, height: "auto", display: "block", overflow: "visible" }}
+      aria-hidden
+    >
       {fill && (
         <path d={`${path} L ${w} ${h} L 0 ${h} Z`} fill={color} opacity="0.12" />
       )}

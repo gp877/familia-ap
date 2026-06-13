@@ -562,7 +562,9 @@ function GraficoView({
         padding: "8px 20px 0",
         display: "grid",
         gap: 10,
-        gridTemplateColumns: "1fr 1fr",
+        // auto-fit: 2 colunas no desktop, 1 no celular — gráfico de marcador
+        // espremido em ~210px ficava ilegível
+        gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
       }}
     >
       {markers.map(([key, { label, unit, entries }]) => {

@@ -237,8 +237,7 @@ export default async function PesoPage({
       </div>
 
       {/* Quick-add: peso + altura */}
-      <BigNumber value="" sub="" />
-      <div style={{ padding: "0 16px 4px" }}>
+      <div style={{ padding: "0 16px 4px", marginTop: 14 }}>
         <form
           action={createPesagem}
           style={{
