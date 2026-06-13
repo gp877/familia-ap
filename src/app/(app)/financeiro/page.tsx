@@ -173,6 +173,7 @@ export default async function FinanceiroPage() {
         <Shortcut href="/financeiro/documentos" icon="bank" label="Documentos" sub="extratos & faturas por mês" />
         <Shortcut href="/financeiro/transacoes" icon="bag" label="Transações" sub="ver e classificar" />
         <Shortcut href="/financeiro/recorrentes" icon="bag" label="Recorrentes" sub="mensais e anuais" />
+        <Shortcut href="/financeiro/dashboard" icon="chart" label="Dashboard" sub="gráficos do ano" />
         <Shortcut href="/financeiro/dre" icon="chart" label="DRE" sub="receitas e despesas" />
         <Shortcut href="/financeiro/orcamento" icon="chart" label="Orçamento" sub="planejado anual" />
         <Shortcut href="/financeiro/categorias" icon="star" label="Categorias" sub="gerenciar" />
