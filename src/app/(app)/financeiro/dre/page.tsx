@@ -382,14 +382,11 @@ export default async function DREPage({
               const pct = yearDebit > 0 ? (g.total / yearDebit) * 100 : 0;
               const overBudget = g.planned > 0 && g.total > g.planned;
               const budgetPct = g.planned > 0 ? Math.min(100, (g.total / g.planned) * 100) : 0;
-              return (
-                <div
-                  key={g.name}
-                  style={{
-                    padding: "12px 0",
-                    borderBottom: i < expenseGroups.length - 1 ? "0.5px solid var(--line-d)" : "none",
-                  }}
-                >
+              const drillHref = g.parentId
+                ? `/financeiro/categoria/${g.parentId}?year=${year}`
+                : null;
+              const rowInner = (
+                <>
                   <div
                     style={{
                       display: "flex",
@@ -409,6 +406,9 @@ export default async function DREPage({
                         }}
                       />
                       <span style={{ fontSize: 13.5, fontWeight: 600 }}>{g.name}</span>
+                      {drillHref && (
+                        <span style={{ fontSize: 11, color: "var(--muted)" }}>›</span>
+                      )}
                     </div>
                     <div style={{ textAlign: "right" }}>
                       <div
@@ -436,23 +436,42 @@ export default async function DREPage({
                       />
                     </div>
                   )}
+                </>
+              );
+              const rowStyle: React.CSSProperties = {
+                padding: "12px 0",
+                borderBottom: i < expenseGroups.length - 1 ? "0.5px solid var(--line-d)" : "none",
+                display: "block",
+                textDecoration: "none",
+                color: "inherit",
+              };
+              return drillHref ? (
+                <Link key={g.name} href={drillHref} style={rowStyle}>
+                  {rowInner}
+                </Link>
+              ) : (
+                <div key={g.name} style={rowStyle}>
+                  {rowInner}
                 </div>
               );
             })}
             {uncategorizedDebit > 0 && (
-              <div
+              <Link
+                href={`/financeiro/categoria/none?year=${year}`}
                 style={{
                   padding: "12px 0",
                   display: "flex",
                   justifyContent: "space-between",
                   alignItems: "baseline",
+                  textDecoration: "none",
+                  color: "inherit",
                 }}
               >
-                <span style={{ fontSize: 13, color: "var(--muted)" }}>Sem categoria</span>
+                <span style={{ fontSize: 13, color: "var(--muted)" }}>Sem categoria ›</span>
                 <div className="ap-num" style={{ fontSize: 13, color: "var(--muted)" }}>
                   {formatBRLInt(uncategorizedDebit)}
                 </div>
-              </div>
+              </Link>
             )}
           </div>
         </>

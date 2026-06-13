@@ -391,7 +391,7 @@ function Chip({
 // ────────────────────────────────────────────────────────────
 type SectionRowProps = {
   icon?: IconName;
-  label: string;
+  label: ReactNode;
   action?: ReactNode;
 };
 export function SectionRow({ icon, label, action }: SectionRowProps) {

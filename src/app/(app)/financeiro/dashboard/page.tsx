@@ -284,8 +284,14 @@ export default async function DashboardPage({
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-              {topCats.map((c) => (
-                <div key={c.id}>
+              {topCats.map((c) => {
+                const drillId = c.id === "_none" ? "none" : c.id;
+                return (
+                <Link
+                  key={c.id}
+                  href={`/financeiro/categoria/${drillId}?year=${year}`}
+                  style={{ display: "block", textDecoration: "none", color: "inherit" }}
+                >
                   <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 3 }}>
                     <span
                       style={{
@@ -298,7 +304,7 @@ export default async function DashboardPage({
                       }}
                     />
                     <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-d)", flex: 1 }}>
-                      {c.name}
+                      {c.name} <span style={{ color: "var(--muted)" }}>›</span>
                     </span>
                     <span className="ap-num" style={{ fontSize: 12, fontWeight: 700 }}>
                       R$ {formatBRL(c.total)}
@@ -325,8 +331,9 @@ export default async function DashboardPage({
                       }}
                     />
                   </div>
-                </div>
-              ))}
+                </Link>
+                );
+              })}
             </div>
           )}
           {catList.length > topCats.length && (

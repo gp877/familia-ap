@@ -1,4 +1,5 @@
 import { and, eq, sql } from "drizzle-orm";
+import Link from "next/link";
 
 import { BigNumber, Card, Progress, SectionRow } from "@/components/ap/atoms";
 import { DeleteBtn, FormField, InlineForm, SubmitButton, fieldStyle } from "@/components/ap/inline-form";
@@ -283,9 +284,12 @@ export default async function OrcamentoPage({
                         flexShrink: 0,
                       }}
                     />
-                    <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--ink)" }}>
-                      {cat.name}
-                    </div>
+                    <Link
+                      href={`/financeiro/categoria/${cat.id}?year=${year}`}
+                      style={{ fontSize: 13.5, fontWeight: 700, color: "var(--ink)", textDecoration: "none" }}
+                    >
+                      {cat.name} <span style={{ color: "var(--muted)", fontWeight: 400 }}>›</span>
+                    </Link>
                   </div>
                   {/* Linha editável: planejado mensal — agora num chip que GRITA "editável" */}
                   {!irregular ? (
