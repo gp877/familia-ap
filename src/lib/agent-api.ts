@@ -4,9 +4,9 @@
  * Autenticação: `Authorization: Bearer <AGENT_API_TOKEN>`, sem sessão do
  * Google. Fail-closed: sem a env configurada (ou curta demais), recusa tudo.
  *
- * Household: o app usa o modelo "casal compartilha 1 household". O token
- * enxerga só esse household. Se um dia existir mais de um, é obrigatório
- * apontar qual em AGENT_HOUSEHOLD_ID — senão a API recusa (nunca chuta).
+ * Household: o token enxerga só o household da família — o dos usuários em
+ * ALLOWED_EMAILS (o banco tem outros households). AGENT_HOUSEHOLD_ID
+ * sobrescreve. Se não der exatamente um, a API recusa (nunca chuta).
  */
 import { createHash, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
@@ -53,8 +53,20 @@ function tokenMatches(received: string, expected: string): boolean {
 async function resolveHouseholdId(): Promise<string | null> {
   const configured = process.env.AGENT_HOUSEHOLD_ID?.trim();
   if (configured) return (await householdExists(configured)) ? configured : null;
-  const rows = await db.query.households.findMany({ columns: { id: true }, limit: 2 });
-  return rows.length === 1 ? rows[0].id : null;
+  // Família = household dos e-mails autorizados a logar (ALLOWED_EMAILS).
+  // Precisa ser exatamente um; senão recusa.
+  const allowed = (process.env.ALLOWED_EMAILS ?? "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  if (!allowed.length) return null;
+  const members = await db.query.users.findMany({
+    columns: { householdId: true },
+    where: (u, { and, inArray, isNotNull, sql }) =>
+      and(inArray(sql`lower(${u.email})`, allowed), isNotNull(u.householdId)),
+  });
+  const ids = new Set(members.map((m) => m.householdId!));
+  return ids.size === 1 ? [...ids][0] : null;
 }
 
 async function householdExists(id: string): Promise<boolean> {
