@@ -1,31 +1,41 @@
 /**
- * GET /api/agent/transacoes — lançamentos de um período. Somente leitura.
+ * GET  /api/agent/transacoes — lançamentos de um período.
+ * POST /api/agent/transacoes — cria um lançamento manual (mesma regra da
+ *      tela "Nova transação"). Ver o comentário do POST abaixo.
  *
- * Parâmetros (todos opcionais):
+ * Parâmetros do GET (todos opcionais):
  *   de, ate             AAAA-MM-DD (padrão: mês atual; máx. 366 dias)
  *   tipo                receita | despesa
  *   conta, categoria    id (uuid) da conta/cartão ou da categoria
+ *   status              pendente | confirmada | ignorada
  *   incluir_internas=1  inclui transferências internas (padrão: não)
  *   incluir_ignoradas=1 inclui lançamentos ignorados (padrão: não)
  *   limite              1–2000 (padrão 500) · offset (paginação)
  */
 import { and, eq, ne, sql, type SQL } from "drizzle-orm";
+import { revalidatePath } from "next/cache";
 
 import { db } from "@/db";
 import { bankAccounts, categories, transactions } from "@/db/schema";
 import {
   ACCOUNT_TYPE_LABEL,
   AgentInputError,
+  agentJson,
   agentRoute,
+  coreCall,
   isoDate,
+  moneyValue,
   num,
   parseDateParam,
   parseMonthParam,
+  readJson,
+  UUID_RE,
+  uuidValue,
 } from "@/lib/agent-api";
+import { createManualTransactionCore } from "@/lib/transactions-core";
 
 export const runtime = "nodejs";
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_RANGE_DAYS = 366;
 
 function uuidParam(value: string | null, name: string): string | null {
@@ -67,10 +77,17 @@ export const GET = agentRoute(async ({ householdId, url }) => {
     sql`${transactions.occurredOn} < (${ate}::date + 1)`,
   ];
   if (p.get("incluir_internas") !== "1") filters.push(eq(transactions.isInternalTransfer, false));
-  if (p.get("incluir_ignoradas") !== "1") filters.push(ne(transactions.status, "ignored"));
+  if (p.get("incluir_ignoradas") !== "1" && p.get("status") !== "ignorada") filters.push(ne(transactions.status, "ignored"));
   if (tipo) filters.push(eq(transactions.kind, tipo === "receita" ? "credit" : "debit"));
   if (conta) filters.push(eq(transactions.bankAccountId, conta));
   if (categoria) filters.push(eq(transactions.categoryId, categoria));
+  const status = p.get("status");
+  if (status) {
+    const map = { pendente: "pending", confirmada: "confirmed", ignorada: "ignored" } as const;
+    const st = map[status as keyof typeof map];
+    if (!st) throw new AgentInputError('Parâmetro "status" deve ser pendente, confirmada ou ignorada');
+    filters.push(eq(transactions.status, st));
+  }
   const where = and(...filters);
 
   const [rows, [{ total }], accs, cats] = await Promise.all([
@@ -150,3 +167,85 @@ export const GET = agentRoute(async ({ householdId, url }) => {
     }),
   };
 });
+
+/**
+ * Corpo JSON:
+ *   conta_id (obrigatório), data AAAA-MM-DD, descricao, valor (positivo),
+ *   tipo receita|despesa, categoria_id (opcional — sem ela, aplica as regras
+ *   de categorização), observacao (opcional).
+ *   permitir_duplicado: true — grava mesmo se já existir lançamento igual
+ *   (mesma conta, data, valor, tipo e descrição). Sem isso responde 409.
+ */
+export const POST = agentRoute(
+  async ({ householdId, userId, req }) => {
+    const body = await readJson(req);
+    const contaId = uuidValue(body.conta_id, "conta_id");
+    const data = parseDateParam(typeof body.data === "string" ? body.data : "", "data");
+    if (!data) throw new AgentInputError('"data" é obrigatória (AAAA-MM-DD)');
+    const descricao = typeof body.descricao === "string" ? body.descricao.trim() : "";
+    if (!descricao) throw new AgentInputError('"descricao" é obrigatória');
+    if (descricao.length > 200) throw new AgentInputError('"descricao" aceita até 200 caracteres');
+    const valor = moneyValue(body.valor, "valor");
+    if (body.tipo !== "receita" && body.tipo !== "despesa") {
+      throw new AgentInputError('"tipo" deve ser receita ou despesa');
+    }
+    const kind = body.tipo === "receita" ? "credit" : "debit";
+    const categoriaId = body.categoria_id == null ? null : uuidValue(body.categoria_id, "categoria_id");
+    const observacao = typeof body.observacao === "string" ? body.observacao.slice(0, 500) : undefined;
+
+    if (body.permitir_duplicado !== true) {
+      const dup = await db.query.transactions.findFirst({
+        columns: { id: true },
+        where: and(
+          eq(transactions.householdId, householdId),
+          eq(transactions.bankAccountId, contaId),
+          eq(transactions.kind, kind),
+          sql`${transactions.occurredOn}::date = ${data}::date`,
+          sql`${transactions.amount} = ${valor}::numeric`,
+          sql`lower(${transactions.description}) = lower(${descricao})`
+        ),
+      });
+      if (dup) {
+        return agentJson(
+          {
+            erro: "Já existe um lançamento igual (conta, data, valor, tipo e descrição). Envie permitir_duplicado: true se for outro mesmo.",
+            id_existente: dup.id,
+          },
+          409
+        );
+      }
+    }
+
+    const created = await coreCall(
+      createManualTransactionCore(
+        { userId, householdId },
+        {
+          bankAccountId: contaId,
+          occurredOn: data,
+          description: descricao,
+          amount: valor,
+          kind,
+          categoryId: categoriaId,
+          notes: observacao,
+        }
+      )
+    );
+    revalidatePath("/financeiro/transacoes");
+    revalidatePath("/financeiro");
+
+    return agentJson(
+      {
+        ok: true,
+        id: created.id,
+        data: isoDate(created.occurredOn),
+        descricao: created.description,
+        valor: num(created.amount),
+        tipo: created.kind === "credit" ? "receita" : "despesa",
+        categoria_id: created.categoryId,
+        status: "confirmada",
+      },
+      201
+    );
+  },
+  { rateLimit: 30 }
+);
