@@ -16,6 +16,7 @@ import {
   setTransactionSplitsCore,
   setTransactionStatusCore,
 } from "@/lib/transactions-core";
+import { trashEntities } from "@/lib/trash";
 
 async function requireUser() {
   const session = await auth();
@@ -119,13 +120,13 @@ export async function setTransactionStatus(
 }
 
 export async function deleteTransaction(transactionId: string) {
-  const { householdId } = await requireUser();
-  const tx = await db.query.transactions.findFirst({
-    where: eq(transactions.id, transactionId),
-  });
-  if (!tx || tx.householdId !== householdId) {
-    throw new Error("Transação não encontrada");
-  }
-  await db.delete(transactions).where(eq(transactions.id, transactionId));
+  const actor = await requireUser();
+  const r = await trashEntities(
+    { ...actor, via: "app" },
+    { transaction: [transactionId] },
+    "Excluída na lista de transações"
+  );
+  if (!r.counts.transaction) throw new Error("Transação não encontrada");
   revalidatePath("/financeiro/transacoes");
+  revalidatePath("/financeiro/lixeira");
 }

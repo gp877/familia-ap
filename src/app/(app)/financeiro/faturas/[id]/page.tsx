@@ -203,6 +203,8 @@ export default async function FaturaDetailPage({
     status: tx.status,
     bankAccountId: tx.bankAccountId,
     isInternalTransfer: tx.isInternalTransfer,
+    createdVia: tx.createdVia,
+    agentUpdatedAt: tx.agentUpdatedAt ? tx.agentUpdatedAt.toISOString() : null,
     internalTransferType: tx.internalTransferType,
     splits: (tx.splits as Array<{ categoryId: string; amount: string; note?: string }> | null) ?? null,
   }));

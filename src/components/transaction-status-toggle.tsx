@@ -58,7 +58,7 @@ export function TransactionStatusToggle({ transactionId, status }: Props) {
   }
 
   function handleDelete() {
-    if (!confirm("Excluir esta transação? Não tem desfazer.")) return;
+    if (!confirm("Mandar esta transação para a Lixeira? Dá para restaurar depois.")) return;
     startTransition(async () => {
       await deleteTransaction(transactionId);
     });

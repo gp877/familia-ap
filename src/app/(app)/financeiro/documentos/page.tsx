@@ -394,7 +394,7 @@ export default async function DocumentosPage({
           />
         )}
 
-        {/* Backup — deletes no app são permanentes; baixar o arquivo de vez
+        {/* Backup — exclusões vão pra Lixeira, mas esvaziá-la é definitivo; baixar o arquivo de vez
             em quando é a rede de segurança do histórico financeiro. */}
         <div
           style={{

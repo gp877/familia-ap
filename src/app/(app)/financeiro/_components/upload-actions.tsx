@@ -29,7 +29,7 @@ export function StatementActions({
     e.preventDefault();
     e.stopPropagation();
     const ok = confirm(
-      `Excluir o extrato "${filename}" e as ${txCount} transações vinculadas? Essa ação não pode ser desfeita.`
+      `Excluir o extrato "${filename}" e as ${txCount} transações vinculadas? Tudo vai para a Lixeira e pode ser restaurado.`
     );
     if (!ok) return;
     startTransition(async () => {
@@ -95,7 +95,7 @@ export function InvoiceActions({
     e.preventDefault();
     e.stopPropagation();
     const ok = confirm(
-      `Excluir a fatura de ${referenceMonth} e as ${txCount} transações lançadas? Essa ação não pode ser desfeita.`
+      `Excluir a fatura de ${referenceMonth} e as ${txCount} transações lançadas? Tudo vai para a Lixeira e pode ser restaurado.`
     );
     if (!ok) return;
     startTransition(async () => {

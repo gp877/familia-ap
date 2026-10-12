@@ -17,6 +17,7 @@ const ITEMS: ModuleNavItem[] = [
   { href: "/financeiro/recorrentes", label: "Recorrentes" },
   { href: "/financeiro/categorias", label: "Categorias" },
   { href: "/financeiro/contas", label: "Contas" },
+  { href: "/financeiro/lixeira", label: "Lixeira" },
 ];
 
 export function FinanceiroNav() {

@@ -10,18 +10,21 @@
  *   divisoes       [{ categoria_id, valor, nota? }] — soma = valor do
  *                  lançamento; [] remove a divisão
  *
- * Não há exclusão pela API: no app, apagar é permanente (sem lixeira).
+ * DELETE /api/agent/transacoes/{id} — manda pra Lixeira (restaurável em
+ * /api/agent/lixeira). Esvaziar a lixeira só pelas telas do app.
  */
 import { revalidatePath } from "next/cache";
 
 import {
   AgentInputError,
+  AgentNotFoundError,
   agentRoute,
   coreCall,
   moneyValue,
   readJson,
   uuidValue,
 } from "@/lib/agent-api";
+import { trashEntities } from "@/lib/trash";
 import {
   setTransactionCategoryCore,
   setTransactionSplitsCore,
@@ -38,7 +41,7 @@ const STATUS: Record<string, "pending" | "confirmed" | "ignored"> = {
 
 export const PATCH = agentRoute(
   async ({ householdId, userId, req, params }) => {
-    const actor = { householdId, userId };
+    const actor = { householdId, userId, via: "agent" as const };
     const id = uuidValue(params.id, "id");
     const body = await readJson(req);
 
@@ -92,4 +95,20 @@ export const PATCH = agentRoute(
     return result;
   },
   { rateLimit: 120 }
+);
+
+export const DELETE = agentRoute(
+  async ({ householdId, userId, params }) => {
+    const id = uuidValue(params.id, "id");
+    const r = await trashEntities(
+      { householdId, userId, via: "agent" },
+      { transaction: [id] },
+      "Excluída pelo assistente de IA"
+    );
+    if (!r.counts.transaction) throw new AgentNotFoundError("Transação não encontrada");
+    revalidatePath("/financeiro/transacoes");
+    revalidatePath("/financeiro/lixeira");
+    return { ok: true, id, lote_lixeira: r.batchId };
+  },
+  { rateLimit: 30 }
 );

@@ -9,7 +9,11 @@ import { db } from "@/db";
 import { bankAccounts, categories, categoryRules, transactions } from "@/db/schema";
 import { extractMatchPattern } from "@/lib/categorization";
 
-export type TxActor = { userId: string; householdId: string };
+/** `via: "agent"` = chamada da API de IA: marca createdVia/agentUpdatedAt. */
+export type TxActor = { userId: string; householdId: string; via?: "app" | "agent" };
+
+/** Campos extras de update quando quem mexe é o assistente de IA. */
+const agentStamp = (actor: TxActor) => (actor.via === "agent" ? { agentUpdatedAt: new Date() } : {});
 
 /** Garante que todas as categorias são do household (id forjado = erro). */
 async function assertCategoriesOwned(householdId: string, ids: string[]) {
@@ -49,6 +53,7 @@ export async function setTransactionCategoryCore(
       categoryId,
       ...(nextStatus ? { status: nextStatus } : {}),
       updatedAt: new Date(),
+      ...agentStamp(actor),
     })
     .where(eq(transactions.id, transactionId));
 
@@ -114,7 +119,7 @@ export async function setTransactionCategoryCore(
         // Aplicação retroativa também confirma — categorizada = revisada.
         await db
           .update(transactions)
-          .set({ categoryId, status: "confirmed", updatedAt: new Date() })
+          .set({ categoryId, status: "confirmed", updatedAt: new Date(), ...agentStamp(actor) })
           .where(
             inArray(
               transactions.id,
@@ -195,6 +200,7 @@ export async function createManualTransactionCore(
         ? `[manual] ${input.description.trim()} — ${input.notes.trim()}`
         : `[manual] ${input.description.trim()}`,
       status: "confirmed",
+      createdVia: actor.via ?? "app",
     })
     .returning();
 
@@ -223,7 +229,7 @@ export async function setTransactionSplitsCore(
   if (splits.length === 0) {
     await db
       .update(transactions)
-      .set({ splits: null, updatedAt: new Date() })
+      .set({ splits: null, updatedAt: new Date(), ...agentStamp(actor) })
       .where(eq(transactions.id, transactionId));
     return;
   }
@@ -250,6 +256,7 @@ export async function setTransactionSplitsCore(
       splits,
       categoryId: splits[0].categoryId, // categoria principal = primeiro split
       updatedAt: new Date(),
+      ...agentStamp(actor),
     })
     .where(eq(transactions.id, transactionId));
 }
@@ -268,6 +275,6 @@ export async function setTransactionStatusCore(
   }
   await db
     .update(transactions)
-    .set({ status, updatedAt: new Date() })
+    .set({ status, updatedAt: new Date(), ...agentStamp(actor) })
     .where(eq(transactions.id, transactionId));
 }

@@ -107,6 +107,8 @@ export const GET = agentRoute(async ({ householdId, url }) => {
         installmentTotal: transactions.installmentTotal,
         isInternalTransfer: transactions.isInternalTransfer,
         splits: transactions.splits,
+        createdVia: transactions.createdVia,
+        agentUpdatedAt: transactions.agentUpdatedAt,
       })
       .from(transactions)
       .where(where)
@@ -156,6 +158,8 @@ export const GET = agentRoute(async ({ householdId, url }) => {
             : null,
         fatura_id: t.invoiceId,
         transferencia_interna: t.isInternalTransfer,
+        feito_pela_ia: t.createdVia === "agent",
+        revisado_pela_ia_em: t.agentUpdatedAt ? t.agentUpdatedAt.toISOString() : null,
         divisoes: splits.length
           ? splits.map((s) => ({
               categoria: s.categoryId ? (catName.get(s.categoryId) ?? null) : null,
@@ -218,7 +222,7 @@ export const POST = agentRoute(
 
     const created = await coreCall(
       createManualTransactionCore(
-        { userId, householdId },
+        { userId, householdId, via: "agent" },
         {
           bankAccountId: contaId,
           occurredOn: data,
@@ -243,6 +247,7 @@ export const POST = agentRoute(
         tipo: created.kind === "credit" ? "receita" : "despesa",
         categoria_id: created.categoryId,
         status: "confirmada",
+        feito_pela_ia: true,
       },
       201
     );

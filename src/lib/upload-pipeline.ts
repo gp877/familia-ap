@@ -31,7 +31,8 @@ function parseBalance(v: string | null | undefined): string | null {
   return n.toFixed(2);
 }
 
-export type UploadActor = { userId: string; householdId: string };
+/** `via`: "agent" quando veio de /api/agent — vira o selo "IA" nos lançamentos. */
+export type UploadActor = { userId: string; householdId: string; via?: "app" | "agent" };
 
 export async function processPdfUpload(req: Request, actor: UploadActor) {
   const dbUser = { id: actor.userId, householdId: actor.householdId };
@@ -201,6 +202,7 @@ export async function processPdfUpload(req: Request, actor: UploadActor) {
         | "credit_card_invoice"
         | "other",
       status: "processing",
+      createdVia: actor.via ?? "app",
     })
     .returning();
 
@@ -423,6 +425,7 @@ export async function processPdfUpload(req: Request, actor: UploadActor) {
           status: (categoryId ? "confirmed" : "pending") as "confirmed" | "pending",
           isInternalTransfer: isSoloInternal,
           internalTransferType: detectedType,
+          createdVia: actor.via ?? "app",
           // Camada 3 de dedupe — UNIQUE constraint no banco vai bloquear
           // duplicata mesmo se as camadas 1/2 falharem.
           dedupeKey: computeDedupeKey({

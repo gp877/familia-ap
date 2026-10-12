@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/db";
 import { categories, categoryRules, transactions } from "@/db/schema";
 import { requireUserAndHousehold } from "@/lib/auth-helpers";
+import { trashEntities } from "@/lib/trash";
 
 /**
  * Aplica uma categoria a múltiplas transações de uma vez.
@@ -107,15 +108,13 @@ export async function bulkSetStatus(
 }
 
 export async function bulkDelete(transactionIds: string[]) {
-  const { householdId } = await requireUserAndHousehold();
+  const { userId, householdId } = await requireUserAndHousehold();
   if (transactionIds.length === 0) return;
-  await db
-    .delete(transactions)
-    .where(
-      and(
-        inArray(transactions.id, transactionIds),
-        eq(transactions.householdId, householdId)
-      )
-    );
+  await trashEntities(
+    { userId, householdId, via: "app" },
+    { transaction: transactionIds },
+    `${transactionIds.length} transação(ões) excluída(s) em massa`
+  );
   revalidatePath("/financeiro/transacoes");
+  revalidatePath("/financeiro/lixeira");
 }

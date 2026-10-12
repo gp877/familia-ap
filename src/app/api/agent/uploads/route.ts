@@ -48,6 +48,7 @@ export const GET = agentRoute(async ({ householdId, url }) => {
       closingBalance: uploads.closingBalance,
       warnings: uploads.extractionWarnings,
       errorMessage: uploads.errorMessage,
+      createdVia: uploads.createdVia,
       createdAt: uploads.createdAt,
     })
     .from(uploads)
@@ -74,6 +75,7 @@ export const GET = agentRoute(async ({ householdId, url }) => {
       avisos: Array.isArray(u.warnings) ? u.warnings : [],
       erro: u.errorMessage,
       enviado_em: isoDate(u.createdAt),
+      feito_pela_ia: u.createdVia === "agent",
     })),
   };
 });
@@ -96,7 +98,7 @@ export const POST = agentRoute(
     });
     if (!acc) throw new AgentNotFoundError("Conta não encontrada");
 
-    return processPdfUpload(req, { userId, householdId });
+    return processPdfUpload(req, { userId, householdId, via: "agent" });
   },
   { rateLimit: 10 }
 );

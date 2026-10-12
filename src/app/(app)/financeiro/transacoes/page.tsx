@@ -260,6 +260,8 @@ export default async function TransacoesPage({
     bankAccountId: tx.bankAccountId,
     invoiceId: tx.invoiceId,
     isInternalTransfer: tx.isInternalTransfer,
+    createdVia: tx.createdVia,
+    agentUpdatedAt: tx.agentUpdatedAt ? tx.agentUpdatedAt.toISOString() : null,
     internalTransferType: tx.internalTransferType,
     splits: (tx.splits as Array<{ categoryId: string; amount: string; note?: string }> | null) ?? null,
   }));

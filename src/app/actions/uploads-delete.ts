@@ -1,30 +1,26 @@
 "use server";
 
-import { del } from "@vercel/blob";
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
-import { auth } from "@/auth";
 import { db } from "@/db";
-import { invoices, transactions, uploads, users } from "@/db/schema";
+import { uploads } from "@/db/schema";
+import { requireUserAndHousehold } from "@/lib/auth-helpers";
+import { trashInvoiceCascade, trashStatementUpload } from "@/lib/trash";
 
-async function requireUser() {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Não autenticado");
-  const dbUser = await db.query.users.findFirst({
-    where: eq(users.id, session.user.id),
-  });
-  if (!dbUser?.householdId) throw new Error("Sem household");
-  return { userId: dbUser.id, householdId: dbUser.householdId };
+function revalidate() {
+  revalidatePath("/financeiro/documentos");
+  revalidatePath("/financeiro/transacoes");
+  revalidatePath("/financeiro/lixeira");
 }
 
 /**
- * Apaga um upload (extrato bancário) e TODAS as transações associadas.
- * Útil quando houve erro de extração ou o PDF foi do mês errado.
- * Também tenta apagar o blob do Vercel Blob (se houver URL válida).
+ * Manda pra LIXEIRA um upload (extrato bancário) e TODAS as transações
+ * associadas. Útil quando houve erro de extração ou o PDF foi do mês errado.
+ * O PDF no Vercel Blob fica guardado até a lixeira ser esvaziada.
  */
 export async function deleteStatementUpload(uploadId: string) {
-  const { householdId } = await requireUser();
+  const { userId, householdId } = await requireUserAndHousehold();
 
   const up = await db.query.uploads.findFirst({
     where: and(eq(uploads.id, uploadId), eq(uploads.householdId, householdId)),
@@ -34,81 +30,19 @@ export async function deleteStatementUpload(uploadId: string) {
     throw new Error("Este upload não é um extrato — use deleteInvoice");
   }
 
-  // 1) Deleta transações vinculadas ao upload (FK é set null por default)
-  const removed = await db
-    .delete(transactions)
-    .where(
-      and(
-        eq(transactions.householdId, householdId),
-        eq(transactions.uploadId, uploadId)
-      )
-    )
-    .returning({ id: transactions.id });
-
-  // 2) Tenta apagar o blob no Vercel Blob — falha silenciosa se não der
-  //    (URLs vazias dos seeds manuais ou já removidas)
-  if (up.blobUrl && up.blobUrl.startsWith("http")) {
-    try {
-      await del(up.blobUrl);
-    } catch (err) {
-      console.warn("[deleteStatementUpload] del do blob falhou:", err);
-    }
-  }
-
-  // 3) Apaga o upload
-  await db.delete(uploads).where(eq(uploads.id, uploadId));
-
-  revalidatePath("/financeiro/documentos");
-  revalidatePath("/financeiro/transacoes");
-
-  return { removedTransactions: removed.length };
+  const r = await trashStatementUpload({ userId, householdId, via: "app" }, uploadId);
+  revalidate();
+  return { removedTransactions: r.removedTransactions };
 }
 
 /**
- * Apaga uma fatura, o(s) upload(s) vinculados e TODAS as transações
- * lançadas naquela fatura. Útil quando a fatura foi importada com
- * mês errado, ou o sistema confundiu a identificação.
+ * Manda pra LIXEIRA uma fatura, o(s) upload(s) vinculados e TODAS as
+ * transações lançadas naquela fatura. Útil quando a fatura foi importada
+ * com mês errado, ou o sistema confundiu a identificação.
  */
 export async function deleteInvoiceCascade(invoiceId: string) {
-  const { householdId } = await requireUser();
-
-  const inv = await db.query.invoices.findFirst({
-    where: and(eq(invoices.id, invoiceId), eq(invoices.householdId, householdId)),
-  });
-  if (!inv) throw new Error("Fatura não encontrada");
-
-  // 1) Deleta transações da fatura
-  const removed = await db
-    .delete(transactions)
-    .where(
-      and(
-        eq(transactions.householdId, householdId),
-        eq(transactions.invoiceId, invoiceId)
-      )
-    )
-    .returning({ id: transactions.id });
-
-  // 2) Apaga upload(s) que apontam pra essa fatura — geralmente 1 só
-  const linkedUploads = await db.query.uploads.findMany({
-    where: and(eq(uploads.householdId, householdId), eq(uploads.invoiceId, invoiceId)),
-  });
-
-  for (const up of linkedUploads) {
-    if (up.blobUrl && up.blobUrl.startsWith("http")) {
-      try {
-        await del(up.blobUrl);
-      } catch (err) {
-        console.warn("[deleteInvoiceCascade] del do blob falhou:", err);
-      }
-    }
-    await db.delete(uploads).where(eq(uploads.id, up.id));
-  }
-
-  // 3) Apaga a fatura
-  await db.delete(invoices).where(eq(invoices.id, invoiceId));
-
-  revalidatePath("/financeiro/documentos");
-  revalidatePath("/financeiro/transacoes");
-
-  return { removedTransactions: removed.length, removedUploads: linkedUploads.length };
+  const { userId, householdId } = await requireUserAndHousehold();
+  const r = await trashInvoiceCascade({ userId, householdId, via: "app" }, invoiceId);
+  revalidate();
+  return { removedTransactions: r.removedTransactions, removedUploads: r.removedUploads };
 }

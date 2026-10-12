@@ -28,6 +28,10 @@ type TxRow = {
   isInternalTransfer?: boolean;
   internalTransferType?: string | null;
   splits?: Array<{ categoryId: string; amount: string; note?: string }> | null;
+  /** "agent" = lançado pelo assistente de IA (selo "IA"). */
+  createdVia?: string | null;
+  /** Última revisão feita pelo assistente de IA (ISO). */
+  agentUpdatedAt?: string | null;
 };
 
 type Props = {
@@ -249,7 +253,7 @@ export function TransactionsMultiSelect({ transactions, categoryOptions }: Props
   }
 
   function handleBulkDelete() {
-    if (!confirm(`Excluir ${selected.size} transações?`)) return;
+    if (!confirm(`Mandar ${selected.size} transações para a Lixeira? Dá para restaurar depois.`)) return;
     const ids = [...selected];
     startTransition(async () => {
       await bulkDelete(ids);
@@ -432,6 +436,28 @@ export function TransactionsMultiSelect({ transactions, categoryOptions }: Props
                           }}
                         >
                           ↔ interna
+                        </span>
+                      )}
+                      {(tx.createdVia === "agent" || tx.agentUpdatedAt) && (
+                        <span
+                          title={
+                            tx.createdVia === "agent"
+                              ? "Lançado pelo assistente de IA"
+                              : `Revisado pelo assistente de IA em ${new Date(tx.agentUpdatedAt!).toLocaleDateString("pt-BR")}`
+                          }
+                          style={{
+                            fontSize: 9.5,
+                            fontWeight: 800,
+                            letterSpacing: "0.06em",
+                            textTransform: "uppercase",
+                            color: tx.createdVia === "agent" ? "var(--accent)" : "var(--muted)",
+                            border: "0.5px solid currentColor",
+                            padding: "2px 6px",
+                            borderRadius: 999,
+                            flexShrink: 0,
+                          }}
+                        >
+                          {tx.createdVia === "agent" ? "IA" : "rev. IA"}
                         </span>
                       )}
                       <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>

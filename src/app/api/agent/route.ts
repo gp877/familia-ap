@@ -8,14 +8,14 @@ export const runtime = "nodejs";
 
 export const GET = agentRoute(async () => ({
   api: "familia-ap / agent",
-  versao: 2,
+  versao: 3,
   autenticacao: "Authorization: Bearer <AGENT_API_TOKEN>",
   limites: "60 consultas/min · 30 lançamentos/min · 10 PDFs/min",
   moeda: "BRL",
   fluxo_recomendado: [
     "1. GET /api/agent/contas para descobrir o id da conta/cartão",
     "2. POST /api/agent/uploads com o PDF do extrato ou fatura (o app extrai, deduplica e categoriza sozinho)",
-    "3. GET /api/agent/transacoes?status=pendente... — revise os pendentes e categorize com PATCH /api/agent/transacoes/{id}",
+    "3. GET /api/agent/transacoes?status=pendente — revise os pendentes e categorize com PATCH /api/agent/transacoes/{id}",
     "4. POST /api/agent/transacoes só para o que não tem PDF (ex.: dinheiro, PIX avulso)",
   ],
   rotas: [
@@ -47,8 +47,25 @@ export const GET = agentRoute(async () => ({
       corpo: "multipart/form-data: file=<PDF até 10 MB, sem senha>, bankAccountId=<id>, sourceType?=bank_statement|credit_card_invoice",
       observacao: "Mesmo PDF duas vezes → 409.",
     },
+    {
+      metodo: "DELETE",
+      caminho: "/api/agent/transacoes/{id}",
+      observacao: "Vai para a Lixeira (restaurável).",
+    },
+    {
+      metodo: "DELETE",
+      caminho: "/api/agent/uploads/{id}",
+      observacao: "Extrato: PDF + lançamentos. Fatura: a fatura inteira. Tudo vai para a Lixeira.",
+    },
+    { metodo: "GET", caminho: "/api/agent/lixeira", observacao: "Itens excluídos, agrupados por lote." },
+    {
+      metodo: "POST",
+      caminho: "/api/agent/lixeira/restaurar",
+      corpo: '{"lote_id":"<id>"} ou {"item_ids":["<id>"]}',
+    },
     { metodo: "GET", caminho: "/api/agent/contas" },
     { metodo: "GET", caminho: "/api/agent/categorias", parametros: "mes=AAAA-MM (padrão: mês atual)" },
   ],
-  sem_exclusao: "Não há rota de exclusão: no app, apagar é permanente. Use status=ignorada.",
+  exclusao:
+    "Excluir manda para a Lixeira — nada se perde. Esvaziar a Lixeira só pelas telas do app. Tudo que a IA grava fica marcado com o selo IA (feito_pela_ia / revisado_pela_ia_em).",
 }));

@@ -25,7 +25,7 @@ export const maxDuration = 60;
  *                             faturas, transações, orçamentos, recorrentes)
  * GET /api/export?format=csv → CSV só das transações (pra abrir no Excel)
  *
- * Deletes no app são permanentes (cascata, sem lixeira) — este endpoint é a
+ * Exclusões vão pra Lixeira (restauráveis) até ela ser esvaziada — este endpoint é a
  * rede de segurança: baixe periodicamente e guarde o arquivo.
  */
 export async function GET(req: Request) {

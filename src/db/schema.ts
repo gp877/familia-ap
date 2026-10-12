@@ -319,11 +319,45 @@ export const uploads = pgTable(
     // Páginas que a IA diz ter processado, pra detectar truncamento silencioso
     pagesReported: integer("pages_reported"),
     processedAt: timestamp("processed_at", { withTimezone: true }),
+    // "app" ou "agent" — quem enviou o PDF (ver transactions.createdVia)
+    createdVia: text("created_via").notNull().default("app"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (u) => [
     index("upload_household_status_idx").on(u.householdId, u.status),
     index("upload_household_hash_idx").on(u.householdId, u.fileHash),
+  ]
+);
+
+// ============================================================
+// Lixeira — nada do financeiro é apagado de verdade de primeira.
+// Cada item guarda a LINHA INTEIRA (`to_jsonb`) de uma transação, upload
+// ou fatura apagada; restaurar recria a linha com o mesmo id. Uma ação de
+// exclusão = um lote (batchId), restaurável de uma vez. Ver lib/trash.ts.
+// ============================================================
+export const trashItems = pgTable(
+  "trash_item",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    batchId: uuid("batch_id").notNull(),
+    entityType: text("entity_type").notNull(), // transaction | upload | invoice
+    entityId: uuid("entity_id").notNull(),
+    data: jsonb("data").notNull(),
+    // Linhas de OUTRAS tabelas que apontavam pra esta (FK set null) — pra
+    // religar na restauração: [{ table, column, ids }]
+    links: jsonb("links"),
+    label: text("label").notNull(),
+    reason: text("reason"),
+    deletedVia: text("deleted_via").notNull().default("app"), // app | agent
+    deletedById: text("deleted_by_id").references(() => users.id, { onDelete: "set null" }),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("trash_item_household_idx").on(t.householdId, t.deletedAt),
+    index("trash_item_batch_idx").on(t.batchId),
   ]
 );
 
@@ -396,6 +430,11 @@ export const transactions = pgTable(
     // até race conditions de uploads simultâneos. Calculada na lib
     // computeDedupeKey (src/lib/dedupe.ts).
     dedupeKey: text("dedupe_key"),
+    // Origem do lançamento: "app" (telas) ou "agent" (assistente de IA via
+    // /api/agent). Aparece como selo "IA" na lista de transações.
+    createdVia: text("created_via").notNull().default("app"),
+    // Última revisão feita por assistente de IA (categoria/status/divisões).
+    agentUpdatedAt: timestamp("agent_updated_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
