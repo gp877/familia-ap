@@ -330,6 +330,50 @@ export const uploads = pgTable(
 );
 
 // ============================================================
+// Espaço de trabalho (Tarefas) — arquitetura do Notion: TUDO é página.
+//   kind = "page"     → página com blocos (content)
+//   kind = "database" → página que é um banco: schema (propriedades) + views
+//   kind = "row"      → linha de um banco (parent = o banco): props + content
+// Privado por padrão (só o dono vê); visibility = "household" compartilha
+// com a família. Excluir = archived_at (Lixeira do espaço); ver lib/workspace.ts.
+// ============================================================
+export const wsPages = pgTable(
+  "ws_page",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    parentId: uuid("parent_id").references((): AnyPgColumn => wsPages.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull().default("page"), // page | database | row
+    title: text("title").notNull().default(""),
+    icon: text("icon"),
+    content: jsonb("content"), // blocos [{ id, type, text, checked?, ... }]
+    props: jsonb("props"), // linha: { [propId]: valor }
+    schema: jsonb("schema"), // banco: { properties: [...] }
+    views: jsonb("views"), // banco: [{ id, name, type, ... }]
+    systemKey: text("system_key"), // "tasks" = banco Tarefas padrão (alvo da API) · "welcome" = boas-vindas
+    sortOrder: integer("sort_order").notNull().default(0),
+    visibility: text("visibility").notNull().default("private"), // private | household
+    createdVia: text("created_via").notNull().default("app"),
+    agentUpdatedAt: timestamp("agent_updated_at", { withTimezone: true }),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    archivedVia: text("archived_via"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (p) => [
+    index("ws_page_parent_idx").on(p.householdId, p.parentId),
+    index("ws_page_owner_idx").on(p.householdId, p.ownerId),
+    // trava o espaço inicial: 1 "welcome" e 1 "tasks" por pessoa, mesmo com 2 requisições juntas
+    uniqueIndex("ws_page_system_key_unique").on(p.ownerId, p.systemKey).where(sql`system_key IS NOT NULL`),
+  ]
+);
+
+// ============================================================
 // Lixeira — nada do financeiro é apagado de verdade de primeira.
 // Cada item guarda a LINHA INTEIRA (`to_jsonb`) de uma transação, upload
 // ou fatura apagada; restaurar recria a linha com o mesmo id. Uma ação de

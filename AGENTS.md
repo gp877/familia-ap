@@ -24,3 +24,19 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - Totais seguem a regra do Dashboard: excluem transferências internas e status `ignored`.
 - Nunca expor: tokens/sessões, `rawDescription`, chave PIX/código de barras dos recorrentes,
   URL/conteúdo dos PDFs.
+
+## Espaço de trabalho / Tarefas (`/tarefas`) — modelo do Notion
+
+- Tabela única `ws_page`: TUDO é página. `kind` = `page` (blocos em `content`), `database`
+  (`schema.properties` + `views`) ou `row` (linha de banco: `props` por id de propriedade).
+- **Privado por padrão**: só o dono (`owner_id`) vê; `visibility = household` compartilha.
+  Filho herda do pai; mudar visibilidade propaga pra árvore (só o dono muda).
+- Excluir = `archived_at` na árvore inteira com o MESMO instante (Lixeira em `/tarefas/lixeira`);
+  restaurar volta o que foi junto. Apagar de vez só pela tela.
+- Lógica em `src/lib/workspace.ts` (com actor) + `workspace-model.ts` (tipos, filtros, visões — puro).
+  Telas em `src/components/ws/`. API: `/api/agent/tarefas` e `/api/agent/paginas` falam por NOMES
+  (`lib/agent-workspace.ts`); opção de seleção nova é criada sozinha, Status não.
+- Espaço inicial (boas-vindas + banco "Tarefas" `system_key=tasks`) criado na 1ª visita,
+  idempotente por índice único (owner_id, system_key).
+- Agente age como o 1º e-mail de `ALLOWED_EMAILS` do household (ou `AGENT_OWNER_EMAIL`);
+  `GET /api/agent` mostra `atuando_como`.

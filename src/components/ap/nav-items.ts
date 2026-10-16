@@ -10,6 +10,7 @@ export type NavItem = {
 export const NAV_ITEMS: NavItem[] = [
   { href: "/", label: "Início", icon: "home", module: "Início" },
   { href: "/financeiro", label: "Finanças", icon: "bank", module: "Finanças" },
+  { href: "/tarefas", label: "Tarefas", icon: "file", module: "Tarefas" },
   { href: "/compromissos", label: "Compromissos", icon: "cal", module: "Compromissos" },
   { href: "/aniversarios", label: "Aniversários", icon: "cake", module: "Aniversários" },
   { href: "/viagens", label: "Viagens", icon: "plane", module: "Viagens" },

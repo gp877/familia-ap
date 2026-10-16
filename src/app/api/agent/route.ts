@@ -6,9 +6,10 @@ import { agentRoute } from "@/lib/agent-api";
 
 export const runtime = "nodejs";
 
-export const GET = agentRoute(async () => ({
+export const GET = agentRoute(async ({ email }) => ({
   api: "familia-ap / agent",
-  versao: 3,
+  versao: 4,
+  atuando_como: email ?? null,
   autenticacao: "Authorization: Bearer <AGENT_API_TOKEN>",
   limites: "60 consultas/min · 30 lançamentos/min · 10 PDFs/min",
   moeda: "BRL",
@@ -62,6 +63,36 @@ export const GET = agentRoute(async () => ({
       metodo: "POST",
       caminho: "/api/agent/lixeira/restaurar",
       corpo: '{"lote_id":"<id>"} ou {"item_ids":["<id>"]}',
+    },
+    {
+      metodo: "GET",
+      caminho: "/api/agent/tarefas",
+      parametros: "incluir_feitas=1, prazo_ate=AAAA-MM-DD, busca=<texto>, <Nome da propriedade>=<valor> (ex.: Área=Indaiá)",
+      observacao: "Traz também propriedades_disponiveis (nomes e opções válidas).",
+    },
+    {
+      metodo: "POST",
+      caminho: "/api/agent/tarefas",
+      corpo: '{"titulo","propriedades"?:{"Status":"A fazer","Prazo":"AAAA-MM-DD","Prioridade":"Alta","Área":"Indaiá","Origem":"WhatsApp","Com quem":"..."},"conteudo"?:"texto","permitir_duplicado"?:false}',
+      observacao: "Tarefa aberta com o mesmo título → 409. Opção de seleção nova é criada sozinha (Status não).",
+    },
+    {
+      metodo: "GET | PATCH | DELETE",
+      caminho: "/api/agent/tarefas/{id}",
+      corpo: 'PATCH: {"titulo"?,"propriedades"?,"adicionar_texto"?,"conteudo"?}',
+      observacao: "DELETE manda para a Lixeira do espaço.",
+    },
+    { metodo: "GET", caminho: "/api/agent/paginas", observacao: "Árvore de páginas e bancos do espaço de trabalho." },
+    {
+      metodo: "POST",
+      caminho: "/api/agent/paginas",
+      corpo: '{"titulo","pai_id"?,"conteudo"?:"texto (# título, - lista, [] tarefa)","icone"?:"emoji"}',
+      observacao: "Use para fichas de contatos, resumos e anotações.",
+    },
+    {
+      metodo: "GET | PATCH | DELETE",
+      caminho: "/api/agent/paginas/{id}",
+      corpo: 'PATCH: {"titulo"?,"icone"?,"conteudo"?,"adicionar_texto"?}',
     },
     { metodo: "GET", caminho: "/api/agent/contas" },
     { metodo: "GET", caminho: "/api/agent/categorias", parametros: "mes=AAAA-MM (padrão: mês atual)" },

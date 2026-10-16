@@ -16,6 +16,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 
 import { db } from "@/db";
+import { WsError } from "@/lib/workspace";
 
 const MIN_TOKEN_LENGTH = 32;
 
@@ -54,7 +55,7 @@ function tokenMatches(received: string, expected: string): boolean {
 }
 
 // ── Household + autor ─────────────────────────────────────────────
-export type AgentActor = { householdId: string; userId: string };
+export type AgentActor = { householdId: string; userId: string; email?: string };
 
 async function resolveActor(): Promise<AgentActor | null> {
   const allowed = (process.env.ALLOWED_EMAILS ?? "")
@@ -73,11 +74,13 @@ async function resolveActor(): Promise<AgentActor | null> {
   const householdId = configured || (ids.size === 1 ? [...ids][0] : null);
   if (!householdId) return null;
 
-  // Autor = primeiro e-mail da lista que pertence ao household
+  // Autor = AGENT_OWNER_EMAIL, se configurado; senão o primeiro e-mail da lista no household
+  const owner = process.env.AGENT_OWNER_EMAIL?.trim().toLowerCase();
   const family = members
+    .filter((m) => !owner || m.email.toLowerCase() === owner)
     .filter((m) => m.householdId === householdId)
     .sort((a, b) => allowed.indexOf(a.email.toLowerCase()) - allowed.indexOf(b.email.toLowerCase()));
-  return family.length ? { householdId, userId: family[0].id } : null;
+  return family.length ? { householdId, userId: family[0].id, email: family[0].email } : null;
 }
 
 // ── Respostas ─────────────────────────────────────────────────────
@@ -211,7 +214,7 @@ export async function coreCall<T>(p: Promise<T>): Promise<T> {
   } catch (err) {
     const msg = err instanceof Error ? err.message : "";
     if (/não encontrad/i.test(msg)) throw new AgentNotFoundError(msg);
-    if (/obrigatóri|inválid|soma dos splits/i.test(msg)) throw new AgentInputError(msg);
+    if (err instanceof WsError || /obrigatóri|inválid|soma dos splits/i.test(msg)) throw new AgentInputError(msg);
     throw err;
   }
 }

@@ -236,3 +236,22 @@
     letter-spacing: 0.005em;
   }
 }
+
+/* ============================================================
+   Espaço de trabalho (Tarefas) — editor de blocos e menus
+   ============================================================ */
+.ws-menu-item:hover { background: var(--card2) !important; }
+.ws-block .ws-handle { opacity: 0; transition: opacity .12s; }
+.ws-block:hover .ws-handle, .ws-block .ws-handle:focus { opacity: 1; }
+.ws-handle:hover { background: var(--card2) !important; }
+@media (hover: none) { .ws-block .ws-handle { opacity: .5; } }
+.ws-editable:empty::before { content: attr(data-placeholder); color: var(--muted); pointer-events: none; }
+.ws-editable:not(:focus):empty::before { content: ""; }
+.ws-block:only-of-type .ws-editable:empty::before,
+.ws-editable:focus:empty::before { content: attr(data-placeholder); }
+.ws-row:hover { background: var(--surf); }
+.ws-cell:hover { background: var(--surf); }
+.ws-tree-item:hover { background: var(--card2); }
+.ws-tree-item:hover .ws-tree-actions { opacity: 1; }
+.ws-tree-actions { opacity: 0; }
+@media (hover: none) { .ws-tree-actions { opacity: 1; } }
