@@ -2,7 +2,8 @@
  * Páginas do espaço de trabalho (anotações, fichas de contatos, atas…).
  *
  * GET  /api/agent/paginas — árvore de páginas e bancos (sem as linhas dos bancos)
- * POST /api/agent/paginas — cria página: { "titulo", "pai_id"?, "conteudo"?: texto, "icone"?: emoji }
+ * POST /api/agent/paginas — cria página: { "titulo", "pai_id"?, "conteudo"?: texto, "icone"?: emoji, "tipo"?: "pagina"|"banco" }
+ *      "banco" cria um banco de dados vazio (configure com PATCH /api/agent/tarefas + banco_id).
  *      Texto aceita # título, ## subtítulo, - lista, 1. numerada, [] tarefa, > citação, --- divisória.
  */
 import { revalidatePath } from "next/cache";
@@ -39,7 +40,7 @@ export const POST = agentRoute(
     const page = await coreCall(
       createPage(actor, {
         parentId: body.pai_id == null ? null : uuidValue(body.pai_id, "pai_id"),
-        kind: "page",
+        kind: body.tipo === "banco" ? "database" : "page",
         title: titulo,
         icon: typeof body.icone === "string" ? body.icone.slice(0, 16) : null,
         content: typeof body.conteudo === "string" ? textToBlocks(body.conteudo) : [],

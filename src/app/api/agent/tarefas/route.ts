@@ -11,17 +11,26 @@
  *      Tarefa aberta com o mesmo título → 409 com o id existente.
  * PATCH /api/agent/tarefas — configura o banco por nomes (ver configureDatabase):
  *      { "adicionar_propriedades": [...], "visualizacoes": [...] } (visualizações são substituídas)
+ * Outro banco do dono (ex.: "Rotinas"): banco_id=<id> na URL (GET) ou "banco_id" no corpo (POST/PATCH).
  */
 import { revalidatePath } from "next/cache";
 
-import { AgentInputError, agentJson, agentRoute, coreCall, readJson } from "@/lib/agent-api";
+import { AgentInputError, agentJson, agentRoute, coreCall, readJson, uuidValue } from "@/lib/agent-api";
 import { configureDatabase, describeSchema, propsFromNames, propsToNames, rowOut, textToBlocks } from "@/lib/agent-workspace";
-import { createPage, getTasksDatabase, listRows, setRowProps } from "@/lib/workspace";
+import { createPage, getPage, getTasksDatabase, listRows, setRowProps, type WsActor } from "@/lib/workspace";
 import type { DbSchema, PropValue } from "@/lib/workspace-model";
 
 export const runtime = "nodejs";
 
 const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
+
+/** Banco alvo: o informado em banco_id (tem de ser um banco) ou o Tarefas. */
+async function bancoAlvo(actor: WsActor, id: unknown) {
+  if (id == null || id === "") return coreCall(getTasksDatabase(actor));
+  const page = await coreCall(getPage(actor, uuidValue(id, "banco_id")));
+  if (page.kind !== "database") throw new AgentInputError('"banco_id" não é um banco de dados');
+  return page;
+}
 
 function doneIds(schema: DbSchema) {
   const status = schema.properties.find((p) => p.type === "status");
@@ -30,10 +39,10 @@ function doneIds(schema: DbSchema) {
 
 export const GET = agentRoute(async ({ householdId, userId, url }) => {
   const actor = { householdId, userId, via: "agent" as const };
-  const dbPage = await coreCall(getTasksDatabase(actor));
+  const p = url.searchParams;
+  const dbPage = await bancoAlvo(actor, p.get("banco_id"));
   const schema = (dbPage.schema as DbSchema) ?? { properties: [] };
   const rows = await listRows(actor, dbPage.id);
-  const p = url.searchParams;
   const { status, done } = doneIds(schema);
   const incluirFeitas = p.get("incluir_feitas") === "1";
   const prazoProp = schema.properties.find((x) => x.type === "date");
@@ -46,7 +55,7 @@ export const GET = agentRoute(async ({ householdId, userId, url }) => {
       const props = (r.props as Record<string, PropValue>) ?? {};
       if (!incluirFeitas && status && done.has(String(props[status.id] ?? ""))) return false;
       for (const [k, v] of p.entries()) {
-        if (["incluir_feitas", "prazo_ate", "busca"].includes(k)) continue;
+        if (["incluir_feitas", "prazo_ate", "busca", "banco_id"].includes(k)) continue;
         const prop = schema.properties.find((x) => norm(x.name) === norm(k) || x.id === k);
         if (!prop) continue;
         const val = nomes[prop.name];
@@ -75,7 +84,7 @@ export const POST = agentRoute(
     const titulo = typeof body.titulo === "string" ? body.titulo.trim() : "";
     if (!titulo) throw new AgentInputError('"titulo" é obrigatório');
 
-    const dbPage = await coreCall(getTasksDatabase(actor));
+    const dbPage = await bancoAlvo(actor, body.banco_id);
     const schema = (dbPage.schema as DbSchema) ?? { properties: [] };
 
     if (body.permitir_duplicado !== true) {
@@ -101,7 +110,7 @@ export const POST = agentRoute(
     revalidatePath("/tarefas", "layout");
 
     const fresh = (await listRows(actor, dbPage.id)).find((r) => r.id === row.id) ?? row;
-    const freshDb = await getTasksDatabase(actor);
+    const freshDb = await bancoAlvo(actor, dbPage.id);
     return agentJson({ ok: true, ...rowOut((freshDb.schema as DbSchema) ?? schema, fresh) }, 201);
   },
   { rateLimit: 60 }
@@ -111,7 +120,7 @@ export const PATCH = agentRoute(
   async ({ householdId, userId, req }) => {
     const actor = { householdId, userId, via: "agent" as const };
     const body = await readJson(req);
-    const dbPage = await coreCall(getTasksDatabase(actor));
+    const dbPage = await bancoAlvo(actor, body.banco_id);
     const r = await coreCall(configureDatabase(actor, dbPage, body));
     revalidatePath("/tarefas", "layout");
     return { ok: true, propriedades_disponiveis: describeSchema(r.schema), visualizacoes: (r.views ?? []).map((v) => v.name) };
