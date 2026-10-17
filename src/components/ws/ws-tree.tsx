@@ -63,6 +63,13 @@ export function WsTree({ items }: { items: TreeItem[] }) {
       <Link href="/tarefas/lixeira" onClick={() => setMobileOpen(false)} style={{ ...sideBtn, textDecoration: "none", color: activeId === "lixeira" ? "var(--ink)" : "var(--muted-d)" }}>
         🗑️ Lixeira
       </Link>
+      {process.env.NEXT_PUBLIC_VERCEL_ENV === "preview" ? (
+        <div style={{ ...sideBtn, color: "var(--accent)", fontWeight: 700, marginTop: 6 }}>🧪 Ambiente de TESTE</div>
+      ) : (
+        <a href="/api/dev-login" title="Abre a versão em teste, já logado (banco separado)" style={{ ...sideBtn, textDecoration: "none", color: "var(--muted)", marginTop: 6 }}>
+          🧪 Ambiente de teste
+        </a>
+      )}
     </nav>
   );
 

@@ -18,6 +18,11 @@ export async function signInWithGoogle() {
   await signIn("google", { redirectTo: "/" });
 }
 
+/** Login normal e, em seguida, salto para o ambiente de teste já logado (ver lib/dev-login). */
+export async function signInParaTeste() {
+  await signIn("google", { redirectTo: "/api/dev-login" });
+}
+
 export async function signOutAction() {
   await signOut({ redirectTo: "/login" });
 }

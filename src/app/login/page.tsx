@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-import { enterDemo, signInWithGoogle } from "@/app/actions/auth";
+import { enterDemo, signInParaTeste, signInWithGoogle } from "@/app/actions/auth";
 import { Logo } from "@/components/ap/logo";
 import { auth } from "@/auth";
 
@@ -114,6 +114,17 @@ export default async function LoginPage() {
               Entrar como demo
             </button>
           </form>
+
+          {process.env.VERCEL_ENV !== "preview" && (
+            <form action={signInParaTeste} style={{ width: "100%", marginTop: 10 }}>
+              <button
+                type="submit"
+                style={{ width: "100%", height: 38, borderRadius: 19, background: "transparent", color: "var(--muted-d)", border: "1px dashed var(--line-d)", fontWeight: 600, fontSize: 12.5, cursor: "pointer" }}
+              >
+                🧪 Entrar no ambiente de teste
+              </button>
+            </form>
+          )}
 
           <p
             style={{
