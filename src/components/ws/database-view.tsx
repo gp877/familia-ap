@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { createPortal } from "react-dom";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import { wsCreatePage, wsMoveRow, wsSetRowProps, wsUpdateDatabase } from "@/app/actions/workspace";
@@ -24,6 +25,9 @@ type DoneCtx = { isDone: (r: RowData) => boolean; toggle: (r: RowData) => void }
 const DoneContext = createContext<DoneCtx | null>(null);
 /** Clicar no título abre a tarefa "por cima" (peek) em vez de trocar de página. */
 const PeekContext = createContext<((id: string) => void) | null>(null);
+/** 🤖 rápido no cartão: manda a orientação pra fila da IA sem abrir a tarefa. */
+type AskFn = ((row: RowData, text: string) => void) | null;
+const AskContext = createContext<AskFn>(null);
 /** Arrastar no quadro: grava coluna + ordem (otimista). */
 type MoveFn = (row: RowData, values: Record<string, PropValue> | null, orderedIds: string[]) => void;
 
@@ -134,6 +138,24 @@ export function DatabaseView({
     run(() => wsMoveRow(row.id, values, orderedIds));
   };
 
+  // ── 🤖 orientação rápida ──
+  const promptProp = schema.properties.find((p) => p.role === "ai_prompt");
+  const aiStatusProp = schema.properties.find((p) => p.role === "ai_status");
+  const filaOpt = aiStatusProp?.options?.[0];
+  const ask: AskFn =
+    promptProp && aiStatusProp && filaOpt
+      ? (row, text) => {
+          const before = { [promptProp.id]: row.props?.[promptProp.id] ?? null, [aiStatusProp.id]: row.props?.[aiStatusProp.id] ?? null };
+          const values = { [promptProp.id]: text, [aiStatusProp.id]: filaOpt.id };
+          patch(row.id, { props: values });
+          run(() => wsSetRowProps(row.id, values));
+          showToast(`🤖 Enviada para a IA: ${row.title}`, () => {
+            patch(row.id, { props: before });
+            run(() => wsSetRowProps(row.id, before));
+          });
+        }
+      : null;
+
   // ── tarefa aberta por cima (peek) ──
   const [peekId, setPeekId] = useState<string | null>(null);
   const peekRow = peekId ? effRows.find((r) => r.id === peekId) : undefined;
@@ -152,6 +174,7 @@ export function DatabaseView({
   return (
     <DoneContext.Provider value={doneCtx}>
     <PeekContext.Provider value={setPeekId}>
+    <AskContext.Provider value={ask}>
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {toast && (
         <div
@@ -200,8 +223,86 @@ export function DatabaseView({
         />
       )}
     </div>
+    </AskContext.Provider>
     </PeekContext.Provider>
     </DoneContext.Provider>
+  );
+}
+
+/** 🤖 no cartão: balão com a orientação → fila da IA. */
+function QuickAsk({ row }: { row: RowData }) {
+  const ask = useContext(AskContext);
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  const [text, setText] = useState("");
+  if (!ask) return null;
+  const close = () => {
+    setPos(null);
+    setText("");
+  };
+  const send = () => {
+    if (!text.trim()) return;
+    ask(row, text.trim());
+    close();
+  };
+  return (
+    <>
+      <button
+        type="button"
+        title="Pedir à IA (orientação rápida)"
+        aria-label="Pedir à IA"
+        className="ws-quick"
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+          const w = Math.min(320, window.innerWidth - 24);
+          setPos({ x: Math.max(12, Math.min(r.right - w, window.innerWidth - w - 12)), y: Math.min(r.bottom + 6, window.innerHeight - 190) });
+        }}
+        style={{ border: 0, background: "transparent", padding: "0 2px", fontSize: 13, lineHeight: 1, cursor: "pointer", flexShrink: 0, borderRadius: 4 }}
+      >
+        🤖
+      </button>
+      {pos &&
+        createPortal(
+          <div
+            onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+            style={{ position: "fixed", inset: 0, zIndex: 85 }}
+          >
+            <div onMouseDown={close} style={{ position: "absolute", inset: 0 }} />
+            <div
+              style={{ position: "absolute", left: pos.x, top: pos.y, width: Math.min(320, window.innerWidth - 24), background: "var(--card)", border: "0.5px solid var(--accent)", borderRadius: 10, boxShadow: "0 14px 36px rgba(0,0,0,.5)", padding: 10 }}
+            >
+              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>🤖 {row.title}</div>
+              <textarea
+                autoFocus
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") close();
+                  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) send();
+                }}
+                rows={3}
+                placeholder="O que a IA deve fazer?"
+                style={{ width: "100%", resize: "vertical", background: "var(--surf)", color: "var(--ink)", border: "0.5px solid var(--line-d)", borderRadius: 7, padding: "6px 8px", fontSize: 13, fontFamily: "inherit", outline: "none" }}
+              />
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6, gap: 6 }}>
+                <span style={{ fontSize: 10.5, color: "var(--muted)" }}>Ctrl+Enter envia · Esc fecha</span>
+                <button
+                  type="button"
+                  disabled={!text.trim()}
+                  onClick={send}
+                  style={{ padding: "5px 10px", borderRadius: 7, border: 0, background: "var(--accent)", color: "var(--accent-on)", fontWeight: 700, fontSize: 12, cursor: "pointer", opacity: text.trim() ? 1 : 0.5, fontFamily: "inherit" }}
+                >
+                  Enviar para a IA
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+    </>
   );
 }
 
@@ -216,6 +317,7 @@ function Legend({ board }: { board: boolean }) {
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 14px", fontSize: 11, color: "var(--muted)" }}>
       {item(<span style={{ width: 11, height: 11, borderRadius: 999, border: "1.5px solid var(--muted)", display: "inline-block" }} />, "toque para concluir")}
+      {item(<span>🤖</span>, "pedir à IA (vai para a fila; mande \"arrastão\" para executar)")}
       {item(<span style={{ fontSize: 9, fontWeight: 800, color: "var(--accent)", border: "0.5px solid var(--accent)", borderRadius: 999, padding: "0 4px" }}>IA</span>, "criada pelo assistente")}
       {item(<span style={{ color: "var(--alert)", fontWeight: 600 }}>📅 atrasada</span>, "prazo vencido")}
       {item(<span>🖱️</span>, board ? "clique abre · arraste para mover (no celular: segure e arraste)" : "clique abre a tarefa")}
@@ -336,6 +438,7 @@ function RowTitle({ row, wrap = false, size = 13.5 }: { row: RowData; wrap?: boo
       >
         {row.title || "Sem título"}
       </span>
+      <QuickAsk row={row} />
       <AiBadge created={row.createdVia === "agent"} revisedAt={row.createdVia === "agent" ? null : row.agentUpdatedAt} />
     </a>
   );
