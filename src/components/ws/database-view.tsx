@@ -359,7 +359,8 @@ export function DatabaseView({
               ⓘ Legenda
             </button>
           </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <ColorKey schema={schema} />
           {(prazoProp || prioProp) && view.type !== "calendar" && (
             <div style={{ display: "flex", gap: 2, background: "var(--surf)", borderRadius: 8, padding: 2, alignItems: "center" }} title="Ordenar os cartões">
               <span style={{ fontSize: 11, color: "var(--muted)", padding: "0 4px 0 6px" }}>Ordenar</span>
@@ -855,6 +856,30 @@ function DotOf({ prop, value }: { prop: Property; value: PropValue }) {
         borderRadius: prop.role === "priority" ? 999 : 3,
       }}
     />
+  );
+}
+
+/** Legenda discreta das cores (prioridade ● e área ■) no topo. */
+function ColorKey({ schema }: { schema: DbSchema }) {
+  const props = schema.properties
+    .filter((p) => (p.role === "priority" || p.role === "category") && p.options?.length)
+    .sort((a, b) => (a.role === "priority" ? -1 : b.role === "priority" ? 1 : 0));
+  if (!props.length) return null;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 11, color: "var(--muted-d)", padding: "0 4px" }}>
+      {props.map((p) => (
+        <span key={p.id} title={p.name} style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+          {(p.options ?? [])
+            .filter((o) => !o.archived)
+            .map((o) => (
+              <span key={o.id} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <span className="ws-dot" style={{ width: 8, height: 8, background: accentColor(o.color), borderRadius: p.role === "priority" ? 999 : 2 }} />
+                {o.name}
+              </span>
+            ))}
+        </span>
+      ))}
+    </div>
   );
 }
 
