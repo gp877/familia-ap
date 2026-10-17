@@ -22,3 +22,7 @@ export function colorStyle(c: Color | undefined): CSSProperties {
   return { background: p.bg, color: p.fg };
 }
 
+/** Cor forte (texto) da etiqueta — usada como faixa lateral do cartão (ex.: prioridade). */
+export function accentColor(c: Color | undefined): string {
+  return (PALETTE[c ?? "default"] ?? PALETTE.default).fg;
+}

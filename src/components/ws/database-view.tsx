@@ -16,6 +16,7 @@ import {
 } from "@/lib/workspace-model";
 
 import { type CellCtx, type Person, PropCell, PropDisplay } from "./prop-cell";
+import { accentColor } from "./colors";
 import { RowPeek } from "./row-peek";
 import { AddPropertyButton, PropertyMenu, ViewTabs, ViewToolbar } from "./schema-editor";
 import { AiBadge, GhostButton, Popover, Tag, TextField } from "./ws-ui";
@@ -28,6 +29,9 @@ const PeekContext = createContext<((id: string) => void) | null>(null);
 /** 🤖 rápido no cartão: manda a orientação pra fila da IA sem abrir a tarefa. */
 type AskFn = ((row: RowData, text: string) => void) | null;
 const AskContext = createContext<AskFn>(null);
+/** Trocar o valor de uma etiqueta direto no cartão (prioridade, tipo…), sem abrir a tarefa. */
+type SetPropFn = (row: RowData, propId: string, value: PropValue) => void;
+const SetPropContext = createContext<SetPropFn | null>(null);
 /** Arrastar no quadro: grava coluna + ordem (otimista). */
 type MoveFn = (row: RowData, values: Record<string, PropValue> | null, orderedIds: string[]) => void;
 
@@ -72,7 +76,15 @@ export function DatabaseView({
     setPatches({});
   }
   const manual = manualViews.has(baseView.id);
-  const view = useMemo(() => (manual && baseView.sorts.length ? { ...baseView, sorts: [] } : baseView), [manual, baseView]);
+  // filtros rápidos (?m=) e formato (Quadro/Tabela/Calendário) trocados dentro da mesma visualização
+  const modes = useMemo(() => baseView.modes ?? [], [baseView]);
+  const mode = modes.find((m) => m.id === sp.get("m"));
+  const [typeOverride, setTypeOverride] = useState<Record<string, View["type"]>>({});
+  const shapedView = useMemo(
+    () => ({ ...baseView, type: typeOverride[baseView.id] ?? baseView.type, filters: mode ? mode.filters : baseView.filters }),
+    [baseView, typeOverride, mode]
+  );
+  const view = useMemo(() => (manual && shapedView.sorts.length ? { ...shapedView, sorts: [] } : shapedView), [manual, shapedView]);
   const patch = (id: string, p: Patch) =>
     setPatches((o) => ({ ...o, [id]: { props: { ...o[id]?.props, ...p.props }, sortOrder: p.sortOrder ?? o[id]?.sortOrder } }));
   const effRows = useMemo(
@@ -138,6 +150,21 @@ export function DatabaseView({
     run(() => wsMoveRow(row.id, values, orderedIds));
   };
 
+  // ── etiqueta clicável no cartão ──
+  const setProp: SetPropFn = (row, propId, value) => {
+    patch(row.id, { props: { [propId]: value } });
+    run(() => wsSetRowProps(row.id, { [propId]: value }));
+  };
+
+  // ── formato da visualização ──
+  const layouts = ([["board", "▦ Quadro"], ["table", "☰ Tabela"], ["calendar", "📅 Calendário"]] as const).filter(
+    ([t]) => (t !== "board" || baseView.groupBy) && (t !== "calendar" || baseView.dateProp)
+  );
+  const setLayout = (type: View["type"]) => {
+    setTypeOverride((o) => ({ ...o, [baseView.id]: type }));
+    run(() => wsUpdateDatabase(dbId, { views: views.map((v) => (v.id === baseView.id ? { ...v, type } : v)) }));
+  };
+
   // ── 🤖 orientação rápida ──
   const promptProp = schema.properties.find((p) => p.role === "ai_prompt");
   const aiStatusProp = schema.properties.find((p) => p.role === "ai_status");
@@ -168,13 +195,25 @@ export function DatabaseView({
   const select = (id: string) => {
     const q = new URLSearchParams(sp.toString());
     q.set("v", id);
+    q.delete("m");
     router.replace(`${pathname}?${q.toString()}`, { scroll: false });
   };
+  const selectMode = (id: string | null) => {
+    const q = new URLSearchParams(sp.toString());
+    if (id) q.set("m", id);
+    else q.delete("m");
+    router.replace(`${pathname}?${q.toString()}`, { scroll: false });
+  };
+  const modeCounts = useMemo(
+    () => [baseView.filters, ...modes.map((m) => m.filters)].map((filters) => applyView(effRows, { ...baseView, filters, sorts: [] }, schema).length),
+    [effRows, baseView, modes, schema]
+  );
 
   return (
     <DoneContext.Provider value={doneCtx}>
     <PeekContext.Provider value={setPeekId}>
     <AskContext.Provider value={ask}>
+    <SetPropContext.Provider value={setProp}>
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {toast && (
         <div
@@ -206,6 +245,27 @@ export function DatabaseView({
           <ViewToolbar dbId={dbId} schema={schema} views={views} view={baseView} />
         </div>
       </div>
+      {(modes.length > 0 || layouts.length > 1) && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+            {modes.length > 0 &&
+              [{ id: null as string | null, name: "Todas" }, ...modes].map((m, i) => (
+                <button key={m.id ?? "todas"} type="button" className="ws-chip" data-on={(mode?.id ?? null) === m.id || undefined} onClick={() => selectMode(m.id)}>
+                  {m.name} <span style={{ opacity: 0.6 }}>{modeCounts[i]}</span>
+                </button>
+              ))}
+          </div>
+          {layouts.length > 1 && (
+            <div style={{ display: "flex", gap: 2, background: "var(--surf)", borderRadius: 8, padding: 2 }}>
+              {layouts.map(([t, label]) => (
+                <button key={t} type="button" className="ws-seg" data-on={view.type === t || undefined} onClick={() => view.type !== t && setLayout(t)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       <Legend board={view.type === "board"} />
       {view.type === "table" && <TableView ctx={ctx} view={view} props={shownProps} rows={visible} views={views} />}
       {view.type === "list" && <ListView ctx={ctx} props={shownProps} rows={visible} />}
@@ -223,6 +283,7 @@ export function DatabaseView({
         />
       )}
     </div>
+    </SetPropContext.Provider>
     </AskContext.Provider>
     </PeekContext.Provider>
     </DoneContext.Provider>
@@ -450,11 +511,75 @@ function Chips({ props, row, people }: { props: Property[]; row: RowData; people
   if (!shown.length) return null;
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center", fontSize: 11.5 }}>
-      {shown.map((p) => (
-        <PropDisplay key={p.id} prop={p} value={row.props?.[p.id] ?? null} people={people} compact />
-      ))}
+      {shown.map((p) =>
+        p.type === "select" || p.type === "status" ? (
+          <ChipMenu key={p.id} prop={p} row={row} people={people} />
+        ) : (
+          <PropDisplay key={p.id} prop={p} value={row.props?.[p.id] ?? null} people={people} compact />
+        )
+      )}
     </div>
   );
+}
+
+/** Etiqueta do cartão que abre as opções ali mesmo (ex.: Alta / Média / Baixa). */
+function ChipMenu({ prop, row, people }: { prop: Property; row: RowData; people: CellCtx["people"] }) {
+  const setProp = useContext(SetPropContext);
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  const value = row.props?.[prop.id] ?? null;
+  if (!setProp) return <PropDisplay prop={prop} value={value} people={people} compact />;
+  const stop = (e: React.SyntheticEvent) => e.stopPropagation();
+  return (
+    <>
+      <button
+        type="button"
+        title={`${prop.name}: clique para trocar`}
+        onPointerDown={stop}
+        onMouseDown={stop}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+          setPos({ x: Math.min(r.left, window.innerWidth - 190), y: Math.min(r.bottom + 4, window.innerHeight - 240) });
+        }}
+        style={{ border: 0, background: "transparent", padding: 0, cursor: "pointer", font: "inherit", lineHeight: 1 }}
+      >
+        <PropDisplay prop={prop} value={value} people={people} compact />
+      </button>
+      {pos &&
+        createPortal(
+          <div onPointerDown={stop} onClick={stop} style={{ position: "fixed", inset: 0, zIndex: 85 }}>
+            <div onMouseDown={() => setPos(null)} style={{ position: "absolute", inset: 0 }} />
+            <div style={{ position: "absolute", left: pos.x, top: pos.y, width: 180, background: "var(--card)", border: "0.5px solid var(--line-d)", borderRadius: 9, boxShadow: "0 12px 30px rgba(0,0,0,.5)", padding: 4 }}>
+              <div style={{ fontSize: 10.5, color: "var(--muted)", padding: "3px 6px 5px" }}>{prop.name}</div>
+              {(prop.options ?? []).map((o) => (
+                <button
+                  key={o.id}
+                  type="button"
+                  className="ws-menu-item"
+                  onClick={() => {
+                    setProp(row, prop.id, o.id);
+                    setPos(null);
+                  }}
+                  style={{ display: "flex", width: "100%", alignItems: "center", gap: 6, padding: "5px 6px", border: 0, background: o.id === value ? "var(--surf)" : "transparent", borderRadius: 6, cursor: "pointer", font: "inherit" }}
+                >
+                  <PropDisplay prop={prop} value={o.id} people={people} compact />
+                  {o.id === value && <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--muted)" }}>✓</span>}
+                </button>
+              ))}
+            </div>
+          </div>,
+          document.body
+        )}
+    </>
+  );
+}
+
+/** Cor da faixa lateral do cartão: a opção da propriedade com papel "priority". */
+function prioColorOf(schema: DbSchema, r: RowData): string | null {
+  const prio = schema.properties.find((p) => p.role === "priority");
+  const opt = prio?.options?.find((o) => o.id === r.props?.[prio.id]);
+  return opt ? accentColor(opt.color) : null;
 }
 
 // ── Tabela ─────────────────────────────────────────────────────────
@@ -709,6 +834,7 @@ function BoardView({ ctx, view, props, rows, onMove }: { ctx: CellCtx; view: Vie
       style={{
         background: "var(--card)",
         border: ghost ? "1px solid var(--accent)" : "0.5px solid var(--line-d)",
+        borderLeft: prioColorOf(ctx.schema, r) ? `3px solid ${prioColorOf(ctx.schema, r)}` : ghost ? "1px solid var(--accent)" : "0.5px solid var(--line-d)",
         borderRadius: 7,
         padding: "6px 8px",
         cursor: drag ? "grabbing" : "grab",

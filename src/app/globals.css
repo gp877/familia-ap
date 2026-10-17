@@ -259,3 +259,8 @@
 .ws-quick { opacity: .35; transition: opacity .12s; }
 .ws-row:hover .ws-quick, [data-card]:hover .ws-quick, .ws-quick:focus { opacity: 1; }
 @media (hover: none) { .ws-quick { opacity: .7; } }
+.ws-chip { border: 0.5px solid var(--line-d); background: transparent; color: var(--muted-d); border-radius: 999px; padding: 3px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+.ws-chip:hover { background: var(--surf); }
+.ws-chip[data-on] { background: var(--accent); border-color: var(--accent); color: var(--accent-on); font-weight: 700; }
+.ws-seg { border: 0; background: transparent; color: var(--muted-d); border-radius: 6px; padding: 3px 9px; font: inherit; font-size: 12px; cursor: pointer; }
+.ws-seg[data-on] { background: var(--card2); color: var(--ink); font-weight: 700; }

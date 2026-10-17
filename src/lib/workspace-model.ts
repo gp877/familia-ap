@@ -111,7 +111,7 @@ export type SelectOption = { id: string; name: string; color: Color; group?: Sta
  *  ai_prompt → texto com a instrução para a IA (aparece como "🤖 Pedir à IA" na tarefa)
  *  ai_status → seleção da fila da IA; a 1ª opção = "na fila" (some das listas até a IA terminar)
  */
-export type PropRole = "ai_prompt" | "ai_status";
+export type PropRole = "ai_prompt" | "ai_status" | "priority";
 
 export type Property = {
   id: string;
@@ -179,7 +179,11 @@ export type View = {
   groupBy?: string; // board: propId (select/status/person/checkbox)
   dateProp?: string; // calendar: propId (date)
   hidden?: string[]; // propIds escondidos na tabela/lista
+  /** Filtros rápidos (botões acima do quadro): cada um troca os filtros da visualização. Sem escolha = `filters`. */
+  modes?: ViewMode[];
 };
+
+export type ViewMode = { id: string; name: string; filters: Filter[] };
 
 /** Data "hoje" no fuso de Brasília, AAAA-MM-DD. Valor especial dos filtros: "@hoje" (ou "@hoje+3", "@hoje-7"). */
 export function todayBrt(offsetDays = 0): string {

@@ -180,13 +180,22 @@ const PROP_TYPES = ["text", "number", "select", "multi_select", "status", "date"
 const VIEW_TYPES = ["table", "board", "list", "calendar"] as const;
 const OPS = ["is", "is_not", "contains", "not_contains", "empty", "not_empty", "before", "after", "on_or_before", "on_or_after", "checked", "unchecked"] as const;
 
+function papelDe(v: unknown) {
+  if (v === "instrucao_ia") return "ai_prompt" as const;
+  if (v === "status_ia") return "ai_status" as const;
+  if (v === "prioridade") return "priority" as const;
+  return undefined;
+}
+
 /**
  * Configura um banco por NOMES: cria propriedades novas e/ou substitui as
  * visualizações. Filtros aceitam o nome da opção (ou "@hoje" em datas).
  *   { "adicionar_propriedades": [{ "nome", "tipo", "opcoes"?: ["A", "B"] }],
  *     "visualizacoes": [{ "nome", "tipo": "table|board|list|calendar", "agrupar_por"?, "data"?,
  *        "filtros"?: [{ "propriedade", "operador", "valor"? }], "ordenar"?: [{ "propriedade", "direcao": "asc|desc" }],
- *        "ocultar"?: ["Nome da propriedade"] }] }
+ *        "ocultar"?: ["Nome da propriedade"], "modos"?: [{ "nome", "filtros" }] }],
+ *     "opcoes"?: { "Prop": { "renomear"?: {"Velho": "Novo"}, "adicionar"?: [], "remover"?: [], "ordem"?: [] } },
+ *     "papeis"?: { "Prop": "prioridade" | "instrucao_ia" | "status_ia" | null } }
  */
 export async function configureDatabase(actor: WsActor, dbPage: WsPage, body: Record<string, unknown>) {
   const schema: DbSchema = structuredClone((dbPage.schema as DbSchema) ?? { properties: [] });
@@ -197,7 +206,7 @@ export async function configureDatabase(actor: WsActor, dbPage: WsPage, body: Re
     if (!nome || !PROP_TYPES.includes(tipo)) throw new AgentInputError(`Propriedade inválida: ${JSON.stringify(p)}`);
     if (schema.properties.some((x) => norm(x.name) === norm(nome))) continue;
     const opcoes = Array.isArray(p.opcoes) ? p.opcoes.map(String) : [];
-    const papel = p.papel === "instrucao_ia" ? ("ai_prompt" as const) : p.papel === "status_ia" ? ("ai_status" as const) : undefined;
+    const papel = papelDe(p.papel);
     schema.properties.push({
       id: newId(),
       name: nome,
@@ -207,6 +216,39 @@ export async function configureDatabase(actor: WsActor, dbPage: WsPage, body: Re
         ? { options: opcoes.map((o, i) => ({ id: newId(), name: o, color: COLORS[1 + (i % (COLORS.length - 1))] })) }
         : {}),
     });
+  }
+
+  // Opções de select por nome: { "Tipo": { renomear: {"Velho": "Novo"}, adicionar: [...], remover: [...], ordem: [...] } }
+  if (body.opcoes && typeof body.opcoes === "object") {
+    for (const [nomeProp, cfg] of Object.entries(body.opcoes as Record<string, Record<string, unknown>>)) {
+      const prop = schema.properties.find((x) => norm(x.name) === norm(nomeProp));
+      if (!prop || !prop.options) throw new AgentInputError(`"${nomeProp}" não é uma propriedade com opções`);
+      for (const [velho, novo] of Object.entries((cfg.renomear as Record<string, string>) ?? {})) {
+        const o = prop.options.find((x) => norm(x.name) === norm(velho));
+        if (o && String(novo).trim()) o.name = String(novo).trim().slice(0, 60);
+      }
+      for (const nome of Array.isArray(cfg.adicionar) ? cfg.adicionar.map(String) : []) {
+        if (!prop.options.some((x) => norm(x.name) === norm(nome)))
+          prop.options.push({ id: newId(), name: nome.slice(0, 60), color: COLORS[1 + (prop.options.length % (COLORS.length - 1))] });
+      }
+      const remover = new Set((Array.isArray(cfg.remover) ? cfg.remover.map(String) : []).map(norm));
+      prop.options = prop.options.filter((x) => !remover.has(norm(x.name)));
+      if (Array.isArray(cfg.ordem)) {
+        const ordem = cfg.ordem.map((x) => norm(String(x)));
+        const pos = (n: string) => (ordem.indexOf(norm(n)) + 1 || 999);
+        prop.options.sort((a, b) => pos(a.name) - pos(b.name));
+      }
+    }
+  }
+  // Papéis em propriedades existentes: { "Prioridade": "prioridade" }
+  if (body.papeis && typeof body.papeis === "object") {
+    for (const [nomeProp, papel] of Object.entries(body.papeis as Record<string, unknown>)) {
+      const prop = schema.properties.find((x) => norm(x.name) === norm(nomeProp));
+      if (!prop) throw new AgentInputError(`Propriedade "${nomeProp}" não existe`);
+      const r = papelDe(papel);
+      if (r) prop.role = r;
+      else delete prop.role;
+    }
   }
 
   const propId = (nome: unknown) => {
@@ -228,7 +270,13 @@ export async function configureDatabase(actor: WsActor, dbPage: WsPage, body: Re
     views = (body.visualizacoes as Array<Record<string, unknown>>).map((v) => {
       const tipo = String(v.tipo ?? "table") as (typeof VIEW_TYPES)[number];
       if (!VIEW_TYPES.includes(tipo)) throw new AgentInputError(`Visualização com tipo inválido: ${v.tipo}`);
-      const filtros = Array.isArray(v.filtros) ? (v.filtros as Array<Record<string, unknown>>) : [];
+      const parseFiltros = (lista: unknown) =>
+        (Array.isArray(lista) ? (lista as Array<Record<string, unknown>>) : []).map((f) => {
+          const pid = propId(f.propriedade);
+          const op = String(f.operador ?? "is") as (typeof OPS)[number];
+          if (!OPS.includes(op)) throw new AgentInputError(`Operador inválido: ${f.operador}`);
+          return { prop: pid, op, ...(f.valor != null ? { value: optVal(pid, f.valor) } : {}) };
+        });
       const ordenar = Array.isArray(v.ordenar) ? (v.ordenar as Array<Record<string, unknown>>) : [];
       return {
         id: newId(),
@@ -236,14 +284,12 @@ export async function configureDatabase(actor: WsActor, dbPage: WsPage, body: Re
         type: tipo,
         ...(v.agrupar_por ? { groupBy: propId(v.agrupar_por) } : {}),
         ...(v.data ? { dateProp: propId(v.data) } : {}),
-        filters: filtros.map((f) => {
-          const pid = propId(f.propriedade);
-          const op = String(f.operador ?? "is") as (typeof OPS)[number];
-          if (!OPS.includes(op)) throw new AgentInputError(`Operador inválido: ${f.operador}`);
-          return { prop: pid, op, ...(f.valor != null ? { value: optVal(pid, f.valor) } : {}) };
-        }),
+        filters: parseFiltros(v.filtros),
         sorts: ordenar.map((s) => ({ prop: propId(s.propriedade), dir: s.direcao === "desc" ? ("desc" as const) : ("asc" as const) })),
         ...(Array.isArray(v.ocultar) ? { hidden: v.ocultar.map(propId) } : {}),
+        ...(Array.isArray(v.modos)
+          ? { modes: (v.modos as Array<Record<string, unknown>>).map((m) => ({ id: newId(), name: String(m.nome ?? "Filtro").slice(0, 40), filters: parseFiltros(m.filtros) })) }
+          : {}),
       };
     });
     if (!views.length) throw new AgentInputError("Envie ao menos uma visualização");
