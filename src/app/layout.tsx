@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { Caveat, Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import Script from "next/script";
 import "./globals.css";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -15,10 +16,12 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-const caveat = Caveat({
+// Caveat guardada no próprio app (o download do Google Fonts falhou 2x no build da Vercel em 17/10)
+const caveat = localFont({
+  src: "./fonts/caveat-latin-wght.woff2",
   variable: "--font-caveat",
-  subsets: ["latin"],
-  weight: ["500", "600", "700"],
+  weight: "400 700",
+  display: "swap",
 });
 
 export const metadata: Metadata = {
