@@ -24,6 +24,7 @@ import {
   radarDatabase,
   newId,
   welcomeBlocks,
+  COLORS,
 } from "./workspace-model";
 
 export type WsActor = { userId: string; householdId: string; via?: "app" | "agent" };
@@ -460,3 +461,44 @@ export async function activityReport(actor: WsActor, days = 60) {
   const rows = tasksDb ? await listRows(actor, tasksDb.id) : [];
   return { events, tasksDb, rows };
 }
+
+/**
+ * Cria uma opção (nome) numa propriedade de escolha lendo o esquema ATUAL do banco — nunca uma cópia
+ * da tela. Nome igual a um existente reaproveita (e desarquiva). `id` opcional vem da tela para a
+ * etiqueta aparecer na hora sem piscar.
+ */
+export async function addOption(actor: WsActor, dbId: string, propId: string, name: string, id?: string) {
+  const page = await getPage(actor, dbId);
+  if (page.kind !== "database") throw new WsError("Não é um banco");
+  const schema = structuredClone((page.schema as DbSchema) ?? { properties: [] });
+  const prop = schema.properties.find((p) => p.id === propId);
+  if (!prop || !["select", "multi_select", "status"].includes(prop.type)) throw new WsError("Essa propriedade não tem opções");
+  const nome = name.trim().slice(0, 60);
+  if (!nome) throw new WsError("Nome vazio");
+  prop.options ??= [];
+  const igual = prop.options.find((o) => o.name.trim().toLowerCase() === nome.toLowerCase());
+  if (igual) {
+    if (igual.archived) {
+      delete igual.archived;
+      await updateDatabase(actor, dbId, { schema });
+    }
+    return igual.id;
+  }
+  const optId = id && /^[A-Za-z0-9_-]{6,40}$/.test(id) && !prop.options.some((o) => o.id === id) ? id : newId();
+  prop.options.push({ id: optId, name: nome, color: COLORS[1 + (prop.options.length % (COLORS.length - 1))], ...(prop.type === "status" ? { group: "todo" as const } : {}) });
+  await updateDatabase(actor, dbId, { schema });
+  return optId;
+}
+
+/** Arquiva (some das listas de escolha) ou devolve uma opção, lendo o esquema atual. */
+export async function setOptionArchived(actor: WsActor, dbId: string, propId: string, optId: string, archived: boolean) {
+  const page = await getPage(actor, dbId);
+  if (page.kind !== "database") throw new WsError("Não é um banco");
+  const schema = structuredClone((page.schema as DbSchema) ?? { properties: [] });
+  const opt = schema.properties.find((p) => p.id === propId)?.options?.find((o) => o.id === optId);
+  if (!opt) throw new WsError("Opção não encontrada");
+  if (archived) opt.archived = true;
+  else delete opt.archived;
+  await updateDatabase(actor, dbId, { schema });
+}
+

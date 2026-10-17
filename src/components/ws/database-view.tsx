@@ -4,10 +4,11 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { createPortal } from "react-dom";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useTransition } from "react";
 
-import { wsArchive, wsCreatePage, wsMoveRow, wsRestore, wsSetRowProps, wsUpdateDatabase } from "@/app/actions/workspace";
+import { wsAddOptionAndSet, wsArchive, wsArchiveOption, wsCreatePage, wsMoveRow, wsRestore, wsSetRowProps, wsUpdateDatabase } from "@/app/actions/workspace";
 import {
   type Block,
   type Color,
+  type SelectOption,
   COLORS,
   type DbSchema,
   type Property,
@@ -55,7 +56,7 @@ export type RowData = {
 
 export function DatabaseView({
   dbId,
-  schema,
+  schema: schemaIn,
   views,
   rows,
   people,
@@ -69,6 +70,23 @@ export function DatabaseView({
   const router = useRouter();
   const pathname = usePathname();
   const sp = useSearchParams();
+  // nomes criados/arquivados aparecem na hora (o servidor confirma depois)
+  const [optPend, setOptPend] = useState<{ add: Record<string, SelectOption[]>; arch: Record<string, boolean> }>({ add: {}, arch: {} });
+  const [prevSchema, setPrevSchema] = useState(schemaIn);
+  if (schemaIn !== prevSchema) {
+    setPrevSchema(schemaIn);
+    setOptPend({ add: {}, arch: {} });
+  }
+  const schema = useMemo<DbSchema>(
+    () => ({
+      properties: schemaIn.properties.map((p) => {
+        const extra = (optPend.add[p.id] ?? []).filter((o) => !(p.options ?? []).some((x) => x.id === o.id));
+        if (!p.options && !extra.length) return p;
+        return { ...p, options: [...(p.options ?? []), ...extra].map((o) => (o.id in optPend.arch ? { ...o, archived: optPend.arch[o.id] || undefined } : o)) };
+      }),
+    }),
+    [schemaIn, optPend]
+  );
   const activeId = views.some((v) => v.id === sp.get("v")) ? sp.get("v")! : views[0].id;
   const baseView = views.find((v) => v.id === activeId)!;
 
@@ -120,7 +138,9 @@ export function DatabaseView({
         await fn();
       } catch (e) {
         setPatches({});
-        alert(e instanceof Error ? e.message : String(e));
+        setOptPend({ add: {}, arch: {} });
+        const msg = e instanceof Error ? e.message : String(e);
+        showToast(/omitted in production|Server Components render/i.test(msg) ? "⚠️ Não consegui salvar. Atualize a página e tente de novo." : `⚠️ ${msg}`);
       }
     });
 
@@ -164,21 +184,19 @@ export function DatabaseView({
     run(() => wsSetRowProps(row.id, { [propId]: value }));
   };
 
-  // ── nomes (opções) criados/arquivados pelo menu da etiqueta ──
-  const withOptions = (propId: string, fn: (opts: NonNullable<Property["options"]>) => NonNullable<Property["options"]>): DbSchema => ({
-    properties: schema.properties.map((p) => (p.id === propId ? { ...p, options: fn(p.options ?? []) } : p)),
-  });
+  // ── nomes (opções) criados/arquivados pelo menu da etiqueta: uma ação só no servidor ──
   const optionOps: OptionOps = {
     create: (row, prop, name) => {
-      const opt = { id: newId(), name: name.slice(0, 60), color: COLORS[1 + ((prop.options?.length ?? 0) % (COLORS.length - 1))] as Color };
+      const opt: SelectOption = { id: newId(), name: name.trim().slice(0, 60), color: COLORS[1 + ((prop.options?.length ?? 0) % (COLORS.length - 1))] as Color };
+      setOptPend((o) => ({ ...o, add: { ...o.add, [prop.id]: [...(o.add[prop.id] ?? []), opt] } }));
       patch(row.id, { props: { [prop.id]: opt.id } });
-      run(async () => {
-        await wsUpdateDatabase(dbId, { schema: withOptions(prop.id, (o) => [...o, opt]) });
-        await wsSetRowProps(row.id, { [prop.id]: opt.id });
-      });
+      run(() => wsAddOptionAndSet(dbId, prop.id, opt.name, row.id, opt.id));
+      showToast(`➕ “${opt.name}” criado e aplicado em: ${row.title}`);
     },
-    archive: (prop, optId, archived) =>
-      run(() => wsUpdateDatabase(dbId, { schema: withOptions(prop.id, (o) => o.map((x) => (x.id === optId ? { ...x, archived: archived || undefined } : x))) })),
+    archive: (prop, optId, archived) => {
+      setOptPend((o) => ({ ...o, arch: { ...o.arch, [optId]: archived } }));
+      run(() => wsArchiveOption(dbId, prop.id, optId, archived));
+    },
   };
 
   // ── formato da visualização ──
@@ -647,38 +665,38 @@ function ChipMenu({ prop, row, people, strongEmpty = false, dot = false }: { pro
   const setProp = useContext(SetPropContext);
   const ops = useContext(OptionOpsContext);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
-  const [novo, setNovo] = useState("");
+  const [q, setQ] = useState("");
   const [verArq, setVerArq] = useState(false);
-  const [arq, setArq] = useState<Record<string, boolean>>({}); // arquivar/voltar na hora (o servidor confirma depois)
   const value = row.props?.[prop.id] ?? null;
-  const isArq = (o: { id: string; archived?: boolean }) => arq[o.id] ?? !!o.archived;
-  const ativos = (prop.options ?? []).filter((o) => !isArq(o) || o.id === value);
-  const arquivados = (prop.options ?? []).filter((o) => isArq(o) && o.id !== value);
   const podeEditar = !!ops && prop.type === "select";
+  const norm = (t: string) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+  const busca = norm(q);
+  const ativos = (prop.options ?? []).filter((o) => (!o.archived || o.id === value) && (!busca || norm(o.name).includes(busca)));
+  const arquivados = (prop.options ?? []).filter((o) => o.archived && o.id !== value);
+  const exato = (prop.options ?? []).find((o) => norm(o.name) === busca);
   const fechar = () => {
     setPos(null);
-    setNovo("");
+    setQ("");
     setVerArq(false);
   };
-  const criar = () => {
-    const nome = novo.trim();
-    if (!nome || !ops) return;
-    const igual = (prop.options ?? []).find((o) => o.name.trim().toLowerCase() === nome.toLowerCase());
-    if (igual) {
-      if (isArq(igual)) {
-        setArq((a) => ({ ...a, [igual.id]: false }));
-        ops.archive(prop, igual.id, false);
-      }
-      setProp?.(row, prop.id, igual.id);
-    } else ops.create(row, prop, nome);
+  const escolher = (id: string | null) => {
+    setProp?.(row, prop.id, id);
     fechar();
   };
-  const arquivar = (id: string, v: boolean) => {
-    setArq((a) => ({ ...a, [id]: v }));
-    ops?.archive(prop, id, v);
+  const adicionar = () => {
+    const nome = q.trim();
+    if (!nome || !ops) return;
+    if (exato) {
+      if (exato.archived) ops.archive(prop, exato.id, false);
+      escolher(exato.id);
+    } else {
+      ops.create(row, prop, nome);
+      fechar();
+    }
   };
   if (!setProp) return <PropDisplay prop={prop} value={value} people={people} compact />;
   const stop = (e: React.SyntheticEvent) => e.stopPropagation();
+  const W = 230;
   return (
     <>
       <button
@@ -690,7 +708,7 @@ function ChipMenu({ prop, row, people, strongEmpty = false, dot = false }: { pro
           e.preventDefault();
           e.stopPropagation();
           const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-          setPos({ x: Math.min(r.left, window.innerWidth - 190), y: Math.min(r.bottom + 4, window.innerHeight - 240) });
+          setPos({ x: Math.max(8, Math.min(r.left, window.innerWidth - W - 8)), y: Math.min(r.bottom + 6, window.innerHeight - 320) });
         }}
         style={{ border: 0, background: "transparent", padding: 0, cursor: "pointer", font: "inherit", lineHeight: 1 }}
       >
@@ -712,79 +730,96 @@ function ChipMenu({ prop, row, people, strongEmpty = false, dot = false }: { pro
         createPortal(
           <div onPointerDown={stop} onClick={stop} style={{ position: "fixed", inset: 0, zIndex: 85 }}>
             <div onMouseDown={fechar} style={{ position: "absolute", inset: 0 }} />
-            <div style={{ position: "absolute", left: pos.x, top: pos.y, width: 200, maxHeight: "min(420px, calc(100vh - 24px))", overflowY: "auto", background: "var(--card)", border: "0.5px solid var(--line-d)", borderRadius: 9, boxShadow: "0 12px 30px rgba(0,0,0,.5)", padding: 4 }}>
-              <div style={{ fontSize: 10.5, color: "var(--muted)", padding: "3px 6px 5px" }}>{prop.name}</div>
-              {prop.type === "date" && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 4, padding: "0 4px 4px" }}>
+            <div className="ws-pop" style={{ left: pos.x, top: pos.y, width: W }}>
+              <div className="ws-pop-title">{prop.name}</div>
+              {prop.type === "date" ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: "0 2px 2px" }}>
                   <input
                     type="date"
                     autoFocus
                     defaultValue={typeof value === "string" ? value : ""}
                     onChange={(e) => e.target.value && setProp(row, prop.id, e.target.value)}
-                    style={{ background: "var(--surf)", color: "var(--ink)", border: "0.5px solid var(--line-d)", borderRadius: 6, padding: "5px 6px", font: "inherit", fontSize: 12.5, colorScheme: "dark" }}
+                    className="ws-pop-input"
+                    style={{ colorScheme: "dark" }}
                   />
                   <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                     {([["Hoje", 0], ["Amanhã", 1], ["+7 dias", 7]] as const).map(([l, d]) => (
-                      <button key={l} type="button" className="ws-chip" onClick={() => { setProp(row, prop.id, todayBrt(d)); setPos(null); }}>
+                      <button key={l} type="button" className="ws-chip" onClick={() => escolher(todayBrt(d))}>
                         {l}
                       </button>
                     ))}
                     {value != null && (
-                      <button type="button" className="ws-chip" onClick={() => { setProp(row, prop.id, null); setPos(null); }}>
-                        Limpar
+                      <button type="button" className="ws-chip" onClick={() => escolher(null)}>
+                        Sem prazo
                       </button>
                     )}
                   </div>
                 </div>
-              )}
-              {ativos.map((o) => (
-                <div key={o.id} className="ws-opt" style={{ display: "flex", alignItems: "center", borderRadius: 6, background: o.id === value ? "var(--surf)" : "transparent" }}>
-                  <button
-                    type="button"
-                    className="ws-menu-item"
-                    onClick={() => {
-                      setProp(row, prop.id, o.id);
-                      fechar();
-                    }}
-                    style={{ display: "flex", flex: 1, minWidth: 0, alignItems: "center", gap: 6, padding: "5px 6px", border: 0, background: "transparent", borderRadius: 6, cursor: "pointer", font: "inherit" }}
-                  >
-                    <PropDisplay prop={prop} value={o.id} people={people} compact />
-                    {o.id === value && <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--muted)" }}>✓</span>}
-                  </button>
-                  {podeEditar && o.id !== value && (
-                    <button type="button" className="ws-opt-arq" title="Arquivar este nome (sai da lista)" onClick={() => arquivar(o.id, true)}>
-                      📦
-                    </button>
+              ) : (
+                <>
+                  {podeEditar && (
+                    <input
+                      autoFocus
+                      value={q}
+                      onChange={(e) => setQ(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") fechar();
+                        if (e.key !== "Enter") return;
+                        e.preventDefault();
+                        if (exato) escolher(exato.id);
+                        else if (ativos.length === 1 && busca) escolher(ativos[0].id);
+                        else adicionar();
+                      }}
+                      placeholder="Buscar ou adicionar nome…"
+                      className="ws-pop-input"
+                      style={{ marginBottom: 4 }}
+                    />
                   )}
-                </div>
-              ))}
-              {podeEditar && (
-                <div style={{ borderTop: "0.5px solid var(--line-d)", marginTop: 4, paddingTop: 4 }}>
-                  <input
-                    value={novo}
-                    onChange={(e) => setNovo(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") criar();
-                      if (e.key === "Escape") fechar();
-                    }}
-                    placeholder="+ Novo nome (Enter)"
-                    style={{ width: "100%", background: "var(--surf)", color: "var(--ink)", border: "0.5px solid var(--line-d)", borderRadius: 6, padding: "5px 7px", font: "inherit", fontSize: 12.5, outline: "none" }}
-                  />
-                  {arquivados.length > 0 && (
-                    <button type="button" className="ws-chip" style={{ marginTop: 4, width: "100%" }} onClick={() => setVerArq((v) => !v)}>
-                      {verArq ? "Esconder arquivados" : `Mostrar arquivados (${arquivados.length})`}
-                    </button>
-                  )}
-                  {verArq &&
-                    arquivados.map((o) => (
-                      <div key={o.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 6px", opacity: 0.75 }}>
-                        <PropDisplay prop={prop} value={o.id} people={people} compact />
-                        <button type="button" className="ws-chip" style={{ marginLeft: "auto", padding: "1px 8px" }} title="Volta para a lista" onClick={() => arquivar(o.id, false)}>
-                          ↩ voltar
+                  <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                    {ativos.map((o) => (
+                      <div key={o.id} className="ws-opt" data-on={o.id === value || undefined}>
+                        <button type="button" className="ws-opt-pick" onClick={() => escolher(o.id)}>
+                          <PropDisplay prop={prop} value={o.id} people={people} compact />
+                          {o.id === value && <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--accent)", fontWeight: 700 }}>✓</span>}
                         </button>
+                        {podeEditar && o.id !== value && (
+                          <button type="button" className="ws-opt-arq" title="Arquivar este nome (sai da lista)" onClick={() => ops?.archive(prop, o.id, true)}>
+                            📦
+                          </button>
+                        )}
                       </div>
                     ))}
-                </div>
+                    {podeEditar && busca && !exato && (
+                      <button type="button" className="ws-opt-pick ws-opt-add" onClick={adicionar}>
+                        <span style={{ fontWeight: 700 }}>＋</span> Adicionar “{q.trim()}”
+                      </button>
+                    )}
+                    {!ativos.length && !(podeEditar && busca) && <div style={{ fontSize: 12, color: "var(--muted)", padding: "6px 8px" }}>Nenhuma opção.</div>}
+                  </div>
+                  {value != null && prop.type === "select" && (
+                    <button type="button" className="ws-opt-pick" style={{ color: "var(--muted-d)", marginTop: 2 }} onClick={() => escolher(null)}>
+                      ✕ Tirar ({prop.name.toLowerCase()} vazio)
+                    </button>
+                  )}
+                  {podeEditar && arquivados.length > 0 && (
+                    <div style={{ borderTop: "0.5px solid var(--line-d)", marginTop: 4, paddingTop: 4 }}>
+                      <button type="button" className="ws-opt-pick" style={{ color: "var(--muted)", fontSize: 11.5 }} onClick={() => setVerArq((v) => !v)}>
+                        {verArq ? "▾" : "▸"} Arquivados ({arquivados.length})
+                      </button>
+                      {verArq &&
+                        arquivados.map((o) => (
+                          <div key={o.id} className="ws-opt" style={{ opacity: 0.7 }}>
+                            <span style={{ padding: "4px 8px" }}>
+                              <PropDisplay prop={prop} value={o.id} people={people} compact />
+                            </span>
+                            <button type="button" className="ws-chip" style={{ marginLeft: "auto", padding: "1px 8px" }} title="Volta para a lista" onClick={() => ops?.archive(prop, o.id, false)}>
+                              ↩ voltar
+                            </button>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>,

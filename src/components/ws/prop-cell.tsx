@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 
-import { wsSetRowProps, wsUpdateDatabase } from "@/app/actions/workspace";
+import { wsAddOptionAndSet, wsSetRowProps } from "@/app/actions/workspace";
 import {
   COLORS,
   type Color,
@@ -287,12 +287,10 @@ function OptionPicker({
       color: COLORS[1 + ((prop.options?.length ?? 0) % (COLORS.length - 1))] as Color,
       ...(prop.type === "status" ? { group: "todo" as StatusGroup } : {}),
     };
-    const schema: DbSchema = {
-      properties: ctx.schema.properties.map((p) => (p.id === prop.id ? { ...p, options: [...(p.options ?? []), opt] } : p)),
-    };
-    await wsUpdateDatabase(ctx.dbId, { schema });
+    // lê o esquema atual no servidor (nunca a cópia da tela) — evita sobrescrever mudança recente
+    const id = await wsAddOptionAndSet(ctx.dbId, prop.id, opt.name, undefined, opt.id);
     setQ("");
-    pick(opt.id);
+    pick(id);
   };
 
   const groups: Array<StatusGroup | null> = prop.type === "status" ? ["todo", "doing", "done"] : [null];

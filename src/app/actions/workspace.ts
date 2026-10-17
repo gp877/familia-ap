@@ -5,11 +5,13 @@ import { revalidatePath } from "next/cache";
 import { requireUserAndHousehold } from "@/lib/auth-helpers";
 import {
   type WsActor,
+  addOption,
   archivePage,
   createPage,
   moveRow,
   purgePage,
   restorePage,
+  setOptionArchived,
   setRowProps,
   setVisibility,
   updateDatabase,
@@ -95,3 +97,18 @@ export async function wsMoveRow(rowId: string, values: Record<string, PropValue>
   await moveRow(await actor(), rowId, values, orderedIds);
   refresh();
 }
+
+/** Cria um nome novo (ou reaproveita um igual) e já aplica na linha — tudo no servidor, de uma vez. */
+export async function wsAddOptionAndSet(dbId: string, propId: string, name: string, rowId?: string, id?: string) {
+  const a = await actor();
+  const optId = await addOption(a, dbId, propId, name, id);
+  if (rowId) await setRowProps(a, rowId, { [propId]: optId });
+  refresh();
+  return optId;
+}
+
+export async function wsArchiveOption(dbId: string, propId: string, optId: string, archived: boolean) {
+  await setOptionArchived(await actor(), dbId, propId, optId, archived);
+  refresh();
+}
+

@@ -22,7 +22,21 @@ export function colorStyle(c: Color | undefined): CSSProperties {
   return { background: p.bg, color: p.fg };
 }
 
-/** Cor forte (texto) da etiqueta — usada como faixa lateral do cartão (ex.: prioridade). */
+/** Cores cheias (bolinhas, faixa lateral, cabeçalho de coluna) — bem distintas entre si. */
+const STRONG: Record<Color, string> = {
+  default: "#9aa0a6",
+  gray: "#8b8f98",
+  brown: "#b07a45",
+  orange: "#f59e0b",
+  yellow: "#eab308",
+  green: "#22c55e",
+  blue: "#3b82f6",
+  purple: "#a855f7",
+  pink: "#ec4899",
+  red: "#ef4444",
+};
+
+/** Cor forte da etiqueta — faixa lateral do cartão, bolinhas de prioridade/área, cabeçalho de coluna. */
 export function accentColor(c: Color | undefined): string {
-  return (PALETTE[c ?? "default"] ?? PALETTE.default).fg;
+  return STRONG[c ?? "default"] ?? STRONG.default;
 }
