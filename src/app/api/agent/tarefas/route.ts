@@ -13,12 +13,13 @@
  *      { "adicionar_propriedades": [...], "visualizacoes": [...] } (visualizações são substituídas)
  * Outro banco do dono (ex.: "Rotinas"): banco_id=<id> na URL (GET) ou "banco_id" no corpo (POST/PATCH).
  * banco_id=radar → Radar de Compras (módulo Compras).
+ * GET traz execucao_ia_pedida_em (botão "▶ Executar agora"); PATCH {"execucao_atendida": true} limpa.
  */
 import { revalidatePath } from "next/cache";
 
 import { AgentInputError, agentJson, agentRoute, coreCall, readJson, uuidValue } from "@/lib/agent-api";
 import { configureDatabase, describeSchema, propsFromNames, propsToNames, rowOut, textToBlocks } from "@/lib/agent-workspace";
-import { createPage, getPage, getSystemDatabase, getTasksDatabase, listRows, setRowProps, type WsActor } from "@/lib/workspace";
+import { createPage, getPage, getSystemDatabase, getTasksDatabase, listRows, requestAiRun, setRowProps, type WsActor } from "@/lib/workspace";
 import type { DbSchema, PropValue } from "@/lib/workspace-model";
 
 export const runtime = "nodejs";
@@ -73,6 +74,7 @@ export const GET = agentRoute(async ({ householdId, userId, url }) => {
 
   return {
     banco_id: dbPage.id,
+    execucao_ia_pedida_em: ((dbPage.props as Record<string, PropValue> | null)?.ai_run_requested_at as string | undefined) ?? null,
     propriedades_disponiveis: describeSchema(schema),
     total: filtered.length,
     tarefas: filtered.map(({ r }) => rowOut(schema, r)),
@@ -123,6 +125,10 @@ export const PATCH = agentRoute(
     const actor = { householdId, userId, via: "agent" as const };
     const body = await readJson(req);
     const dbPage = await bancoAlvo(actor, body.banco_id);
+    if (body.execucao_atendida === true) {
+      await coreCall(requestAiRun(actor, dbPage.id, true));
+      return { ok: true, execucao_ia_pedida_em: null };
+    }
     const r = await coreCall(configureDatabase(actor, dbPage, body));
     revalidatePath("/tarefas", "layout");
     return { ok: true, propriedades_disponiveis: describeSchema(r.schema), visualizacoes: (r.views ?? []).map((v) => v.name) };

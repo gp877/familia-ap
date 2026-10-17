@@ -4,7 +4,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { createPortal } from "react-dom";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useTransition } from "react";
 
-import { wsAddOptionAndSet, wsArchive, wsArchiveOption, wsCreatePage, wsMoveRow, wsRestore, wsSetRowProps, wsUpdateDatabase } from "@/app/actions/workspace";
+import { wsAddOptionAndSet, wsArchive, wsArchiveOption, wsCreatePage, wsMoveRow, wsRequestAiRun, wsRestore, wsSetRowProps, wsUpdateDatabase } from "@/app/actions/workspace";
 import {
   type Block,
   type Color,
@@ -250,6 +250,15 @@ export function DatabaseView({
     });
   };
 
+  // ── fila da IA: quantas na fila + "▶ Executar agora" ──
+  const naFila = aiStatusPropOf(schema) ? effRows.filter((r) => r.props?.[aiStatusPropOf(schema)!.id] === aiStatusPropOf(schema)!.options?.[0]?.id).length : 0;
+  const [runAsked, setRunAsked] = useState(false);
+  const pedirExecucao = () => {
+    setRunAsked(true);
+    run(() => wsRequestAiRun(dbId));
+    showToast("▶ Pedido enviado: o PC executa a fila da IA em até 5 minutos e devolve o resultado em cada tarefa.");
+  };
+
   // ── 🤖 orientação rápida ──
   const promptProp = schema.properties.find((p) => p.role === "ai_prompt");
   const aiStatusProp = schema.properties.find((p) => p.role === "ai_status");
@@ -341,6 +350,11 @@ export function DatabaseView({
                   {m.name} <span style={{ opacity: 0.6 }}>{modeCounts[i]}</span>
                 </button>
               ))}
+            {naFila > 0 && (
+              <button type="button" className="ws-chip ws-chip-run" disabled={runAsked} onClick={pedirExecucao} title="A IA executa sozinha de hora em hora; este botão adianta">
+                {runAsked ? "⏳ Pedido enviado" : `▶ Executar fila da IA (${naFila})`}
+              </button>
+            )}
             <button type="button" className="ws-chip" data-on={showHelp || undefined} onClick={() => setShowHelp((v) => !v)} title="O que significa cada símbolo e cor">
               ⓘ Legenda
             </button>
@@ -482,7 +496,7 @@ function Legend({ board, schema }: { board: boolean; schema: DbSchema }) {
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 16px", fontSize: 11.5, color: "var(--muted-d)", background: "var(--surf)", borderRadius: 10, padding: "8px 12px" }}>
       {item(<span style={{ width: 11, height: 11, borderRadius: 999, border: "1.5px solid var(--muted)", display: "inline-block" }} />, "toque para concluir")}
-      {item(<span>🤖</span>, "pedir à IA (vai para a fila; mande \"arrastão\" para executar)")}
+      {item(<span>🤖</span>, "pedir à IA (vai para a fila; a IA executa sozinha de hora em hora, ou no botão ▶ Executar agora)")}
       {item(<span style={{ fontSize: 9, fontWeight: 800, color: "var(--accent)", border: "0.5px solid var(--accent)", borderRadius: 999, padding: "0 4px" }}>IA</span>, "criada pelo assistente")}
       {item(<span style={{ color: "var(--alert)", fontWeight: 600 }}>📅 atrasada</span>, "prazo vencido")}
       {item(<span>🖱️</span>, board ? "clique abre · arraste para mover ou soltar em Concluir/Arquivar/Excluir (no celular: segure e arraste)" : "clique abre a tarefa")}
@@ -842,6 +856,10 @@ function DotOf({ prop, value }: { prop: Property; value: PropValue }) {
       }}
     />
   );
+}
+
+function aiStatusPropOf(schema: DbSchema) {
+  return schema.properties.find((p) => p.role === "ai_status");
 }
 
 /** "12/10" (dia/mês em Brasília) a partir do createdAt. */

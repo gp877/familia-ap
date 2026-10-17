@@ -17,11 +17,6 @@ const PALETTE: Record<Color, { bg: string; fg: string }> = {
   red: { bg: "rgba(230,70,60,0.32)", fg: "#ffc0ba" },
 };
 
-export function colorStyle(c: Color | undefined): CSSProperties {
-  const p = PALETTE[c ?? "default"] ?? PALETTE.default;
-  return { background: p.bg, color: p.fg };
-}
-
 /** Cores cheias (bolinhas, faixa lateral, cabeçalho de coluna) — bem distintas entre si. */
 const STRONG: Record<Color, string> = {
   default: "#9aa0a6",
@@ -35,6 +30,16 @@ const STRONG: Record<Color, string> = {
   pink: "#ec4899",
   red: "#ef4444",
 };
+
+export function colorStyle(c: Color | undefined): CSSProperties {
+  if (!c || c === "default") {
+    const p = PALETTE.default;
+    return { background: p.bg, color: p.fg };
+  }
+  const s = STRONG[c] ?? STRONG.default;
+  // texto na cor cheia + fundo/contorno tingidos: legível e bem diferente entre cores
+  return { background: `${s}2e`, color: s, boxShadow: `inset 0 0 0 1px ${s}55`, fontWeight: 600 };
+}
 
 /** Cor forte da etiqueta — faixa lateral do cartão, bolinhas de prioridade/área, cabeçalho de coluna. */
 export function accentColor(c: Color | undefined): string {

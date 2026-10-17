@@ -133,7 +133,7 @@ export function RowPeek({
 /**
  * "🤖 Pedir à IA": escreve a instrução e põe a tarefa na fila da IA (1ª opção
  * da propriedade com papel ai_status). A tarefa some das listas até a IA
- * terminar; o arrastão (WhatsApp ou VS Code) executa a fila.
+ * terminar; o PC executa a fila sozinho de hora em hora (ou no botão "▶ Executar fila da IA").
  */
 function AskAi({ row, schema, onSent }: { row: PeekRow; schema: DbSchema; onSent: () => void }) {
   const promptProp = schema.properties.find((p) => p.role === "ai_prompt");
@@ -185,7 +185,7 @@ function AskAi({ row, schema, onSent }: { row: PeekRow; schema: DbSchema; onSent
         </button>
         {naFila && <GhostButton onClick={cancelar}>Tirar da fila</GhostButton>}
         <span style={{ fontSize: 11, color: "var(--muted)" }}>
-          A tarefa sai das suas listas e vai para a fila 🤖. Mande &quot;arrastão&quot; no grupo Claude (ou peça no VS Code) para a IA executar.
+          A tarefa sai das suas listas e vai para a fila 🤖. A IA executa sozinha de hora em hora (ou no botão ▶ Executar fila da IA) e escreve o resultado aqui.
         </span>
       </div>
     </div>

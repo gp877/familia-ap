@@ -502,3 +502,17 @@ export async function setOptionArchived(actor: WsActor, dbId: string, propId: st
   await updateDatabase(actor, dbId, { schema });
 }
 
+/**
+ * "▶ Executar agora" da fila da IA: marca no banco a hora do pedido. O PC (Zap Local, rotina
+ * arrastao.mjs a cada 5 min) vê pela API, executa e limpa a marca.
+ */
+export async function requestAiRun(actor: WsActor, dbId: string, clear = false) {
+  const page = await getPage(actor, dbId);
+  if (page.kind !== "database") throw new WsError("Não é um banco");
+  const props = { ...((page.props as Record<string, PropValue> | null) ?? {}) };
+  if (clear) delete props.ai_run_requested_at;
+  else props.ai_run_requested_at = new Date().toISOString();
+  await db.update(wsPages).set({ props }).where(eq(wsPages.id, dbId));
+  return clear ? null : (props.ai_run_requested_at as string);
+}
+

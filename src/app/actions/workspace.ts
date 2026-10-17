@@ -7,6 +7,7 @@ import {
   type WsActor,
   addOption,
   archivePage,
+  requestAiRun,
   createPage,
   moveRow,
   purgePage,
@@ -110,5 +111,12 @@ export async function wsAddOptionAndSet(dbId: string, propId: string, name: stri
 export async function wsArchiveOption(dbId: string, propId: string, optId: string, archived: boolean) {
   await setOptionArchived(await actor(), dbId, propId, optId, archived);
   refresh();
+}
+
+/** Botão "▶ Executar agora" da fila 🤖: o PC executa em até 5 minutos. */
+export async function wsRequestAiRun(dbId: string) {
+  const at = await requestAiRun(await actor(), dbId);
+  refresh();
+  return at;
 }
 
