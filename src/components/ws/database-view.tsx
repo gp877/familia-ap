@@ -7,11 +7,14 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { wsArchive, wsCreatePage, wsMoveRow, wsRestore, wsSetRowProps, wsUpdateDatabase } from "@/app/actions/workspace";
 import {
   type Block,
+  type Color,
+  COLORS,
   type DbSchema,
   type Property,
   type PropValue,
   type View,
   applyView,
+  newId,
   todayBrt,
 } from "@/lib/workspace-model";
 
@@ -32,6 +35,9 @@ const AskContext = createContext<AskFn>(null);
 /** Trocar o valor de uma etiqueta direto no cartão (prioridade, tipo…), sem abrir a tarefa. */
 type SetPropFn = (row: RowData, propId: string, value: PropValue) => void;
 const SetPropContext = createContext<SetPropFn | null>(null);
+/** Criar nome novo / arquivar nome direto no menu da etiqueta. */
+type OptionOps = { create: (row: RowData, prop: Property, name: string) => void; archive: (prop: Property, optId: string, archived: boolean) => void };
+const OptionOpsContext = createContext<OptionOps | null>(null);
 /** Arrastar no quadro: grava coluna + ordem (otimista). */
 type MoveFn = (row: RowData, values: Record<string, PropValue> | null, orderedIds: string[]) => void;
 
@@ -158,6 +164,23 @@ export function DatabaseView({
     run(() => wsSetRowProps(row.id, { [propId]: value }));
   };
 
+  // ── nomes (opções) criados/arquivados pelo menu da etiqueta ──
+  const withOptions = (propId: string, fn: (opts: NonNullable<Property["options"]>) => NonNullable<Property["options"]>): DbSchema => ({
+    properties: schema.properties.map((p) => (p.id === propId ? { ...p, options: fn(p.options ?? []) } : p)),
+  });
+  const optionOps: OptionOps = {
+    create: (row, prop, name) => {
+      const opt = { id: newId(), name: name.slice(0, 60), color: COLORS[1 + ((prop.options?.length ?? 0) % (COLORS.length - 1))] as Color };
+      patch(row.id, { props: { [prop.id]: opt.id } });
+      run(async () => {
+        await wsUpdateDatabase(dbId, { schema: withOptions(prop.id, (o) => [...o, opt]) });
+        await wsSetRowProps(row.id, { [prop.id]: opt.id });
+      });
+    },
+    archive: (prop, optId, archived) =>
+      run(() => wsUpdateDatabase(dbId, { schema: withOptions(prop.id, (o) => o.map((x) => (x.id === optId ? { ...x, archived: archived || undefined } : x))) })),
+  };
+
   // ── formato da visualização ──
   const layouts = ([["board", "▦ Quadro"], ["table", "☰ Tabela"], ["calendar", "📅 Calendário"]] as const).filter(
     ([t]) => (t !== "board" || baseView.groupBy) && (t !== "calendar" || baseView.dateProp)
@@ -258,6 +281,7 @@ export function DatabaseView({
     <PeekContext.Provider value={setPeekId}>
     <AskContext.Provider value={ask}>
     <SetPropContext.Provider value={setProp}>
+    <OptionOpsContext.Provider value={optionOps}>
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {toast && (
         <div
@@ -339,6 +363,7 @@ export function DatabaseView({
         />
       )}
     </div>
+    </OptionOpsContext.Provider>
     </SetPropContext.Provider>
     </AskContext.Provider>
     </PeekContext.Provider>
@@ -562,7 +587,7 @@ function RowTitle({ row, wrap = false, size = 13.5 }: { row: RowData; wrap?: boo
 }
 
 /** Valores de propriedades em linha, enxutos (cartões e lista). */
-function Chips({ props, row, people }: { props: Property[]; row: RowData; people: CellCtx["people"] }) {
+function Chips({ props, row, people, askEmpty = [] }: { props: Property[]; row: RowData; people: CellCtx["people"]; askEmpty?: Property[] }) {
   const shown = props.filter((p) => row.props?.[p.id] != null && row.props?.[p.id] !== "" && !(Array.isArray(row.props?.[p.id]) && !(row.props?.[p.id] as string[]).length));
   const semPrazo = props.find((p) => p.type === "date" && !shown.includes(p));
   return (
@@ -575,6 +600,9 @@ function Chips({ props, row, people }: { props: Property[]; row: RowData; people
         )
       )}
       {semPrazo && <ChipMenu prop={semPrazo} row={row} people={people} />}
+      {askEmpty.filter((p) => !shown.includes(p)).map((p) => (
+        <ChipMenu key={p.id} prop={p} row={row} people={people} />
+      ))}
       <span title="Data de abertura" style={{ marginLeft: "auto", fontSize: 10.5, color: "var(--muted)" }}>
         aberta {abertura(row.createdAt)}
       </span>
@@ -585,8 +613,38 @@ function Chips({ props, row, people }: { props: Property[]; row: RowData; people
 /** Etiqueta do cartão que abre as opções ali mesmo (ex.: Alta / Média / Baixa). */
 function ChipMenu({ prop, row, people }: { prop: Property; row: RowData; people: CellCtx["people"] }) {
   const setProp = useContext(SetPropContext);
+  const ops = useContext(OptionOpsContext);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  const [novo, setNovo] = useState("");
+  const [verArq, setVerArq] = useState(false);
+  const [arq, setArq] = useState<Record<string, boolean>>({}); // arquivar/voltar na hora (o servidor confirma depois)
   const value = row.props?.[prop.id] ?? null;
+  const isArq = (o: { id: string; archived?: boolean }) => arq[o.id] ?? !!o.archived;
+  const ativos = (prop.options ?? []).filter((o) => !isArq(o) || o.id === value);
+  const arquivados = (prop.options ?? []).filter((o) => isArq(o) && o.id !== value);
+  const podeEditar = !!ops && prop.type === "select";
+  const fechar = () => {
+    setPos(null);
+    setNovo("");
+    setVerArq(false);
+  };
+  const criar = () => {
+    const nome = novo.trim();
+    if (!nome || !ops) return;
+    const igual = (prop.options ?? []).find((o) => o.name.trim().toLowerCase() === nome.toLowerCase());
+    if (igual) {
+      if (isArq(igual)) {
+        setArq((a) => ({ ...a, [igual.id]: false }));
+        ops.archive(prop, igual.id, false);
+      }
+      setProp?.(row, prop.id, igual.id);
+    } else ops.create(row, prop, nome);
+    fechar();
+  };
+  const arquivar = (id: string, v: boolean) => {
+    setArq((a) => ({ ...a, [id]: v }));
+    ops?.archive(prop, id, v);
+  };
   if (!setProp) return <PropDisplay prop={prop} value={value} people={people} compact />;
   const stop = (e: React.SyntheticEvent) => e.stopPropagation();
   return (
@@ -606,6 +664,8 @@ function ChipMenu({ prop, row, people }: { prop: Property; row: RowData; people:
       >
         {prop.type === "date" && value == null ? (
           <span style={{ fontSize: 11, color: "var(--muted)" }}>📅 + prazo</span>
+        ) : value == null ? (
+          <span style={{ fontSize: 11, color: "var(--accent)", fontWeight: 700 }}>👤 + {prop.name.toLowerCase()}</span>
         ) : (
           <PropDisplay prop={prop} value={value} people={people} compact />
         )}
@@ -613,8 +673,8 @@ function ChipMenu({ prop, row, people }: { prop: Property; row: RowData; people:
       {pos &&
         createPortal(
           <div onPointerDown={stop} onClick={stop} style={{ position: "fixed", inset: 0, zIndex: 85 }}>
-            <div onMouseDown={() => setPos(null)} style={{ position: "absolute", inset: 0 }} />
-            <div style={{ position: "absolute", left: pos.x, top: pos.y, width: 180, background: "var(--card)", border: "0.5px solid var(--line-d)", borderRadius: 9, boxShadow: "0 12px 30px rgba(0,0,0,.5)", padding: 4 }}>
+            <div onMouseDown={fechar} style={{ position: "absolute", inset: 0 }} />
+            <div style={{ position: "absolute", left: pos.x, top: pos.y, width: 200, maxHeight: "min(420px, calc(100vh - 24px))", overflowY: "auto", background: "var(--card)", border: "0.5px solid var(--line-d)", borderRadius: 9, boxShadow: "0 12px 30px rgba(0,0,0,.5)", padding: 4 }}>
               <div style={{ fontSize: 10.5, color: "var(--muted)", padding: "3px 6px 5px" }}>{prop.name}</div>
               {prop.type === "date" && (
                 <div style={{ display: "flex", flexDirection: "column", gap: 4, padding: "0 4px 4px" }}>
@@ -639,21 +699,55 @@ function ChipMenu({ prop, row, people }: { prop: Property; row: RowData; people:
                   </div>
                 </div>
               )}
-              {(prop.options ?? []).map((o) => (
-                <button
-                  key={o.id}
-                  type="button"
-                  className="ws-menu-item"
-                  onClick={() => {
-                    setProp(row, prop.id, o.id);
-                    setPos(null);
-                  }}
-                  style={{ display: "flex", width: "100%", alignItems: "center", gap: 6, padding: "5px 6px", border: 0, background: o.id === value ? "var(--surf)" : "transparent", borderRadius: 6, cursor: "pointer", font: "inherit" }}
-                >
-                  <PropDisplay prop={prop} value={o.id} people={people} compact />
-                  {o.id === value && <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--muted)" }}>✓</span>}
-                </button>
+              {ativos.map((o) => (
+                <div key={o.id} className="ws-opt" style={{ display: "flex", alignItems: "center", borderRadius: 6, background: o.id === value ? "var(--surf)" : "transparent" }}>
+                  <button
+                    type="button"
+                    className="ws-menu-item"
+                    onClick={() => {
+                      setProp(row, prop.id, o.id);
+                      fechar();
+                    }}
+                    style={{ display: "flex", flex: 1, minWidth: 0, alignItems: "center", gap: 6, padding: "5px 6px", border: 0, background: "transparent", borderRadius: 6, cursor: "pointer", font: "inherit" }}
+                  >
+                    <PropDisplay prop={prop} value={o.id} people={people} compact />
+                    {o.id === value && <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--muted)" }}>✓</span>}
+                  </button>
+                  {podeEditar && o.id !== value && (
+                    <button type="button" className="ws-opt-arq" title="Arquivar este nome (sai da lista)" onClick={() => arquivar(o.id, true)}>
+                      📦
+                    </button>
+                  )}
+                </div>
               ))}
+              {podeEditar && (
+                <div style={{ borderTop: "0.5px solid var(--line-d)", marginTop: 4, paddingTop: 4 }}>
+                  <input
+                    value={novo}
+                    onChange={(e) => setNovo(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") criar();
+                      if (e.key === "Escape") fechar();
+                    }}
+                    placeholder="+ Novo nome (Enter)"
+                    style={{ width: "100%", background: "var(--surf)", color: "var(--ink)", border: "0.5px solid var(--line-d)", borderRadius: 6, padding: "5px 7px", font: "inherit", fontSize: 12.5, outline: "none" }}
+                  />
+                  {arquivados.length > 0 && (
+                    <button type="button" className="ws-chip" style={{ marginTop: 4, width: "100%" }} onClick={() => setVerArq((v) => !v)}>
+                      {verArq ? "Esconder arquivados" : `Mostrar arquivados (${arquivados.length})`}
+                    </button>
+                  )}
+                  {verArq &&
+                    arquivados.map((o) => (
+                      <div key={o.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 6px", opacity: 0.75 }}>
+                        <PropDisplay prop={prop} value={o.id} people={people} compact />
+                        <button type="button" className="ws-chip" style={{ marginLeft: "auto", padding: "1px 8px" }} title="Volta para a lista" onClick={() => arquivar(o.id, false)}>
+                          ↩ voltar
+                        </button>
+                      </div>
+                    ))}
+                </div>
+              )}
             </div>
           </div>,
           document.body
@@ -812,7 +906,12 @@ function BoardView({
         ]
       : group.type === "person"
         ? [...ctx.people.map((p) => ({ key: p.id, label: <Tag>👤 {p.name?.split(" ")[0]}</Tag>, value: p.id as PropValue })), { key: "", label: `Sem ${group.name}`, value: null }]
-        : [...(group.options ?? []).map((o) => ({ key: o.id, label: <Tag color={o.color}>{o.name}</Tag>, value: o.id as PropValue })), { key: "", label: `Sem ${group.name}`, value: null }];
+        : [
+            ...(group.options ?? [])
+              .filter((o) => !o.archived || rows.some((r) => r.props?.[group.id] === o.id))
+              .map((o) => ({ key: o.id, label: <Tag color={o.color}>{o.name}</Tag>, value: o.id as PropValue })),
+            { key: "", label: `Sem ${group.name}`, value: null },
+          ];
   const keyOf = useCallback(
     (r: RowData) => {
       if (!group) return "";
@@ -922,6 +1021,9 @@ function BoardView({
     return <div style={{ padding: 14, fontSize: 13, color: "var(--muted)" }}>Escolha em “Agrupar” por qual propriedade montar as colunas.</div>;
   }
   const cardProps = props.filter((p) => p.id !== group.id);
+  // coluna de "Delegada": cartão sem nome mostra "👤 + delegada a" para escolher na hora
+  const delegateProp = ctx.schema.properties.find((p) => p.role === "delegate");
+  const optName = (r: RowData) => group.options?.find((o) => o.id === r.props?.[group.id])?.name ?? "";
   const dragged = drag ? rows.find((r) => r.id === drag.id) : undefined;
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>, r: RowData) => {
@@ -970,7 +1072,7 @@ function BoardView({
       }}
     >
       <RowTitle row={r} wrap size={12.5} />
-      <Chips props={cardProps} row={r} people={ctx.people} />
+      <Chips props={cardProps} row={r} people={ctx.people} askEmpty={delegateProp && /delegad/i.test(optName(r)) ? [delegateProp] : []} />
     </div>
   );
   const line = <div style={{ height: 3, borderRadius: 2, background: "var(--accent)", margin: "1px 0" }} />;

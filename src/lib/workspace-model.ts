@@ -104,14 +104,15 @@ export const STATUS_GROUP_LABEL: Record<StatusGroup, string> = {
   done: "Concluído",
 };
 
-export type SelectOption = { id: string; name: string; color: Color; group?: StatusGroup };
+/** archived: some das listas de escolha (quem já usa continua mostrando). */
+export type SelectOption = { id: string; name: string; color: Color; group?: StatusGroup; archived?: boolean };
 
 /**
  * Papel especial de uma propriedade (opcional):
  *  ai_prompt → texto com a instrução para a IA (aparece como "🤖 Pedir à IA" na tarefa)
  *  ai_status → seleção da fila da IA; a 1ª opção = "na fila" (some das listas até a IA terminar)
  */
-export type PropRole = "ai_prompt" | "ai_status" | "priority" | "archived";
+export type PropRole = "ai_prompt" | "ai_status" | "priority" | "archived" | "delegate";
 
 export type Property = {
   id: string;

@@ -185,6 +185,7 @@ function papelDe(v: unknown) {
   if (v === "status_ia") return "ai_status" as const;
   if (v === "prioridade") return "priority" as const;
   if (v === "arquivada") return "archived" as const;
+  if (v === "delegado") return "delegate" as const;
   return undefined;
 }
 

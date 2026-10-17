@@ -263,7 +263,7 @@ function OptionPicker({
   const [q, setQ] = useState("");
   const multi = prop.type === "multi_select";
   const selected = new Set(multi ? ((value as string[]) ?? []) : value ? [String(value)] : []);
-  const opts = (prop.options ?? []).filter((o) => !q || o.name.toLowerCase().includes(q.toLowerCase()));
+  const opts = (prop.options ?? []).filter((o) => (!o.archived || selected.has(o.id)) && (!q || o.name.toLowerCase().includes(q.toLowerCase())));
   const exact = (prop.options ?? []).some((o) => o.name.toLowerCase() === q.trim().toLowerCase());
 
   const pick = (id: string) => {
