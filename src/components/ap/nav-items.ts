@@ -5,6 +5,8 @@ export type NavItem = {
   label: string;
   icon: IconName;
   module: string;
+  /** Outras rotas que acendem este item (ex.: Compras inclui /supermercado). */
+  match?: string[];
 };
 
 export const NAV_ITEMS: NavItem[] = [
@@ -15,7 +17,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/aniversarios", label: "Aniversários", icon: "cake", module: "Aniversários" },
   { href: "/viagens", label: "Viagens", icon: "plane", module: "Viagens" },
   { href: "/sonhos", label: "Sonhos", icon: "star", module: "Sonhos" },
-  { href: "/supermercado", label: "Supermercado", icon: "bag", module: "Supermercado" },
+  { href: "/compras", label: "Compras", icon: "bag", module: "Compras", match: ["/supermercado"] },
   { href: "/cardapio", label: "Cardápio", icon: "cutlery", module: "Cardápio" },
   { href: "/saude-exames", label: "Saúde", icon: "mask", module: "Saúde" },
   { href: "/chat", label: "Chat com a AP", icon: "spark", module: "Chat" },

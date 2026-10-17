@@ -12,12 +12,13 @@
  * PATCH /api/agent/tarefas — configura o banco por nomes (ver configureDatabase):
  *      { "adicionar_propriedades": [...], "visualizacoes": [...] } (visualizações são substituídas)
  * Outro banco do dono (ex.: "Rotinas"): banco_id=<id> na URL (GET) ou "banco_id" no corpo (POST/PATCH).
+ * banco_id=radar → Radar de Compras (módulo Compras).
  */
 import { revalidatePath } from "next/cache";
 
 import { AgentInputError, agentJson, agentRoute, coreCall, readJson, uuidValue } from "@/lib/agent-api";
 import { configureDatabase, describeSchema, propsFromNames, propsToNames, rowOut, textToBlocks } from "@/lib/agent-workspace";
-import { createPage, getPage, getTasksDatabase, listRows, setRowProps, type WsActor } from "@/lib/workspace";
+import { createPage, getPage, getSystemDatabase, getTasksDatabase, listRows, setRowProps, type WsActor } from "@/lib/workspace";
 import type { DbSchema, PropValue } from "@/lib/workspace-model";
 
 export const runtime = "nodejs";
@@ -27,6 +28,7 @@ const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().to
 /** Banco alvo: o informado em banco_id (tem de ser um banco) ou o Tarefas. */
 async function bancoAlvo(actor: WsActor, id: unknown) {
   if (id == null || id === "") return coreCall(getTasksDatabase(actor));
+  if (id === "radar") return coreCall(getSystemDatabase(actor, "radar"));
   const page = await coreCall(getPage(actor, uuidValue(id, "banco_id")));
   if (page.kind !== "database") throw new AgentInputError('"banco_id" não é um banco de dados');
   return page;

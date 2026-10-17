@@ -56,7 +56,7 @@ export function WebSidebar({ userName, partnerName, activeKey = null }: Props) {
 
       <nav style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 8 }}>
         {NAV_ITEMS.map((item) => {
-          const active = isActive(pathname, item.href);
+          const active = isActive(pathname, item.href) || !!item.match?.some((m) => isActive(pathname, m));
           return (
             <Link
               key={item.href}

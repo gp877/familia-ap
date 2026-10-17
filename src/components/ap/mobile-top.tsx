@@ -22,7 +22,10 @@ function moduleNameFor(pathname: string) {
   const exact = NAV_ITEMS.find((i) => i.href === pathname);
   if (exact) return exact.module;
   const sub = NAV_ITEMS.find(
-    (i) => pathname.startsWith(`${i.href}/`) || (i.href === "/saude-exames" && pathname.startsWith("/saude-peso"))
+    (i) =>
+      pathname.startsWith(`${i.href}/`) ||
+      !!i.match?.some((m) => pathname === m || pathname.startsWith(`${m}/`)) ||
+      (i.href === "/saude-exames" && pathname.startsWith("/saude-peso"))
   );
   return sub?.module ?? "Família AP";
 }

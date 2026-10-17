@@ -9,7 +9,7 @@
  * Excluir = archived_at na página e em toda a árvore embaixo, com o MESMO
  * instante (é assim que a restauração sabe o que voltou junto).
  */
-import { and, asc, eq, inArray, isNull, isNotNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, isNotNull, ne, or, sql } from "drizzle-orm";
 
 import { db } from "@/db";
 import { users, wsActivity, wsPages } from "@/db/schema";
@@ -21,6 +21,7 @@ import {
   type PropValue,
   type View,
   defaultTasksDatabase,
+  radarDatabase,
   newId,
   welcomeBlocks,
 } from "./workspace-model";
@@ -104,6 +105,27 @@ export async function ensureWorkspace(actor: WsActor) {
     .onConflictDoNothing(conflict);
 }
 
+/**
+ * Banco "de sistema" (systemKey) do usuário que não mora na árvore de Tarefas — ex.: "radar"
+ * (módulo Compras). Cria na 1ª vez a partir do modelo.
+ */
+export async function getSystemDatabase(actor: WsActor, key: "radar") {
+  const find = () =>
+    db.query.wsPages.findFirst({
+      where: and(eq(wsPages.householdId, actor.householdId), eq(wsPages.ownerId, actor.userId), eq(wsPages.systemKey, key), isNull(wsPages.archivedAt)),
+    });
+  const found = await find();
+  if (found) return found;
+  const t = radarDatabase();
+  await db
+    .insert(wsPages)
+    .values({ householdId: actor.householdId, ownerId: actor.userId, createdVia: "app", kind: "database", title: t.title, icon: t.icon, schema: t.schema, views: t.views, content: [], systemKey: key, sortOrder: 99 })
+    .onConflictDoNothing({ target: [wsPages.ownerId, wsPages.systemKey], where: sql`system_key IS NOT NULL` });
+  const created = await find();
+  if (!created) throw new WsError("Radar de Compras não encontrado (está na Lixeira?)");
+  return created;
+}
+
 /** Banco Tarefas do usuário (o alvo padrão da API). */
 export async function getTasksDatabase(actor: WsActor) {
   await ensureWorkspace(actor);
@@ -133,7 +155,14 @@ export async function listTree(actor: WsActor) {
       sortOrder: wsPages.sortOrder,
     })
     .from(wsPages)
-    .where(and(canSee(actor), isNull(wsPages.archivedAt), inArray(wsPages.kind, ["page", "database"])))
+    .where(
+      and(
+        canSee(actor),
+        isNull(wsPages.archivedAt),
+        inArray(wsPages.kind, ["page", "database"]),
+        or(isNull(wsPages.systemKey), ne(wsPages.systemKey, "radar")) // Radar mora em Compras
+      )
+    )
     .orderBy(asc(wsPages.sortOrder), asc(wsPages.createdAt));
 }
 

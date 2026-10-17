@@ -379,3 +379,61 @@ export function welcomeBlocks(): Block[] {
     b("todo", "Criar uma visualização nova com um filtro"),
   ];
 }
+
+/** Banco "Radar de Compras" (módulo Compras): itens que compramos sempre + pesquisa de preço. */
+export function radarDatabase(): { title: string; icon: string; schema: DbSchema; views: View[] } {
+  const props: Property[] = [
+    {
+      id: "r_cat",
+      name: "Categoria",
+      type: "select",
+      options: [
+        { id: "c_pet", name: "🐶 Pet", color: "brown" },
+        { id: "c_merc", name: "🛒 Mercado", color: "green" },
+        { id: "c_hig", name: "🧴 Higiene", color: "blue" },
+        { id: "c_casa", name: "🏠 Casa", color: "orange" },
+        { id: "c_filho", name: "👶 Francisco", color: "pink" },
+        { id: "c_outros", name: "Outros", color: "gray" },
+      ],
+    },
+    {
+      id: "r_sinal",
+      name: "Sinal",
+      type: "select",
+      options: [
+        { id: "g_compra", name: "💰 Vale comprar agora", color: "green" },
+        { id: "g_olho", name: "👀 Acompanhar", color: "yellow" },
+        { id: "g_ok", name: "✅ Tem em casa", color: "gray" },
+      ],
+    },
+    { id: "r_ult_preco", name: "Último preço (R$)", type: "number" },
+    { id: "r_ult_loja", name: "Onde comprei", type: "text" },
+    { id: "r_ult_data", name: "Última compra", type: "date" },
+    {
+      id: "r_freq",
+      name: "Frequência",
+      type: "select",
+      options: [
+        { id: "f_sem", name: "Semanal", color: "red" },
+        { id: "f_quin", name: "Quinzenal", color: "orange" },
+        { id: "f_mes", name: "Mensal", color: "yellow" },
+        { id: "f_bim", name: "Bimestral", color: "blue" },
+        { id: "f_tri", name: "Trimestral ou mais", color: "gray" },
+      ],
+    },
+    { id: "r_melhor", name: "Melhor preço achado (R$)", type: "number" },
+    { id: "r_melhor_loja", name: "Loja do melhor preço", type: "text" },
+    { id: "r_link", name: "Link da oferta", type: "url" },
+    { id: "r_pesq", name: "Pesquisado em", type: "date" },
+  ];
+  return {
+    title: "Radar de Compras",
+    icon: "📡",
+    schema: { properties: props },
+    views: [
+      { id: "rv_tabela", name: "Radar", type: "table", filters: [], sorts: [{ prop: "r_cat", dir: "asc" }] },
+      { id: "rv_sinal", name: "Por sinal", type: "board", groupBy: "r_sinal", filters: [], sorts: [{ prop: "r_cat", dir: "asc" }] },
+    ],
+  };
+}
+

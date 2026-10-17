@@ -22,7 +22,10 @@ async function actor(): Promise<WsActor> {
   return { userId: u.userId, householdId: u.householdId, via: "app" };
 }
 
-const refresh = () => revalidatePath("/tarefas", "layout");
+const refresh = () => {
+  revalidatePath("/tarefas", "layout");
+  revalidatePath("/compras", "layout");
+};
 
 export async function wsCreatePage(input: {
   parentId?: string | null;

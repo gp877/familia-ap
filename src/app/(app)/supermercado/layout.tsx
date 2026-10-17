@@ -1,10 +1,12 @@
 import type { ReactNode } from "react";
 
+import { ComprasNav } from "@/components/ap/compras-nav";
 import { ModuleNavBar } from "@/components/ap/module-nav";
 
 export default function SupermercadoLayout({ children }: { children: ReactNode }) {
   return (
     <>
+      <ComprasNav />
       <ModuleNavBar
         items={[
           { href: "/supermercado", label: "Resumo" },
