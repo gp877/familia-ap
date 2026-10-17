@@ -184,6 +184,7 @@ function papelDe(v: unknown) {
   if (v === "instrucao_ia") return "ai_prompt" as const;
   if (v === "status_ia") return "ai_status" as const;
   if (v === "prioridade") return "priority" as const;
+  if (v === "arquivada") return "archived" as const;
   return undefined;
 }
 
@@ -195,7 +196,7 @@ function papelDe(v: unknown) {
  *        "filtros"?: [{ "propriedade", "operador", "valor"? }], "ordenar"?: [{ "propriedade", "direcao": "asc|desc" }],
  *        "ocultar"?: ["Nome da propriedade"], "modos"?: [{ "nome", "filtros" }] }],
  *     "opcoes"?: { "Prop": { "renomear"?: {"Velho": "Novo"}, "adicionar"?: [], "remover"?: [], "ordem"?: [] } },
- *     "papeis"?: { "Prop": "prioridade" | "instrucao_ia" | "status_ia" | null } }
+ *     "papeis"?: { "Prop": "prioridade" | "arquivada" | "instrucao_ia" | "status_ia" | null } }
  */
 export async function configureDatabase(actor: WsActor, dbPage: WsPage, body: Record<string, unknown>) {
   const schema: DbSchema = structuredClone((dbPage.schema as DbSchema) ?? { properties: [] });

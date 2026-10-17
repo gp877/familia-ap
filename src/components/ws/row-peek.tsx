@@ -18,6 +18,7 @@ export type PeekRow = {
   content?: Block[];
   createdVia: string;
   agentUpdatedAt: string | null;
+  createdAt?: string;
 };
 
 /**
@@ -81,6 +82,11 @@ export function RowPeek({
               </GhostButton>
             )}
             <AiBadge created={row.createdVia === "agent"} revisedAt={row.createdVia === "agent" ? null : row.agentUpdatedAt} />
+            {row.createdAt && (
+              <span style={{ fontSize: 11.5, color: "var(--muted)", marginLeft: 4 }}>
+                aberta em {new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(row.createdAt))}
+              </span>
+            )}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
             <GhostButton onClick={() => router.push(`/tarefas/${row.id}`)} title="Abrir em tela cheia">

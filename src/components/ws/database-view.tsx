@@ -4,7 +4,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { createPortal } from "react-dom";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useTransition } from "react";
 
-import { wsCreatePage, wsMoveRow, wsSetRowProps, wsUpdateDatabase } from "@/app/actions/workspace";
+import { wsArchive, wsCreatePage, wsMoveRow, wsRestore, wsSetRowProps, wsUpdateDatabase } from "@/app/actions/workspace";
 import {
   type Block,
   type DbSchema,
@@ -70,31 +70,33 @@ export function DatabaseView({
   type Patch = { props?: Record<string, PropValue>; sortOrder?: number };
   const [patches, setPatches] = useState<Record<string, Patch>>({});
   const [manualViews, setManualViews] = useState<Set<string>>(new Set()); // visões que viraram "ordem manual"
+  const [gone, setGone] = useState<Set<string>>(new Set()); // mandadas pra Lixeira (somem na hora)
   const [prevRows, setPrevRows] = useState(rows);
   if (rows !== prevRows) {
     setPrevRows(rows);
     setPatches({});
+    setGone(new Set());
   }
   const manual = manualViews.has(baseView.id);
   // filtros rápidos (?m=) e formato (Quadro/Tabela/Calendário) trocados dentro da mesma visualização
   const modes = useMemo(() => baseView.modes ?? [], [baseView]);
   const mode = modes.find((m) => m.id === sp.get("m"));
-  const [typeOverride, setTypeOverride] = useState<Record<string, View["type"]>>({});
+  const [viewOverride, setViewOverride] = useState<Record<string, Partial<Pick<View, "type" | "sorts">>>>({});
   const shapedView = useMemo(
-    () => ({ ...baseView, type: typeOverride[baseView.id] ?? baseView.type, filters: mode ? mode.filters : baseView.filters }),
-    [baseView, typeOverride, mode]
+    () => ({ ...baseView, ...viewOverride[baseView.id], filters: mode ? mode.filters : baseView.filters }),
+    [baseView, viewOverride, mode]
   );
   const view = useMemo(() => (manual && shapedView.sorts.length ? { ...shapedView, sorts: [] } : shapedView), [manual, shapedView]);
   const patch = (id: string, p: Patch) =>
     setPatches((o) => ({ ...o, [id]: { props: { ...o[id]?.props, ...p.props }, sortOrder: p.sortOrder ?? o[id]?.sortOrder } }));
   const effRows = useMemo(
     () =>
-      rows.map((r) => {
+      rows.filter((r) => !gone.has(r.id)).map((r) => {
         const p = patches[r.id];
         if (!p) return r;
         return { ...r, props: p.props ? { ...r.props, ...p.props } : r.props, sortOrder: p.sortOrder ?? r.sortOrder };
       }),
-    [rows, patches]
+    [rows, patches, gone]
   );
 
   // ── aviso com "Desfazer" ──
@@ -161,8 +163,50 @@ export function DatabaseView({
     ([t]) => (t !== "board" || baseView.groupBy) && (t !== "calendar" || baseView.dateProp)
   );
   const setLayout = (type: View["type"]) => {
-    setTypeOverride((o) => ({ ...o, [baseView.id]: type }));
+    setViewOverride((o) => ({ ...o, [baseView.id]: { ...o[baseView.id], type } }));
     run(() => wsUpdateDatabase(dbId, { views: views.map((v) => (v.id === baseView.id ? { ...v, type } : v)) }));
+  };
+
+  // ── ordenar: manual · prazo · prioridade ──
+  const prazoProp = schema.properties.find((p) => p.id === baseView.dateProp) ?? schema.properties.find((p) => p.type === "date");
+  const prioProp = schema.properties.find((p) => p.role === "priority");
+  const sortNow = view.sorts[0]?.prop;
+  const sortMode = prazoProp && sortNow === prazoProp.id ? "prazo" : prioProp && sortNow === prioProp.id ? "prio" : "manual";
+  const setSort = (m: "manual" | "prazo" | "prio") => {
+    const by = (a?: Property, b?: Property) => [a, b].filter((x): x is Property => !!x).map((x) => ({ prop: x.id, dir: "asc" as const }));
+    const sorts = m === "prazo" ? by(prazoProp, prioProp) : m === "prio" ? by(prioProp, prazoProp) : [];
+    setViewOverride((o) => ({ ...o, [baseView.id]: { ...o[baseView.id], sorts } }));
+    setManualViews((s) => {
+      const n = new Set(s);
+      n.delete(baseView.id);
+      return n;
+    });
+    run(() => wsUpdateDatabase(dbId, { views: views.map((v) => (v.id === baseView.id ? { ...v, sorts } : v)) }));
+  };
+
+  // ── soltar na barra de baixo: concluir · arquivar · excluir ──
+  const archProp = schema.properties.find((p) => p.role === "archived");
+  const dropActions: DropAction[] = [...(statusProp && doneOpt ? (["done"] as const) : []), ...(archProp ? (["archive"] as const) : []), "trash"];
+  const onDropAction = (row: RowData, a: DropAction) => {
+    if (a === "done" && doneCtx) {
+      if (!doneCtx.isDone(row)) doneCtx.toggle(row);
+      return;
+    }
+    if (a === "archive" && archProp) {
+      setProp(row, archProp.id, true);
+      showToast(`📦 Arquivada: ${row.title}`, () => setProp(row, archProp.id, false));
+      return;
+    }
+    setGone((g) => new Set(g).add(row.id));
+    run(() => wsArchive(row.id));
+    showToast(`🗑️ Na Lixeira: ${row.title}`, () => {
+      setGone((g) => {
+        const n = new Set(g);
+        n.delete(row.id);
+        return n;
+      });
+      run(() => wsRestore(row.id));
+    });
   };
 
   // ── 🤖 orientação rápida ──
@@ -255,6 +299,17 @@ export function DatabaseView({
                 </button>
               ))}
           </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {(prazoProp || prioProp) && view.type !== "calendar" && (
+            <div style={{ display: "flex", gap: 2, background: "var(--surf)", borderRadius: 8, padding: 2, alignItems: "center" }} title="Ordenar os cartões">
+              <span style={{ fontSize: 11, color: "var(--muted)", padding: "0 4px 0 6px" }}>Ordenar</span>
+              {([["manual", "✋ Manual"], ...(prazoProp ? [["prazo", "📅 Prazo"]] : []), ...(prioProp ? [["prio", "🔥 Prioridade"]] : [])] as Array<[typeof sortMode, string]>).map(([m, label]) => (
+                <button key={m} type="button" className="ws-seg" data-on={sortMode === m || undefined} onClick={() => sortMode !== m && setSort(m)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
           {layouts.length > 1 && (
             <div style={{ display: "flex", gap: 2, background: "var(--surf)", borderRadius: 8, padding: 2 }}>
               {layouts.map(([t, label]) => (
@@ -264,12 +319,13 @@ export function DatabaseView({
               ))}
             </div>
           )}
+          </div>
         </div>
       )}
       <Legend board={view.type === "board"} />
       {view.type === "table" && <TableView ctx={ctx} view={view} props={shownProps} rows={visible} views={views} />}
       {view.type === "list" && <ListView ctx={ctx} props={shownProps} rows={visible} />}
-      {view.type === "board" && <BoardView ctx={ctx} view={view} props={shownProps} rows={visible} onMove={onMove} />}
+      {view.type === "board" && <BoardView ctx={ctx} view={view} props={shownProps} rows={visible} onMove={onMove} dropActions={dropActions} onDropAction={onDropAction} />}
       {view.type === "calendar" && <CalendarView ctx={ctx} view={view} rows={visible} />}
       {peekRow && (
         <RowPeek
@@ -508,16 +564,20 @@ function RowTitle({ row, wrap = false, size = 13.5 }: { row: RowData; wrap?: boo
 /** Valores de propriedades em linha, enxutos (cartões e lista). */
 function Chips({ props, row, people }: { props: Property[]; row: RowData; people: CellCtx["people"] }) {
   const shown = props.filter((p) => row.props?.[p.id] != null && row.props?.[p.id] !== "" && !(Array.isArray(row.props?.[p.id]) && !(row.props?.[p.id] as string[]).length));
-  if (!shown.length) return null;
+  const semPrazo = props.find((p) => p.type === "date" && !shown.includes(p));
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center", fontSize: 11.5 }}>
       {shown.map((p) =>
-        p.type === "select" || p.type === "status" ? (
+        p.type === "select" || p.type === "status" || p.type === "date" ? (
           <ChipMenu key={p.id} prop={p} row={row} people={people} />
         ) : (
           <PropDisplay key={p.id} prop={p} value={row.props?.[p.id] ?? null} people={people} compact />
         )
       )}
+      {semPrazo && <ChipMenu prop={semPrazo} row={row} people={people} />}
+      <span title="Data de abertura" style={{ marginLeft: "auto", fontSize: 10.5, color: "var(--muted)" }}>
+        aberta {abertura(row.createdAt)}
+      </span>
     </div>
   );
 }
@@ -544,7 +604,11 @@ function ChipMenu({ prop, row, people }: { prop: Property; row: RowData; people:
         }}
         style={{ border: 0, background: "transparent", padding: 0, cursor: "pointer", font: "inherit", lineHeight: 1 }}
       >
-        <PropDisplay prop={prop} value={value} people={people} compact />
+        {prop.type === "date" && value == null ? (
+          <span style={{ fontSize: 11, color: "var(--muted)" }}>📅 + prazo</span>
+        ) : (
+          <PropDisplay prop={prop} value={value} people={people} compact />
+        )}
       </button>
       {pos &&
         createPortal(
@@ -552,6 +616,29 @@ function ChipMenu({ prop, row, people }: { prop: Property; row: RowData; people:
             <div onMouseDown={() => setPos(null)} style={{ position: "absolute", inset: 0 }} />
             <div style={{ position: "absolute", left: pos.x, top: pos.y, width: 180, background: "var(--card)", border: "0.5px solid var(--line-d)", borderRadius: 9, boxShadow: "0 12px 30px rgba(0,0,0,.5)", padding: 4 }}>
               <div style={{ fontSize: 10.5, color: "var(--muted)", padding: "3px 6px 5px" }}>{prop.name}</div>
+              {prop.type === "date" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 4, padding: "0 4px 4px" }}>
+                  <input
+                    type="date"
+                    autoFocus
+                    defaultValue={typeof value === "string" ? value : ""}
+                    onChange={(e) => e.target.value && setProp(row, prop.id, e.target.value)}
+                    style={{ background: "var(--surf)", color: "var(--ink)", border: "0.5px solid var(--line-d)", borderRadius: 6, padding: "5px 6px", font: "inherit", fontSize: 12.5, colorScheme: "dark" }}
+                  />
+                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                    {([["Hoje", 0], ["Amanhã", 1], ["+7 dias", 7]] as const).map(([l, d]) => (
+                      <button key={l} type="button" className="ws-chip" onClick={() => { setProp(row, prop.id, todayBrt(d)); setPos(null); }}>
+                        {l}
+                      </button>
+                    ))}
+                    {value != null && (
+                      <button type="button" className="ws-chip" onClick={() => { setProp(row, prop.id, null); setPos(null); }}>
+                        Limpar
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
               {(prop.options ?? []).map((o) => (
                 <button
                   key={o.id}
@@ -573,6 +660,11 @@ function ChipMenu({ prop, row, people }: { prop: Property; row: RowData; people:
         )}
     </>
   );
+}
+
+/** "12/10" (dia/mês em Brasília) a partir do createdAt. */
+function abertura(createdAt: string) {
+  return new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit" }).format(new Date(createdAt));
 }
 
 /** Cor da faixa lateral do cartão: a opção da propriedade com papel "priority". */
@@ -678,9 +770,31 @@ function Empty() {
 // ── Quadro (kanban) ────────────────────────────────────────────────
 // Arrastar com ponteiro (mouse e toque): mouse começa a arrastar depois de
 // mover 5 px; no toque, segurar ~0,3 s. Uma linha mostra onde vai cair.
-type DragState = { id: string; x: number; y: number; offX: number; offY: number; w: number; over: { col: string; index: number } | null };
+type DropAction = "done" | "archive" | "trash";
+type DragState = { id: string; x: number; y: number; offX: number; offY: number; w: number; over: { col: string; index: number } | { drop: DropAction } | null };
+const DROP_LABEL: Record<DropAction, { icon: string; text: string; color: string }> = {
+  done: { icon: "✓", text: "Concluir", color: "#46aa64" },
+  archive: { icon: "📦", text: "Arquivar", color: "#3c82e6" },
+  trash: { icon: "🗑️", text: "Excluir", color: "#e6463c" },
+};
 
-function BoardView({ ctx, view, props, rows, onMove }: { ctx: CellCtx; view: View; props: Property[]; rows: RowData[]; onMove: MoveFn }) {
+function BoardView({
+  ctx,
+  view,
+  props,
+  rows,
+  onMove,
+  dropActions = [],
+  onDropAction,
+}: {
+  ctx: CellCtx;
+  view: View;
+  props: Property[];
+  rows: RowData[];
+  onMove: MoveFn;
+  dropActions?: DropAction[];
+  onDropAction?: (row: RowData, a: DropAction) => void;
+}) {
   const group = ctx.schema.properties.find((p) => p.id === view.groupBy);
   const [drag, setDrag] = useState<DragState | null>(null);
   const dragRef = useRef<DragState | null>(null);
@@ -717,6 +831,8 @@ function BoardView({ ctx, view, props, rows, onMove }: { ctx: CellCtx; view: Vie
   // onde cairia: coluna sob o ponteiro + posição entre os cartões
   const targetAt = (x: number, y: number, dragId: string) => {
     const el = document.elementFromPoint(x, y) as HTMLElement | null;
+    const dropEl = el?.closest<HTMLElement>("[data-drop]");
+    if (dropEl) return { drop: dropEl.dataset.drop as DropAction };
     const colEl = el?.closest<HTMLElement>("[data-col]");
     if (!colEl) return null;
     const cards = [...colEl.querySelectorAll<HTMLElement>("[data-card]")].filter((c) => c.dataset.card !== dragId);
@@ -773,10 +889,15 @@ function BoardView({ ctx, view, props, rows, onMove }: { ctx: CellCtx; view: Vie
       setTimeout(() => (justDragged.current = false), 50);
       if (!d.over || !group) return;
       const row = rows.find((r) => r.id === d.id);
-      const col = cols.find((c) => c.key === d.over!.col);
+      if ("drop" in d.over) {
+        if (row) onDropAction?.(row, d.over.drop);
+        return;
+      }
+      const over = d.over;
+      const col = cols.find((c) => c.key === over.col);
       if (!row || !col) return;
       const list = rows.filter((r) => keyOf(r) === col.key && r.id !== row.id).map((r) => r.id);
-      list.splice(d.over.index, 0, row.id);
+      list.splice(over.index, 0, row.id);
       const sameCol = keyOf(row) === col.key;
       const before = rows.filter((r) => keyOf(r) === col.key).map((r) => r.id);
       if (sameCol && before.join() === list.join()) return; // não mudou nada
@@ -859,7 +980,8 @@ function BoardView({ ctx, view, props, rows, onMove }: { ctx: CellCtx; view: Vie
       {cols.map((col) => {
         const items = rows.filter((r) => keyOf(r) === col.key);
         if (col.key === "" && items.length === 0 && group.type !== "checkbox" && !drag) return null;
-        const overHere = drag?.over?.col === col.key;
+        const overIdx = drag?.over && "col" in drag.over && drag.over.col === col.key ? drag.over.index : -1;
+        const overHere = overIdx >= 0;
         const shown = items.filter((r) => r.id !== drag?.id || !overHere);
         return (
           <div
@@ -875,10 +997,10 @@ function BoardView({ ctx, view, props, rows, onMove }: { ctx: CellCtx; view: Vie
                 const out: React.ReactNode[] = [];
                 const vis = overHere ? shown : items;
                 vis.forEach((r, i) => {
-                  if (overHere && drag!.over!.index === i) out.push(<div key="__line">{line}</div>);
+                  if (overIdx === i) out.push(<div key="__line">{line}</div>);
                   out.push(card(r));
                 });
-                if (overHere && drag!.over!.index >= vis.length) out.push(<div key="__line">{line}</div>);
+                if (overHere && overIdx >= vis.length) out.push(<div key="__line">{line}</div>);
                 return out;
               })()}
             </div>
@@ -889,6 +1011,23 @@ function BoardView({ ctx, view, props, rows, onMove }: { ctx: CellCtx; view: Vie
       {drag && dragged && (
         <div style={{ position: "fixed", left: drag.x - drag.offX, top: drag.y - drag.offY, width: drag.w, zIndex: 90, pointerEvents: "none", transform: "rotate(2deg)" }}>
           {card(dragged, true)}
+        </div>
+      )}
+      {drag && dropActions.length > 0 && (
+        <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 88, display: "flex", justifyContent: "center", gap: 10, padding: "12px 16px calc(12px + env(safe-area-inset-bottom))", background: "linear-gradient(to top, rgba(0,0,0,.75), rgba(0,0,0,0))" }}>
+          {dropActions.map((a) => {
+            const on = !!drag.over && "drop" in drag.over && drag.over.drop === a;
+            const d = DROP_LABEL[a];
+            return (
+              <div
+                key={a}
+                data-drop={a}
+                style={{ flex: "0 1 200px", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, height: 64, borderRadius: 12, border: `1.5px dashed ${d.color}`, background: on ? d.color : "var(--card)", color: on ? "#fff" : "var(--ink)", fontWeight: 700, fontSize: 14, transform: on ? "scale(1.05)" : undefined, transition: "all .1s" }}
+              >
+                <span style={{ fontSize: 18 }}>{d.icon}</span> {d.text}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

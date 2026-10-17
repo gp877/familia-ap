@@ -111,7 +111,7 @@ export type SelectOption = { id: string; name: string; color: Color; group?: Sta
  *  ai_prompt → texto com a instrução para a IA (aparece como "🤖 Pedir à IA" na tarefa)
  *  ai_status → seleção da fila da IA; a 1ª opção = "na fila" (some das listas até a IA terminar)
  */
-export type PropRole = "ai_prompt" | "ai_status" | "priority";
+export type PropRole = "ai_prompt" | "ai_status" | "priority" | "archived";
 
 export type Property = {
   id: string;
