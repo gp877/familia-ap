@@ -106,11 +106,19 @@ export const STATUS_GROUP_LABEL: Record<StatusGroup, string> = {
 
 export type SelectOption = { id: string; name: string; color: Color; group?: StatusGroup };
 
+/**
+ * Papel especial de uma propriedade (opcional):
+ *  ai_prompt → texto com a instrução para a IA (aparece como "🤖 Pedir à IA" na tarefa)
+ *  ai_status → seleção da fila da IA; a 1ª opção = "na fila" (some das listas até a IA terminar)
+ */
+export type PropRole = "ai_prompt" | "ai_status";
+
 export type Property = {
   id: string;
   name: string;
   type: PropType;
   options?: SelectOption[]; // select | multi_select | status
+  role?: PropRole;
 };
 
 export type DbSchema = { properties: Property[] };

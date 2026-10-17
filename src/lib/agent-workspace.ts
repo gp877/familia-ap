@@ -197,10 +197,12 @@ export async function configureDatabase(actor: WsActor, dbPage: WsPage, body: Re
     if (!nome || !PROP_TYPES.includes(tipo)) throw new AgentInputError(`Propriedade inválida: ${JSON.stringify(p)}`);
     if (schema.properties.some((x) => norm(x.name) === norm(nome))) continue;
     const opcoes = Array.isArray(p.opcoes) ? p.opcoes.map(String) : [];
+    const papel = p.papel === "instrucao_ia" ? ("ai_prompt" as const) : p.papel === "status_ia" ? ("ai_status" as const) : undefined;
     schema.properties.push({
       id: newId(),
       name: nome,
       type: tipo,
+      ...(papel ? { role: papel } : {}),
       ...(["select", "multi_select", "status"].includes(tipo)
         ? { options: opcoes.map((o, i) => ({ id: newId(), name: o, color: COLORS[1 + (i % (COLORS.length - 1))] })) }
         : {}),

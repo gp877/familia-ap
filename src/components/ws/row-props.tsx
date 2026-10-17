@@ -26,7 +26,7 @@ export function RowProps({
   const ctx = { dbId, schema, people };
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 1, paddingBottom: 12, marginBottom: 12, borderBottom: "0.5px solid var(--line-d)" }}>
-      {schema.properties.map((p) => (
+      {schema.properties.filter((p) => p.role !== "ai_prompt").map((p) => (
         <div key={p.id} style={{ display: "grid", gridTemplateColumns: "minmax(110px, 160px) 1fr", alignItems: "center", gap: 8 }}>
           <div style={{ position: "relative" }}>
             <button
