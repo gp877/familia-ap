@@ -186,6 +186,7 @@ function papelDe(v: unknown) {
   if (v === "prioridade") return "priority" as const;
   if (v === "arquivada") return "archived" as const;
   if (v === "delegado") return "delegate" as const;
+  if (v === "categoria") return "category" as const;
   return undefined;
 }
 

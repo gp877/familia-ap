@@ -271,6 +271,7 @@ export function DatabaseView({
     else q.delete("m");
     router.replace(`${pathname}?${q.toString()}`, { scroll: false });
   };
+  const [showHelp, setShowHelp] = useState(false);
   const modeCounts = useMemo(
     () => [baseView.filters, ...modes.map((m) => m.filters)].map((filters) => applyView(effRows, { ...baseView, filters, sorts: [] }, schema).length),
     [effRows, baseView, modes, schema]
@@ -322,6 +323,9 @@ export function DatabaseView({
                   {m.name} <span style={{ opacity: 0.6 }}>{modeCounts[i]}</span>
                 </button>
               ))}
+            <button type="button" className="ws-chip" data-on={showHelp || undefined} onClick={() => setShowHelp((v) => !v)} title="O que significa cada símbolo e cor">
+              ⓘ Legenda
+            </button>
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {(prazoProp || prioProp) && view.type !== "calendar" && (
@@ -346,7 +350,7 @@ export function DatabaseView({
           </div>
         </div>
       )}
-      <Legend board={view.type === "board"} />
+      {showHelp && <Legend board={view.type === "board"} schema={schema} />}
       {view.type === "table" && <TableView ctx={ctx} view={view} props={shownProps} rows={visible} views={views} />}
       {view.type === "list" && <ListView ctx={ctx} props={shownProps} rows={visible} />}
       {view.type === "board" && <BoardView ctx={ctx} view={view} props={shownProps} rows={visible} onMove={onMove} dropActions={dropActions} onDropAction={onDropAction} />}
@@ -449,7 +453,8 @@ function QuickAsk({ row }: { row: RowData }) {
 }
 
 /** Legenda curta dos símbolos dos cartões. */
-function Legend({ board }: { board: boolean }) {
+function Legend({ board, schema }: { board: boolean; schema: DbSchema }) {
+  const coloridas = schema.properties.filter((p) => (p.role === "priority" || p.role === "category") && p.options?.length);
   const item = (sym: React.ReactNode, txt: string) => (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
       {sym}
@@ -457,12 +462,24 @@ function Legend({ board }: { board: boolean }) {
     </span>
   );
   return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 14px", fontSize: 11, color: "var(--muted)" }}>
+    <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 16px", fontSize: 11.5, color: "var(--muted-d)", background: "var(--surf)", borderRadius: 10, padding: "8px 12px" }}>
       {item(<span style={{ width: 11, height: 11, borderRadius: 999, border: "1.5px solid var(--muted)", display: "inline-block" }} />, "toque para concluir")}
       {item(<span>🤖</span>, "pedir à IA (vai para a fila; mande \"arrastão\" para executar)")}
       {item(<span style={{ fontSize: 9, fontWeight: 800, color: "var(--accent)", border: "0.5px solid var(--accent)", borderRadius: 999, padding: "0 4px" }}>IA</span>, "criada pelo assistente")}
       {item(<span style={{ color: "var(--alert)", fontWeight: 600 }}>📅 atrasada</span>, "prazo vencido")}
-      {item(<span>🖱️</span>, board ? "clique abre · arraste para mover (no celular: segure e arraste)" : "clique abre a tarefa")}
+      {item(<span>🖱️</span>, board ? "clique abre · arraste para mover ou soltar em Concluir/Arquivar/Excluir (no celular: segure e arraste)" : "clique abre a tarefa")}
+      {coloridas.map((p) => (
+        <span key={p.id} style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+          <b style={{ fontWeight: 600 }}>{p.name}:</b>
+          {(p.options ?? []).filter((o) => !o.archived).map((o) => (
+            <span key={o.id} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <span className="ws-dot" style={{ background: accentColor(o.color), borderRadius: p.role === "priority" ? 999 : 3 }} />
+              {o.name}
+            </span>
+          ))}
+        </span>
+      ))}
+      {item(<span>👆</span>, "clique numa bolinha ou etiqueta para trocar na hora")}
     </div>
   );
 }
@@ -587,23 +604,38 @@ function RowTitle({ row, wrap = false, size = 13.5 }: { row: RowData; wrap?: boo
 }
 
 /** Valores de propriedades em linha, enxutos (cartões e lista). */
-function Chips({ props, row, people, askEmpty = [], strongEmpty = false }: { props: Property[]; row: RowData; people: CellCtx["people"]; askEmpty?: Property[]; strongEmpty?: boolean }) {
-  const shown = props.filter((p) => row.props?.[p.id] != null && row.props?.[p.id] !== "" && !(Array.isArray(row.props?.[p.id]) && !(row.props?.[p.id] as string[]).length));
-  const semPrazo = props.find((p) => p.type === "date" && !shown.includes(p));
+/**
+ * Linha de baixo do cartão, SEMPRE na mesma ordem (preenchido ou não):
+ * ● prioridade · ■ área (só cor) · 📅 prazo · 👤 delegada · demais etiquetas · "aberta dd/mm".
+ */
+function Chips({ props, row, people, strongEmpty = false }: { props: Property[]; row: RowData; people: CellCtx["people"]; strongEmpty?: boolean }) {
+  const filled = (p: Property) => {
+    const v = row.props?.[p.id];
+    return v != null && v !== "" && !(Array.isArray(v) && !v.length);
+  };
+  const dots = props.filter((p) => (p.role === "priority" || p.role === "category") && p.options?.length).sort((a, b) => (a.role === "priority" ? -1 : b.role === "priority" ? 1 : 0));
+  const date = props.find((p) => p.type === "date");
+  const deleg = props.find((p) => p.role === "delegate");
+  const rest = props.filter((p) => !dots.includes(p) && p !== date && p !== deleg && filled(p));
   return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center", fontSize: 11.5 }}>
-      {shown.map((p) =>
-        p.type === "select" || p.type === "status" || p.type === "date" ? (
+    <div className="ws-meta">
+      {dots.length > 0 && (
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+          {dots.map((p) => (
+            <ChipMenu key={p.id} prop={p} row={row} people={people} dot />
+          ))}
+        </span>
+      )}
+      {date && <ChipMenu prop={date} row={row} people={people} />}
+      {deleg && <ChipMenu prop={deleg} row={row} people={people} strongEmpty={strongEmpty} />}
+      {rest.map((p) =>
+        p.type === "select" || p.type === "status" ? (
           <ChipMenu key={p.id} prop={p} row={row} people={people} />
         ) : (
           <PropDisplay key={p.id} prop={p} value={row.props?.[p.id] ?? null} people={people} compact />
         )
       )}
-      {semPrazo && <ChipMenu prop={semPrazo} row={row} people={people} />}
-      {askEmpty.filter((p) => !shown.includes(p)).map((p) => (
-        <ChipMenu key={p.id} prop={p} row={row} people={people} strongEmpty={strongEmpty} />
-      ))}
-      <span title="Data de abertura" style={{ marginLeft: "auto", fontSize: 10.5, color: "var(--muted)" }}>
+      <span title="Data de abertura" style={{ marginLeft: "auto", fontSize: 10.5, color: "var(--muted)", whiteSpace: "nowrap" }}>
         aberta {abertura(row.createdAt)}
       </span>
     </div>
@@ -611,7 +643,7 @@ function Chips({ props, row, people, askEmpty = [], strongEmpty = false }: { pro
 }
 
 /** Etiqueta do cartão que abre as opções ali mesmo (ex.: Alta / Média / Baixa). */
-function ChipMenu({ prop, row, people, strongEmpty = false }: { prop: Property; row: RowData; people: CellCtx["people"]; strongEmpty?: boolean }) {
+function ChipMenu({ prop, row, people, strongEmpty = false, dot = false }: { prop: Property; row: RowData; people: CellCtx["people"]; strongEmpty?: boolean; dot?: boolean }) {
   const setProp = useContext(SetPropContext);
   const ops = useContext(OptionOpsContext);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
@@ -651,7 +683,7 @@ function ChipMenu({ prop, row, people, strongEmpty = false }: { prop: Property; 
     <>
       <button
         type="button"
-        title={`${prop.name}: clique para trocar`}
+        title={`${prop.name}: ${prop.options?.find((o) => o.id === value)?.name ?? "—"} (clique para trocar)`}
         onPointerDown={stop}
         onMouseDown={stop}
         onClick={(e) => {
@@ -662,7 +694,9 @@ function ChipMenu({ prop, row, people, strongEmpty = false }: { prop: Property; 
         }}
         style={{ border: 0, background: "transparent", padding: 0, cursor: "pointer", font: "inherit", lineHeight: 1 }}
       >
-        {prop.type === "date" && value == null ? (
+        {dot ? (
+          <DotOf prop={prop} value={value} />
+        ) : prop.type === "date" && value == null ? (
           <span style={{ fontSize: 11, color: "var(--muted)" }}>📅 + prazo</span>
         ) : value == null ? (
           strongEmpty ? (
@@ -757,6 +791,21 @@ function ChipMenu({ prop, row, people, strongEmpty = false }: { prop: Property; 
           document.body
         )}
     </>
+  );
+}
+
+/** Bolinha (prioridade) ou quadradinho (área) só com a cor da opção; vazio = contorno tracejado. */
+function DotOf({ prop, value }: { prop: Property; value: PropValue }) {
+  const o = prop.options?.find((x) => x.id === value);
+  return (
+    <span
+      className="ws-dot"
+      style={{
+        background: o ? accentColor(o.color) : "transparent",
+        border: o ? 0 : "1px dashed var(--muted)",
+        borderRadius: prop.role === "priority" ? 999 : 3,
+      }}
+    />
   );
 }
 
@@ -913,7 +962,16 @@ function BoardView({
         : [
             ...(group.options ?? [])
               .filter((o) => !o.archived || rows.some((r) => r.props?.[group.id] === o.id))
-              .map((o) => ({ key: o.id, label: <Tag color={o.color}>{o.name}</Tag>, value: o.id as PropValue })),
+              .map((o) => ({
+                key: o.id,
+                label: (
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 7, fontWeight: 700, fontSize: 13, color: "var(--ink)" }}>
+                    <span className="ws-dot" style={{ width: 8, height: 8, borderRadius: 999, background: accentColor(o.color) }} />
+                    {o.name}
+                  </span>
+                ),
+                value: o.id as PropValue,
+              })),
             { key: "", label: `Sem ${group.name}`, value: null },
           ];
   const keyOf = useCallback(
@@ -1025,8 +1083,7 @@ function BoardView({
     return <div style={{ padding: 14, fontSize: 13, color: "var(--muted)" }}>Escolha em “Agrupar” por qual propriedade montar as colunas.</div>;
   }
   const cardProps = props.filter((p) => p.id !== group.id);
-  // todo cartão sem responsável mostra "👤 +" (na coluna Delegada, em destaque) para delegar na hora
-  const delegateProp = ctx.schema.properties.find((p) => p.role === "delegate");
+  // na coluna "Delegada", o "👤 +" de quem não tem responsável aparece em destaque
   const optName = (r: RowData) => group.options?.find((o) => o.id === r.props?.[group.id])?.name ?? "";
   const dragged = drag ? rows.find((r) => r.id === drag.id) : undefined;
 
@@ -1049,6 +1106,7 @@ function BoardView({
   const card = (r: RowData, ghost = false) => (
     <div
       key={r.id}
+      className="ws-card"
       data-card={ghost ? undefined : r.id}
       onPointerDown={ghost ? undefined : (e) => onPointerDown(e, r)}
       onClickCapture={(e) => {
@@ -1062,21 +1120,21 @@ function BoardView({
         background: "var(--card)",
         border: ghost ? "1px solid var(--accent)" : "0.5px solid var(--line-d)",
         borderLeft: prioColorOf(ctx.schema, r) ? `3px solid ${prioColorOf(ctx.schema, r)}` : ghost ? "1px solid var(--accent)" : "0.5px solid var(--line-d)",
-        borderRadius: 7,
-        padding: "6px 8px",
+        borderRadius: 9,
+        padding: "8px 10px 7px",
         cursor: drag ? "grabbing" : "grab",
         opacity: !ghost && drag?.id === r.id ? 0.3 : 1,
         display: "flex",
         flexDirection: "column",
-        gap: 4,
+        gap: 7,
         userSelect: "none",
         WebkitUserSelect: "none",
         touchAction: "manipulation",
         boxShadow: ghost ? "0 14px 32px rgba(0,0,0,.5)" : undefined,
       }}
     >
-      <RowTitle row={r} wrap size={12.5} />
-      <Chips props={cardProps} row={r} people={ctx.people} askEmpty={delegateProp ? [delegateProp] : []} strongEmpty={/delegad/i.test(optName(r))} />
+      <RowTitle row={r} wrap size={13} />
+      <Chips props={cardProps} row={r} people={ctx.people} strongEmpty={/delegad/i.test(optName(r))} />
     </div>
   );
   const line = <div style={{ height: 3, borderRadius: 2, background: "var(--accent)", margin: "1px 0" }} />;
@@ -1093,12 +1151,13 @@ function BoardView({
           <div
             key={col.key || "none"}
             data-col={col.key}
-            style={{ flex: "1 1 0", minWidth: 250, maxWidth: 440, background: overHere ? "var(--card2)" : "var(--surf)", borderRadius: 10, padding: 6, transition: "background .1s" }}
+            style={{ flex: "1 1 0", minWidth: 250, maxWidth: 440, background: overHere ? "var(--card2)" : "var(--surf)", borderRadius: 12, padding: 8, transition: "background .1s" }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "2px 4px 6px", fontSize: 12, color: "var(--muted-d)" }}>
-              {col.label} <span>{items.length}</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "2px 4px 10px", fontSize: 12, color: "var(--muted-d)" }}>
+              {col.label}
+              <span style={{ fontSize: 11, fontWeight: 600, color: "var(--muted-d)", background: "var(--card)", borderRadius: 999, padding: "1px 8px" }}>{items.length}</span>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 4, minHeight: 8 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, minHeight: 8 }}>
               {(() => {
                 const out: React.ReactNode[] = [];
                 const vis = overHere ? shown : items;

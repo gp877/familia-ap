@@ -268,3 +268,7 @@
 .ws-opt:hover .ws-opt-arq, .ws-opt-arq:focus { opacity: .8; }
 .ws-opt-arq:hover { background: var(--card2); opacity: 1; }
 @media (hover: none) { .ws-opt-arq { opacity: .6; } }
+.ws-card { transition: box-shadow .14s ease, transform .14s ease, background .14s ease; }
+@media (hover: hover) { .ws-card:hover { background: var(--card2) !important; box-shadow: 0 6px 18px rgba(0,0,0,.28); transform: translateY(-1px); } }
+.ws-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 11px; min-height: 18px; }
+.ws-dot { display: inline-block; width: 9px; height: 9px; flex-shrink: 0; vertical-align: middle; }
