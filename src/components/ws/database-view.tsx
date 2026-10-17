@@ -722,7 +722,7 @@ function BoardView({ ctx, view, props, rows, onMove }: { ctx: CellCtx; view: Vie
         boxShadow: ghost ? "0 14px 32px rgba(0,0,0,.5)" : undefined,
       }}
     >
-      <RowTitle row={r} wrap size={13} />
+      <RowTitle row={r} wrap size={12.5} />
       <Chips props={cardProps} row={r} people={ctx.people} />
     </div>
   );
@@ -739,7 +739,7 @@ function BoardView({ ctx, view, props, rows, onMove }: { ctx: CellCtx; view: Vie
           <div
             key={col.key || "none"}
             data-col={col.key}
-            style={{ width: 244, flexShrink: 0, background: overHere ? "var(--card2)" : "var(--surf)", borderRadius: 10, padding: 6, transition: "background .1s" }}
+            style={{ flex: "1 1 0", minWidth: 250, maxWidth: 440, background: overHere ? "var(--card2)" : "var(--surf)", borderRadius: 10, padding: 6, transition: "background .1s" }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "2px 4px 6px", fontSize: 12, color: "var(--muted-d)" }}>
               {col.label} <span>{items.length}</span>

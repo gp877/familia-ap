@@ -36,7 +36,7 @@ export default async function WsPageRoute({ params }: { params: Promise<{ id: st
   const views = (page.views as View[] | null) ?? [];
 
   return (
-    <div style={{ maxWidth: page.kind === "database" ? 1200 : 860, margin: "0 auto", padding: "16px 20px 40px" }}>
+    <div style={{ maxWidth: page.kind === "database" ? "none" : 860, margin: "0 auto", padding: page.kind === "database" ? "16px 24px 40px" : "16px 20px 40px" }}>
       <PageHeader
         id={page.id}
         title={page.title}
