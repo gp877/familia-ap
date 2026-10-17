@@ -7,6 +7,7 @@ import {
   type WsActor,
   archivePage,
   createPage,
+  moveRow,
   purgePage,
   restorePage,
   setRowProps,
@@ -83,5 +84,11 @@ export async function wsPurge(id: string) {
 
 export async function wsSetVisibility(id: string, visibility: "private" | "household") {
   await setVisibility(await actor(), id, visibility);
+  refresh();
+}
+
+/** Arrastar no quadro: muda a coluna (valores) e grava a ordem da coluna. */
+export async function wsMoveRow(rowId: string, values: Record<string, PropValue> | null, orderedIds: string[]) {
+  await moveRow(await actor(), rowId, values, orderedIds);
   refresh();
 }

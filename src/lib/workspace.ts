@@ -12,7 +12,7 @@
 import { and, asc, eq, inArray, isNull, isNotNull, or, sql } from "drizzle-orm";
 
 import { db } from "@/db";
-import { users, wsPages } from "@/db/schema";
+import { users, wsActivity, wsPages } from "@/db/schema";
 
 import {
   type Block,
@@ -34,6 +34,35 @@ const stamp = (actor: WsActor) => ({
   updatedAt: new Date(),
   ...(actor.via === "agent" ? { agentUpdatedAt: new Date() } : {}),
 });
+
+/** Anota uma atividade (nunca derruba a operação principal se falhar). */
+async function logActivity(
+  actor: WsActor,
+  page: { id: string; ownerId: string; parentId: string | null; title: string; props: unknown; kind: string },
+  type: "created" | "completed" | "reopened" | "archived" | "restored"
+) {
+  try {
+    await db.insert(wsActivity).values({
+      householdId: actor.householdId,
+      ownerId: page.ownerId,
+      pageId: page.id,
+      databaseId: page.kind === "row" ? page.parentId : null,
+      type,
+      title: page.title,
+      props: page.props ?? null,
+      via: actor.via ?? "app",
+      userId: actor.userId,
+    });
+  } catch (e) {
+    console.error("[workspace] registro de atividade falhou:", e);
+  }
+}
+
+/** Opções de status do grupo "Concluído". */
+function doneOptionIds(schema: DbSchema) {
+  const status = schema.properties.find((p) => p.type === "status");
+  return { status, done: new Set((status?.options ?? []).filter((o) => o.group === "done").map((o) => o.id)) };
+}
 
 function canSee(actor: WsActor) {
   return and(
@@ -188,6 +217,7 @@ export async function createPage(
       createdVia: actor.via ?? "app",
     })
     .returning();
+  if (created.kind === "row") await logActivity(actor, created, "created");
   return created;
 }
 
@@ -220,7 +250,42 @@ export async function setRowProps(actor: WsActor, rowId: string, values: Record<
     else next[propId] = v;
   }
   await db.update(wsPages).set({ props: next, ...stamp(actor) }).where(eq(wsPages.id, rowId));
+
+  // concluiu / reabriu? (mudou de/para uma opção do grupo "Concluído")
+  const { status, done } = doneOptionIds(schema);
+  if (status && status.id in values) {
+    const before = done.has(String((row.props as Record<string, PropValue> | null)?.[status.id] ?? ""));
+    const after = done.has(String(next[status.id] ?? ""));
+    if (before !== after) await logActivity(actor, { ...row, props: next }, after ? "completed" : "reopened");
+  }
   return next;
+}
+
+/**
+ * Arrastar no quadro: grava valores (ex.: a coluna nova) e a ordem final da
+ * coluna de uma vez. `orderedIds` = todas as linhas da coluna, na ordem nova.
+ */
+export async function moveRow(
+  actor: WsActor,
+  rowId: string,
+  values: Record<string, PropValue> | null,
+  orderedIds: string[]
+) {
+  if (values && Object.keys(values).length) await setRowProps(actor, rowId, values);
+  const row = await getPage(actor, rowId);
+  const ids = [...new Set(orderedIds)].slice(0, 500);
+  if (!ids.length) return;
+  const own = await db
+    .select({ id: wsPages.id })
+    .from(wsPages)
+    .where(and(inArray(wsPages.id, ids), eq(wsPages.parentId, row.parentId!), canSee(actor)));
+  const ok = new Set(own.map((r) => r.id));
+  const ordered = ids.filter((id) => ok.has(id));
+  if (!ordered.length) return;
+  await db.execute(sql`
+    update ws_page as p set sort_order = v.ord, updated_at = now()
+    from (values ${sql.join(ordered.map((id, i) => sql`(${id}::uuid, ${(i + 1) * 10}::int)`), sql`, `)}) as v(id, ord)
+    where p.id = v.id`);
 }
 
 /** Valida/normaliza um valor conforme o tipo da propriedade. */
@@ -292,6 +357,8 @@ export async function archivePage(actor: WsActor, id: string) {
     .update(wsPages)
     .set({ archivedAt: when, archivedVia: actor.via ?? "app" })
     .where(and(inArray(wsPages.id, ids), isNull(wsPages.archivedAt)));
+  const page = await getPage(actor, id, { archived: true });
+  await logActivity(actor, page, "archived");
   return { archived: ids.length };
 }
 
@@ -309,6 +376,7 @@ export async function restorePage(actor: WsActor, id: string) {
     .set({ archivedAt: null, archivedVia: null, updatedAt: new Date() })
     .where(and(inArray(wsPages.id, ids), eq(wsPages.archivedAt, page.archivedAt)))
     .returning({ id: wsPages.id });
+  if (r.length) await logActivity(actor, page, "restored");
   return { restored: r.length };
 }
 
@@ -340,4 +408,26 @@ export async function setVisibility(actor: WsActor, id: string, visibility: "pri
   if (page.ownerId !== actor.userId) throw new WsError("Só quem criou a página pode mudar o compartilhamento");
   const ids = await subtreeIds(id, actor.householdId);
   await db.update(wsPages).set({ visibility, updatedAt: new Date() }).where(inArray(wsPages.id, ids));
+}
+
+/**
+ * Dados da aba Registro: eventos dos últimos N dias (do dono) + linhas do banco
+ * Tarefas (pra "abertas agora" e pra concluídas antigas sem evento).
+ */
+export async function activityReport(actor: WsActor, days = 60) {
+  const since = new Date(Date.now() - days * 864e5);
+  const [events, tasksDb] = await Promise.all([
+    db.query.wsActivity.findMany({
+      where: and(
+        eq(wsActivity.householdId, actor.householdId),
+        eq(wsActivity.ownerId, actor.userId),
+        sql`${wsActivity.createdAt} >= ${since}`
+      ),
+      orderBy: (a, { desc }) => [desc(a.createdAt)],
+      limit: 3000,
+    }),
+    getTasksDatabase(actor).catch(() => null),
+  ]);
+  const rows = tasksDb ? await listRows(actor, tasksDb.id) : [];
+  return { events, tasksDb, rows };
 }

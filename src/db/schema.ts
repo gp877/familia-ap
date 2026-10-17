@@ -373,6 +373,32 @@ export const wsPages = pgTable(
   ]
 );
 
+// Registro de atividades do espaço (criada, concluída, reaberta, excluída,
+// restaurada). Alimenta a aba Registro (métricas + arquivo do que foi feito).
+// page_id fica nulo se a página for apagada de vez — o histórico continua.
+export const wsActivity = pgTable(
+  "ws_activity",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    ownerId: text("owner_id").notNull(), // dono da página (pra privacidade do registro)
+    pageId: uuid("page_id").references(() => wsPages.id, { onDelete: "set null" }),
+    databaseId: uuid("database_id"),
+    type: text("type").notNull(), // created | completed | reopened | archived | restored
+    title: text("title").notNull().default(""),
+    props: jsonb("props"), // retrato das propriedades no momento
+    via: text("via").notNull().default("app"), // app | agent
+    userId: text("user_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (a) => [
+    index("ws_activity_owner_idx").on(a.householdId, a.ownerId, a.createdAt),
+    index("ws_activity_page_idx").on(a.pageId),
+  ]
+);
+
 // ============================================================
 // Lixeira — nada do financeiro é apagado de verdade de primeira.
 // Cada item guarda a LINHA INTEIRA (`to_jsonb`) de uma transação, upload

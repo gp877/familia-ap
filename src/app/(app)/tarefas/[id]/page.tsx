@@ -75,6 +75,7 @@ export default async function WsPageRoute({ params }: { params: Promise<{ id: st
             createdAt: r.createdAt.toISOString(),
             createdVia: r.createdVia,
             agentUpdatedAt: r.agentUpdatedAt ? r.agentUpdatedAt.toISOString() : null,
+            content: (r.content as Block[] | null) ?? [],
           }))}
         />
       ) : (

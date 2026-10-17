@@ -1,10 +1,11 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { createContext, useContext, useMemo, useRef, useState, useTransition } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useTransition } from "react";
 
-import { wsCreatePage, wsSetRowProps, wsUpdateDatabase } from "@/app/actions/workspace";
+import { wsCreatePage, wsMoveRow, wsSetRowProps, wsUpdateDatabase } from "@/app/actions/workspace";
 import {
+  type Block,
   type DbSchema,
   type Property,
   type PropValue,
@@ -14,12 +15,17 @@ import {
 } from "@/lib/workspace-model";
 
 import { type CellCtx, type Person, PropCell, PropDisplay } from "./prop-cell";
+import { RowPeek } from "./row-peek";
 import { AddPropertyButton, PropertyMenu, ViewTabs, ViewToolbar } from "./schema-editor";
 import { AiBadge, GhostButton, Popover, Tag, TextField } from "./ws-ui";
 
 /** Concluir rápido: a bolinha ○ na frente de cada tarefa (status do grupo "Concluído"). */
 type DoneCtx = { isDone: (r: RowData) => boolean; toggle: (r: RowData) => void };
 const DoneContext = createContext<DoneCtx | null>(null);
+/** Clicar no título abre a tarefa "por cima" (peek) em vez de trocar de página. */
+const PeekContext = createContext<((id: string) => void) | null>(null);
+/** Arrastar no quadro: grava coluna + ordem (otimista). */
+type MoveFn = (row: RowData, values: Record<string, PropValue> | null, orderedIds: string[]) => void;
 
 export type RowData = {
   id: string;
@@ -30,6 +36,7 @@ export type RowData = {
   createdAt: string;
   createdVia: string;
   agentUpdatedAt: string | null;
+  content?: Block[];
 };
 
 export function DatabaseView({
@@ -49,44 +56,58 @@ export function DatabaseView({
   const pathname = usePathname();
   const sp = useSearchParams();
   const activeId = views.some((v) => v.id === sp.get("v")) ? sp.get("v")! : views[0].id;
-  const view = views.find((v) => v.id === activeId)!;
+  const baseView = views.find((v) => v.id === activeId)!;
 
-  // ── concluir rápido (otimista: some na hora; servidor confirma depois) ──
-  const statusProp = schema.properties.find((p) => p.type === "status");
-  const doneOpt = statusProp?.options?.find((o) => o.group === "done");
-  const reopenOpt = statusProp?.options?.find((o) => (o.group ?? "todo") === "todo");
-  const [overrides, setOverrides] = useState<Record<string, PropValue>>({});
+  // ── alterações otimistas (some/move na hora; o servidor confirma depois) ──
+  type Patch = { props?: Record<string, PropValue>; sortOrder?: number };
+  const [patches, setPatches] = useState<Record<string, Patch>>({});
+  const [manualViews, setManualViews] = useState<Set<string>>(new Set()); // visões que viraram "ordem manual"
   const [prevRows, setPrevRows] = useState(rows);
   if (rows !== prevRows) {
     setPrevRows(rows);
-    setOverrides({});
+    setPatches({});
   }
-  const [toast, setToast] = useState<{ row: RowData; prev: PropValue; done: boolean } | null>(null);
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [, startDone] = useTransition();
-
+  const manual = manualViews.has(baseView.id);
+  const view = useMemo(() => (manual && baseView.sorts.length ? { ...baseView, sorts: [] } : baseView), [manual, baseView]);
+  const patch = (id: string, p: Patch) =>
+    setPatches((o) => ({ ...o, [id]: { props: { ...o[id]?.props, ...p.props }, sortOrder: p.sortOrder ?? o[id]?.sortOrder } }));
   const effRows = useMemo(
     () =>
-      statusProp
-        ? rows.map((r) => (r.id in overrides ? { ...r, props: { ...r.props, [statusProp.id]: overrides[r.id] } } : r))
-        : rows,
-    [rows, overrides, statusProp]
+      rows.map((r) => {
+        const p = patches[r.id];
+        if (!p) return r;
+        return { ...r, props: p.props ? { ...r.props, ...p.props } : r.props, sortOrder: p.sortOrder ?? r.sortOrder };
+      }),
+    [rows, patches]
   );
-  const setStatus = (row: RowData, value: PropValue) => {
-    if (!statusProp) return;
-    setOverrides((o) => ({ ...o, [row.id]: value }));
-    startDone(async () => {
+
+  // ── aviso com "Desfazer" ──
+  const [toast, setToast] = useState<{ text: string; undo?: () => void } | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showToast = (text: string, undo?: () => void) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast({ text, undo });
+    toastTimer.current = setTimeout(() => setToast(null), 6000);
+  };
+  const [, startBg] = useTransition();
+  const run = (fn: () => Promise<unknown>) =>
+    startBg(async () => {
       try {
-        await wsSetRowProps(row.id, { [statusProp.id]: value });
+        await fn();
       } catch (e) {
-        setOverrides((o) => {
-          const n = { ...o };
-          delete n[row.id];
-          return n;
-        });
+        setPatches({});
         alert(e instanceof Error ? e.message : String(e));
       }
     });
+
+  // ── concluir rápido ──
+  const statusProp = schema.properties.find((p) => p.type === "status");
+  const doneOpt = statusProp?.options?.find((o) => o.group === "done");
+  const reopenOpt = statusProp?.options?.find((o) => (o.group ?? "todo") === "todo");
+  const setStatus = (row: RowData, value: PropValue) => {
+    if (!statusProp) return;
+    patch(row.id, { props: { [statusProp.id]: value } });
+    run(() => wsSetRowProps(row.id, { [statusProp.id]: value }));
   };
   const doneCtx: DoneCtx | null =
     statusProp && doneOpt
@@ -96,12 +117,27 @@ export function DatabaseView({
             const prev = r.props?.[statusProp.id] ?? null;
             const wasDone = prev === doneOpt.id;
             setStatus(r, wasDone ? (reopenOpt?.id ?? null) : doneOpt.id);
-            if (toastTimer.current) clearTimeout(toastTimer.current);
-            setToast({ row: r, prev, done: !wasDone });
-            toastTimer.current = setTimeout(() => setToast(null), 6000);
+            showToast(`${wasDone ? "↺ Reaberta" : "✓ Concluída"}: ${r.title}`, () => setStatus(r, prev));
           },
         }
       : null;
+
+  // ── arrastar no quadro ──
+  const onMove: MoveFn = (row, values, orderedIds) => {
+    if (values) patch(row.id, { props: values });
+    orderedIds.forEach((id, i) => patch(id, { sortOrder: (i + 1) * 10 }));
+    if (baseView.sorts.length && !manualViews.has(baseView.id)) {
+      setManualViews((s) => new Set(s).add(baseView.id));
+      run(() => wsUpdateDatabase(dbId, { views: views.map((v) => (v.id === baseView.id ? { ...v, sorts: [] } : v)) }));
+      showToast("Ordem manual ligada nesta visualização (a ordenação automática foi tirada).");
+    }
+    run(() => wsMoveRow(row.id, values, orderedIds));
+  };
+
+  // ── tarefa aberta por cima (peek) ──
+  const [peekId, setPeekId] = useState<string | null>(null);
+  const peekRow = peekId ? effRows.find((r) => r.id === peekId) : undefined;
+  const closePeek = useCallback(() => setPeekId(null), [setPeekId]);
 
   const visible = useMemo(() => applyView(effRows, view, schema), [effRows, view, schema]);
   const ctx: CellCtx = { dbId, schema, people };
@@ -115,25 +151,26 @@ export function DatabaseView({
 
   return (
     <DoneContext.Provider value={doneCtx}>
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+    <PeekContext.Provider value={setPeekId}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {toast && (
         <div
           role="status"
           style={{ position: "fixed", left: "50%", bottom: 24, transform: "translateX(-50%)", zIndex: 80, display: "flex", alignItems: "center", gap: 12, padding: "9px 14px", borderRadius: 10, background: "var(--card2)", border: "0.5px solid var(--line-d)", boxShadow: "0 10px 30px rgba(0,0,0,.45)", fontSize: 13, color: "var(--ink)", maxWidth: "calc(100vw - 32px)" }}
         >
-          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 320 }}>
-            {toast.done ? "✓ Concluída" : "↺ Reaberta"}: {toast.row.title}
-          </span>
-          <button
-            type="button"
-            onClick={() => {
-              setStatus(toast.row, toast.prev);
-              setToast(null);
-            }}
-            style={{ border: 0, background: "none", color: "var(--accent)", fontWeight: 700, cursor: "pointer", fontSize: 13, fontFamily: "inherit", padding: 0 }}
-          >
-            Desfazer
-          </button>
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 420 }}>{toast.text}</span>
+          {toast.undo && (
+            <button
+              type="button"
+              onClick={() => {
+                toast.undo?.();
+                setToast(null);
+              }}
+              style={{ border: 0, background: "none", color: "var(--accent)", fontWeight: 700, cursor: "pointer", fontSize: 13, fontFamily: "inherit", padding: 0 }}
+            >
+              Desfazer
+            </button>
+          )}
         </div>
       )}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6, flexWrap: "wrap", borderBottom: "0.5px solid var(--line-d)", paddingBottom: 4 }}>
@@ -143,15 +180,46 @@ export function DatabaseView({
             {visible.length}
             {visible.length !== effRows.length ? `/${effRows.length}` : ""} {visible.length === 1 ? "item" : "itens"}
           </span>
-          <ViewToolbar dbId={dbId} schema={schema} views={views} view={view} />
+          <ViewToolbar dbId={dbId} schema={schema} views={views} view={baseView} />
         </div>
       </div>
+      <Legend board={view.type === "board"} />
       {view.type === "table" && <TableView ctx={ctx} view={view} props={shownProps} rows={visible} views={views} />}
       {view.type === "list" && <ListView ctx={ctx} props={shownProps} rows={visible} />}
-      {view.type === "board" && <BoardView ctx={ctx} view={view} props={shownProps} rows={visible} />}
+      {view.type === "board" && <BoardView ctx={ctx} view={view} props={shownProps} rows={visible} onMove={onMove} />}
       {view.type === "calendar" && <CalendarView ctx={ctx} view={view} rows={visible} />}
+      {peekRow && (
+        <RowPeek
+          row={peekRow}
+          dbId={dbId}
+          schema={schema}
+          people={people}
+          done={statusProp && doneOpt ? peekRow.props?.[statusProp.id] === doneOpt.id : null}
+          onToggleDone={() => doneCtx?.toggle(peekRow)}
+          onClose={closePeek}
+        />
+      )}
     </div>
+    </PeekContext.Provider>
     </DoneContext.Provider>
+  );
+}
+
+/** Legenda curta dos símbolos dos cartões. */
+function Legend({ board }: { board: boolean }) {
+  const item = (sym: React.ReactNode, txt: string) => (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+      {sym}
+      {txt}
+    </span>
+  );
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 14px", fontSize: 11, color: "var(--muted)" }}>
+      {item(<span style={{ width: 11, height: 11, borderRadius: 999, border: "1.5px solid var(--muted)", display: "inline-block" }} />, "toque para concluir")}
+      {item(<span style={{ fontSize: 9, fontWeight: 800, color: "var(--accent)", border: "0.5px solid var(--accent)", borderRadius: 999, padding: "0 4px" }}>IA</span>, "criada pelo assistente")}
+      {item(<span style={{ color: "var(--alert)", fontWeight: 600 }}>📅 atrasada</span>, "prazo vencido")}
+      {item(<span>🖱️</span>, board ? "clique abre · arraste para mover (no celular: segure e arraste)" : "clique abre a tarefa")}
+    </div>
   );
 }
 
@@ -238,17 +306,21 @@ function NewRow({ ctx, preset, label = "Novo", compact }: { ctx: CellCtx; preset
   );
 }
 
-/** Título da linha. `wrap` (cartões e lista): quebra em até 2 linhas em vez de cortar. */
+/** Título da linha. `wrap` (cartões e lista): quebra em até 2 linhas em vez de cortar. Clique abre por cima. */
 function RowTitle({ row, wrap = false, size = 13.5 }: { row: RowData; wrap?: boolean; size?: number }) {
   const router = useRouter();
+  const peek = useContext(PeekContext);
   return (
     <a
       href={`/tarefas/${row.id}`}
       onClick={(e) => {
+        if (e.metaKey || e.ctrlKey) return; // Ctrl+clique abre a página numa aba nova
         e.preventDefault();
-        router.push(`/tarefas/${row.id}`);
+        if (peek) peek(row.id);
+        else router.push(`/tarefas/${row.id}`);
       }}
       title={row.title}
+      draggable={false}
       style={{ display: "flex", alignItems: wrap ? "flex-start" : "center", gap: 7, color: "var(--ink)", textDecoration: "none", fontWeight: 500, fontSize: size, lineHeight: 1.3, minWidth: 0 }}
     >
       <span style={{ display: "inline-flex", marginTop: wrap ? 1 : 0 }}>
@@ -264,11 +336,7 @@ function RowTitle({ row, wrap = false, size = 13.5 }: { row: RowData; wrap?: boo
       >
         {row.title || "Sem título"}
       </span>
-      {row.createdVia === "agent" ? (
-        <span title="Criada pelo assistente de IA" style={{ width: 6, height: 6, borderRadius: 999, background: "var(--accent)", flexShrink: 0, marginTop: wrap ? 6 : 0 }} />
-      ) : (
-        <AiBadge revisedAt={row.agentUpdatedAt} />
-      )}
+      <AiBadge created={row.createdVia === "agent"} revisedAt={row.createdVia === "agent" ? null : row.agentUpdatedAt} />
     </a>
   );
 }
@@ -380,17 +448,22 @@ function Empty() {
 }
 
 // ── Quadro (kanban) ────────────────────────────────────────────────
-function BoardView({ ctx, view, props, rows }: { ctx: CellCtx; view: View; props: Property[]; rows: RowData[] }) {
+// Arrastar com ponteiro (mouse e toque): mouse começa a arrastar depois de
+// mover 5 px; no toque, segurar ~0,3 s. Uma linha mostra onde vai cair.
+type DragState = { id: string; x: number; y: number; offX: number; offY: number; w: number; over: { col: string; index: number } | null };
+
+function BoardView({ ctx, view, props, rows, onMove }: { ctx: CellCtx; view: View; props: Property[]; rows: RowData[]; onMove: MoveFn }) {
   const group = ctx.schema.properties.find((p) => p.id === view.groupBy);
-  const [dragging, setDragging] = useState<string | null>(null);
-  const [over, setOver] = useState<string | null>(null);
-  const [, start] = useTransition();
-  if (!group) {
-    return <div style={{ padding: 14, fontSize: 13, color: "var(--muted)" }}>Escolha em “Agrupar” por qual propriedade montar as colunas.</div>;
-  }
+  const [drag, setDrag] = useState<DragState | null>(null);
+  const dragRef = useRef<DragState | null>(null);
+  const pending = useRef<{ id: string; x: number; y: number; touch: boolean; timer: ReturnType<typeof setTimeout> | null; el: HTMLElement } | null>(null);
+  const justDragged = useRef(false);
+  const boardRef = useRef<HTMLDivElement>(null);
+
   type Col = { key: string; label: React.ReactNode; value: PropValue };
-  const cols: Col[] =
-    group.type === "checkbox"
+  const cols: Col[] = !group
+    ? []
+    : group.type === "checkbox"
       ? [
           { key: "true", label: "☑ Marcado", value: true },
           { key: "false", label: "☐ Desmarcado", value: false },
@@ -398,58 +471,197 @@ function BoardView({ ctx, view, props, rows }: { ctx: CellCtx; view: View; props
       : group.type === "person"
         ? [...ctx.people.map((p) => ({ key: p.id, label: <Tag>👤 {p.name?.split(" ")[0]}</Tag>, value: p.id as PropValue })), { key: "", label: `Sem ${group.name}`, value: null }]
         : [...(group.options ?? []).map((o) => ({ key: o.id, label: <Tag color={o.color}>{o.name}</Tag>, value: o.id as PropValue })), { key: "", label: `Sem ${group.name}`, value: null }];
-  const keyOf = (r: RowData) => {
-    const v = r.props?.[group.id];
-    if (group.type === "checkbox") return v === true ? "true" : "false";
-    return v == null ? "" : String(v);
+  const keyOf = useCallback(
+    (r: RowData) => {
+      if (!group) return "";
+      const v = r.props?.[group.id];
+      if (group.type === "checkbox") return v === true ? "true" : "false";
+      return v == null ? "" : String(v);
+    },
+    [group]
+  );
+
+  const setD = (d: DragState | null) => {
+    dragRef.current = d;
+    setDrag(d);
   };
+
+  // onde cairia: coluna sob o ponteiro + posição entre os cartões
+  const targetAt = (x: number, y: number, dragId: string) => {
+    const el = document.elementFromPoint(x, y) as HTMLElement | null;
+    const colEl = el?.closest<HTMLElement>("[data-col]");
+    if (!colEl) return null;
+    const cards = [...colEl.querySelectorAll<HTMLElement>("[data-card]")].filter((c) => c.dataset.card !== dragId);
+    let index = cards.length;
+    for (let i = 0; i < cards.length; i++) {
+      const r = cards[i].getBoundingClientRect();
+      if (y < r.top + r.height / 2) {
+        index = i;
+        break;
+      }
+    }
+    return { col: colEl.dataset.col ?? "", index };
+  };
+
+  useEffect(() => {
+    const move = (e: PointerEvent) => {
+      const p = pending.current;
+      const d = dragRef.current;
+      if (p && !d) {
+        const dist = Math.hypot(e.clientX - p.x, e.clientY - p.y);
+        if (p.touch) {
+          if (dist > 8 && p.timer) {
+            clearTimeout(p.timer); // rolou a tela antes de segurar: não é arraste
+            pending.current = null;
+          }
+          return;
+        }
+        if (dist > 5) {
+          const r = p.el.getBoundingClientRect();
+          setD({ id: p.id, x: e.clientX, y: e.clientY, offX: p.x - r.left, offY: p.y - r.top, w: r.width, over: null });
+          pending.current = null;
+        }
+        return;
+      }
+      if (!d) return;
+      // rolagem automática perto das bordas
+      const b = boardRef.current?.getBoundingClientRect();
+      if (b && boardRef.current) {
+        if (e.clientX > b.right - 40) boardRef.current.scrollLeft += 14;
+        else if (e.clientX < b.left + 40) boardRef.current.scrollLeft -= 14;
+      }
+      if (e.clientY > window.innerHeight - 50) window.scrollBy(0, 14);
+      else if (e.clientY < 50) window.scrollBy(0, -14);
+      setD({ ...d, x: e.clientX, y: e.clientY, over: targetAt(e.clientX, e.clientY, d.id) });
+    };
+    const up = () => {
+      const p = pending.current;
+      if (p?.timer) clearTimeout(p.timer);
+      pending.current = null;
+      const d = dragRef.current;
+      if (!d) return;
+      setD(null);
+      justDragged.current = true;
+      setTimeout(() => (justDragged.current = false), 50);
+      if (!d.over || !group) return;
+      const row = rows.find((r) => r.id === d.id);
+      const col = cols.find((c) => c.key === d.over!.col);
+      if (!row || !col) return;
+      const list = rows.filter((r) => keyOf(r) === col.key && r.id !== row.id).map((r) => r.id);
+      list.splice(d.over.index, 0, row.id);
+      const sameCol = keyOf(row) === col.key;
+      const before = rows.filter((r) => keyOf(r) === col.key).map((r) => r.id);
+      if (sameCol && before.join() === list.join()) return; // não mudou nada
+      onMove(row, sameCol ? null : { [group.id]: col.value }, list);
+    };
+    const noScroll = (e: TouchEvent) => {
+      if (dragRef.current) e.preventDefault();
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+    document.addEventListener("touchmove", noScroll, { passive: false });
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      document.removeEventListener("touchmove", noScroll);
+    };
+  });
+
+  if (!group) {
+    return <div style={{ padding: 14, fontSize: 13, color: "var(--muted)" }}>Escolha em “Agrupar” por qual propriedade montar as colunas.</div>;
+  }
   const cardProps = props.filter((p) => p.id !== group.id);
-  const move = (rowId: string, col: Col) =>
-    start(async () => {
-      await wsSetRowProps(rowId, { [group.id]: col.value });
-    });
+  const dragged = drag ? rows.find((r) => r.id === drag.id) : undefined;
+
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>, r: RowData) => {
+    if (e.button !== 0 || (e.target as HTMLElement).closest("button, input, textarea")) return;
+    const touch = e.pointerType !== "mouse";
+    const el = e.currentTarget;
+    const start = { id: r.id, x: e.clientX, y: e.clientY, touch, timer: null as ReturnType<typeof setTimeout> | null, el };
+    if (touch) {
+      start.timer = setTimeout(() => {
+        const rect = el.getBoundingClientRect();
+        navigator.vibrate?.(15);
+        setD({ id: r.id, x: start.x, y: start.y, offX: start.x - rect.left, offY: start.y - rect.top, w: rect.width, over: null });
+        pending.current = null;
+      }, 300);
+    }
+    pending.current = start;
+  };
+
+  const card = (r: RowData, ghost = false) => (
+    <div
+      key={r.id}
+      data-card={ghost ? undefined : r.id}
+      onPointerDown={ghost ? undefined : (e) => onPointerDown(e, r)}
+      onClickCapture={(e) => {
+        if (justDragged.current) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }}
+      onContextMenu={(e) => drag && e.preventDefault()}
+      style={{
+        background: "var(--card)",
+        border: ghost ? "1px solid var(--accent)" : "0.5px solid var(--line-d)",
+        borderRadius: 7,
+        padding: "6px 8px",
+        cursor: drag ? "grabbing" : "grab",
+        opacity: !ghost && drag?.id === r.id ? 0.3 : 1,
+        display: "flex",
+        flexDirection: "column",
+        gap: 4,
+        userSelect: "none",
+        WebkitUserSelect: "none",
+        touchAction: "manipulation",
+        boxShadow: ghost ? "0 14px 32px rgba(0,0,0,.5)" : undefined,
+      }}
+    >
+      <RowTitle row={r} wrap size={13} />
+      <Chips props={cardProps} row={r} people={ctx.people} />
+    </div>
+  );
+  const line = <div style={{ height: 3, borderRadius: 2, background: "var(--accent)", margin: "1px 0" }} />;
 
   return (
-    <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 8, alignItems: "flex-start" }}>
+    <div ref={boardRef} style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 8, alignItems: "flex-start" }}>
       {cols.map((col) => {
         const items = rows.filter((r) => keyOf(r) === col.key);
-        if (col.key === "" && items.length === 0 && group.type !== "checkbox") return null;
+        if (col.key === "" && items.length === 0 && group.type !== "checkbox" && !drag) return null;
+        const overHere = drag?.over?.col === col.key;
+        const shown = items.filter((r) => r.id !== drag?.id || !overHere);
         return (
           <div
             key={col.key || "none"}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setOver(col.key);
-            }}
-            onDragLeave={() => setOver(null)}
-            onDrop={() => {
-              if (dragging) move(dragging, col);
-              setDragging(null);
-              setOver(null);
-            }}
-            style={{ width: 244, flexShrink: 0, background: over === col.key ? "var(--card2)" : "var(--surf)", borderRadius: 10, padding: 6, transition: "background .1s" }}
+            data-col={col.key}
+            style={{ width: 244, flexShrink: 0, background: overHere ? "var(--card2)" : "var(--surf)", borderRadius: 10, padding: 6, transition: "background .1s" }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "2px 4px 6px", fontSize: 12, color: "var(--muted-d)" }}>
               {col.label} <span>{items.length}</span>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              {items.map((r) => (
-                <div
-                  key={r.id}
-                  draggable
-                  onDragStart={() => setDragging(r.id)}
-                  onDragEnd={() => setDragging(null)}
-                  style={{ background: "var(--card)", border: "0.5px solid var(--line-d)", borderRadius: 7, padding: "6px 8px", cursor: "grab", opacity: dragging === r.id ? 0.4 : 1, display: "flex", flexDirection: "column", gap: 4 }}
-                >
-                  <RowTitle row={r} wrap size={13} />
-                  <Chips props={cardProps} row={r} people={ctx.people} />
-                </div>
-              ))}
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, minHeight: 8 }}>
+              {(() => {
+                const out: React.ReactNode[] = [];
+                const vis = overHere ? shown : items;
+                vis.forEach((r, i) => {
+                  if (overHere && drag!.over!.index === i) out.push(<div key="__line">{line}</div>);
+                  out.push(card(r));
+                });
+                if (overHere && drag!.over!.index >= vis.length) out.push(<div key="__line">{line}</div>);
+                return out;
+              })()}
             </div>
             <NewRow ctx={ctx} compact preset={{ ...defaultsFromView(view, ctx.schema), ...(col.value == null ? {} : { [group.id]: col.value }) }} />
           </div>
         );
       })}
+      {drag && dragged && (
+        <div style={{ position: "fixed", left: drag.x - drag.offX, top: drag.y - drag.offY, width: drag.w, zIndex: 90, pointerEvents: "none", transform: "rotate(2deg)" }}>
+          {card(dragged, true)}
+        </div>
+      )}
     </div>
   );
 }

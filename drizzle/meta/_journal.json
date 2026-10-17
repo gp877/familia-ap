@@ -162,6 +162,13 @@
       "when": 1781300000000,
       "tag": "0022_workspace_pages",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1781400000000,
+      "tag": "0023_workspace_activity",
+      "breakpoints": true
     }
   ]
 }

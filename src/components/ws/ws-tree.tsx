@@ -57,6 +57,9 @@ export function WsTree({ items }: { items: TreeItem[] }) {
           <MenuItem onClick={() => create("database")}>🗂️ Banco de dados</MenuItem>
         </Popover>
       </div>
+      <Link href="/tarefas/registro" onClick={() => setMobileOpen(false)} style={{ ...sideBtn, textDecoration: "none", color: activeId === "registro" ? "var(--ink)" : "var(--muted-d)", marginTop: 6 }}>
+        📈 Registro
+      </Link>
       <Link href="/tarefas/lixeira" onClick={() => setMobileOpen(false)} style={{ ...sideBtn, textDecoration: "none", color: activeId === "lixeira" ? "var(--ink)" : "var(--muted-d)" }}>
         🗑️ Lixeira
       </Link>
