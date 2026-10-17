@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useMemo, useState, useTransition } from "react";
+import { createContext, useContext, useMemo, useRef, useState, useTransition } from "react";
 
 import { wsCreatePage, wsSetRowProps, wsUpdateDatabase } from "@/app/actions/workspace";
 import {
@@ -16,6 +16,10 @@ import {
 import { type CellCtx, type Person, PropCell, PropDisplay } from "./prop-cell";
 import { AddPropertyButton, PropertyMenu, ViewTabs, ViewToolbar } from "./schema-editor";
 import { AiBadge, GhostButton, Popover, Tag, TextField } from "./ws-ui";
+
+/** Concluir rápido: a bolinha ○ na frente de cada tarefa (status do grupo "Concluído"). */
+type DoneCtx = { isDone: (r: RowData) => boolean; toggle: (r: RowData) => void };
+const DoneContext = createContext<DoneCtx | null>(null);
 
 export type RowData = {
   id: string;
@@ -46,7 +50,60 @@ export function DatabaseView({
   const sp = useSearchParams();
   const activeId = views.some((v) => v.id === sp.get("v")) ? sp.get("v")! : views[0].id;
   const view = views.find((v) => v.id === activeId)!;
-  const visible = useMemo(() => applyView(rows, view, schema), [rows, view, schema]);
+
+  // ── concluir rápido (otimista: some na hora; servidor confirma depois) ──
+  const statusProp = schema.properties.find((p) => p.type === "status");
+  const doneOpt = statusProp?.options?.find((o) => o.group === "done");
+  const reopenOpt = statusProp?.options?.find((o) => (o.group ?? "todo") === "todo");
+  const [overrides, setOverrides] = useState<Record<string, PropValue>>({});
+  const [prevRows, setPrevRows] = useState(rows);
+  if (rows !== prevRows) {
+    setPrevRows(rows);
+    setOverrides({});
+  }
+  const [toast, setToast] = useState<{ row: RowData; prev: PropValue; done: boolean } | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [, startDone] = useTransition();
+
+  const effRows = useMemo(
+    () =>
+      statusProp
+        ? rows.map((r) => (r.id in overrides ? { ...r, props: { ...r.props, [statusProp.id]: overrides[r.id] } } : r))
+        : rows,
+    [rows, overrides, statusProp]
+  );
+  const setStatus = (row: RowData, value: PropValue) => {
+    if (!statusProp) return;
+    setOverrides((o) => ({ ...o, [row.id]: value }));
+    startDone(async () => {
+      try {
+        await wsSetRowProps(row.id, { [statusProp.id]: value });
+      } catch (e) {
+        setOverrides((o) => {
+          const n = { ...o };
+          delete n[row.id];
+          return n;
+        });
+        alert(e instanceof Error ? e.message : String(e));
+      }
+    });
+  };
+  const doneCtx: DoneCtx | null =
+    statusProp && doneOpt
+      ? {
+          isDone: (r) => r.props?.[statusProp.id] === doneOpt.id,
+          toggle: (r) => {
+            const prev = r.props?.[statusProp.id] ?? null;
+            const wasDone = prev === doneOpt.id;
+            setStatus(r, wasDone ? (reopenOpt?.id ?? null) : doneOpt.id);
+            if (toastTimer.current) clearTimeout(toastTimer.current);
+            setToast({ row: r, prev, done: !wasDone });
+            toastTimer.current = setTimeout(() => setToast(null), 6000);
+          },
+        }
+      : null;
+
+  const visible = useMemo(() => applyView(effRows, view, schema), [effRows, view, schema]);
   const ctx: CellCtx = { dbId, schema, people };
   const shownProps = schema.properties.filter((p) => !(view.hidden ?? []).includes(p.id));
 
@@ -57,13 +114,34 @@ export function DatabaseView({
   };
 
   return (
+    <DoneContext.Provider value={doneCtx}>
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {toast && (
+        <div
+          role="status"
+          style={{ position: "fixed", left: "50%", bottom: 24, transform: "translateX(-50%)", zIndex: 80, display: "flex", alignItems: "center", gap: 12, padding: "9px 14px", borderRadius: 10, background: "var(--card2)", border: "0.5px solid var(--line-d)", boxShadow: "0 10px 30px rgba(0,0,0,.45)", fontSize: 13, color: "var(--ink)", maxWidth: "calc(100vw - 32px)" }}
+        >
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 320 }}>
+            {toast.done ? "✓ Concluída" : "↺ Reaberta"}: {toast.row.title}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setStatus(toast.row, toast.prev);
+              setToast(null);
+            }}
+            style={{ border: 0, background: "none", color: "var(--accent)", fontWeight: 700, cursor: "pointer", fontSize: 13, fontFamily: "inherit", padding: 0 }}
+          >
+            Desfazer
+          </button>
+        </div>
+      )}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6, flexWrap: "wrap", borderBottom: "0.5px solid var(--line-d)", paddingBottom: 4 }}>
         <ViewTabs dbId={dbId} views={views} activeId={activeId} onSelect={select} />
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
           <span style={{ fontSize: 11.5, color: "var(--muted)" }}>
             {visible.length}
-            {visible.length !== rows.length ? `/${rows.length}` : ""} {visible.length === 1 ? "item" : "itens"}
+            {visible.length !== effRows.length ? `/${effRows.length}` : ""} {visible.length === 1 ? "item" : "itens"}
           </span>
           <ViewToolbar dbId={dbId} schema={schema} views={views} view={view} />
         </div>
@@ -73,6 +151,47 @@ export function DatabaseView({
       {view.type === "board" && <BoardView ctx={ctx} view={view} props={shownProps} rows={visible} />}
       {view.type === "calendar" && <CalendarView ctx={ctx} view={view} rows={visible} />}
     </div>
+    </DoneContext.Provider>
+  );
+}
+
+/** Bolinha de concluir. Toque = Feito (ou reabre, se já estiver feito). */
+function DoneCheck({ row }: { row: RowData }) {
+  const ctx = useContext(DoneContext);
+  if (!ctx) return null;
+  const done = ctx.isDone(row);
+  return (
+    <button
+      type="button"
+      title={done ? "Reabrir" : "Concluir"}
+      aria-label={done ? "Reabrir tarefa" : "Concluir tarefa"}
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        ctx.toggle(row);
+      }}
+      className="ws-done"
+      style={{
+        width: 17,
+        height: 17,
+        flexShrink: 0,
+        borderRadius: 999,
+        border: done ? "0" : "1.5px solid var(--muted)",
+        background: done ? "var(--accent)" : "transparent",
+        color: "var(--accent-on)",
+        fontSize: 11,
+        fontWeight: 800,
+        lineHeight: "17px",
+        padding: 0,
+        cursor: "pointer",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      {done ? "✓" : ""}
+    </button>
   );
 }
 
@@ -130,8 +249,11 @@ function RowTitle({ row, wrap = false, size = 13.5 }: { row: RowData; wrap?: boo
         router.push(`/tarefas/${row.id}`);
       }}
       title={row.title}
-      style={{ display: "flex", alignItems: wrap ? "flex-start" : "center", gap: 6, color: "var(--ink)", textDecoration: "none", fontWeight: 500, fontSize: size, lineHeight: 1.3, minWidth: 0 }}
+      style={{ display: "flex", alignItems: wrap ? "flex-start" : "center", gap: 7, color: "var(--ink)", textDecoration: "none", fontWeight: 500, fontSize: size, lineHeight: 1.3, minWidth: 0 }}
     >
+      <span style={{ display: "inline-flex", marginTop: wrap ? 1 : 0 }}>
+        <DoneCheck row={row} />
+      </span>
       {row.icon && <span>{row.icon}</span>}
       <span
         style={
