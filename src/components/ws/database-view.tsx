@@ -587,7 +587,7 @@ function RowTitle({ row, wrap = false, size = 13.5 }: { row: RowData; wrap?: boo
 }
 
 /** Valores de propriedades em linha, enxutos (cartões e lista). */
-function Chips({ props, row, people, askEmpty = [] }: { props: Property[]; row: RowData; people: CellCtx["people"]; askEmpty?: Property[] }) {
+function Chips({ props, row, people, askEmpty = [], strongEmpty = false }: { props: Property[]; row: RowData; people: CellCtx["people"]; askEmpty?: Property[]; strongEmpty?: boolean }) {
   const shown = props.filter((p) => row.props?.[p.id] != null && row.props?.[p.id] !== "" && !(Array.isArray(row.props?.[p.id]) && !(row.props?.[p.id] as string[]).length));
   const semPrazo = props.find((p) => p.type === "date" && !shown.includes(p));
   return (
@@ -601,7 +601,7 @@ function Chips({ props, row, people, askEmpty = [] }: { props: Property[]; row: 
       )}
       {semPrazo && <ChipMenu prop={semPrazo} row={row} people={people} />}
       {askEmpty.filter((p) => !shown.includes(p)).map((p) => (
-        <ChipMenu key={p.id} prop={p} row={row} people={people} />
+        <ChipMenu key={p.id} prop={p} row={row} people={people} strongEmpty={strongEmpty} />
       ))}
       <span title="Data de abertura" style={{ marginLeft: "auto", fontSize: 10.5, color: "var(--muted)" }}>
         aberta {abertura(row.createdAt)}
@@ -611,7 +611,7 @@ function Chips({ props, row, people, askEmpty = [] }: { props: Property[]; row: 
 }
 
 /** Etiqueta do cartão que abre as opções ali mesmo (ex.: Alta / Média / Baixa). */
-function ChipMenu({ prop, row, people }: { prop: Property; row: RowData; people: CellCtx["people"] }) {
+function ChipMenu({ prop, row, people, strongEmpty = false }: { prop: Property; row: RowData; people: CellCtx["people"]; strongEmpty?: boolean }) {
   const setProp = useContext(SetPropContext);
   const ops = useContext(OptionOpsContext);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
@@ -665,7 +665,11 @@ function ChipMenu({ prop, row, people }: { prop: Property; row: RowData; people:
         {prop.type === "date" && value == null ? (
           <span style={{ fontSize: 11, color: "var(--muted)" }}>📅 + prazo</span>
         ) : value == null ? (
-          <span style={{ fontSize: 11, color: "var(--accent)", fontWeight: 700 }}>👤 + {prop.name.toLowerCase()}</span>
+          strongEmpty ? (
+            <span style={{ fontSize: 11, color: "var(--accent)", fontWeight: 700 }}>👤 + {prop.name.toLowerCase()}</span>
+          ) : (
+            <span title={`${prop.name}: escolher`} style={{ fontSize: 11, color: "var(--muted)" }}>👤 +</span>
+          )
         ) : (
           <PropDisplay prop={prop} value={value} people={people} compact />
         )}
@@ -1021,7 +1025,7 @@ function BoardView({
     return <div style={{ padding: 14, fontSize: 13, color: "var(--muted)" }}>Escolha em “Agrupar” por qual propriedade montar as colunas.</div>;
   }
   const cardProps = props.filter((p) => p.id !== group.id);
-  // coluna de "Delegada": cartão sem nome mostra "👤 + delegada a" para escolher na hora
+  // todo cartão sem responsável mostra "👤 +" (na coluna Delegada, em destaque) para delegar na hora
   const delegateProp = ctx.schema.properties.find((p) => p.role === "delegate");
   const optName = (r: RowData) => group.options?.find((o) => o.id === r.props?.[group.id])?.name ?? "";
   const dragged = drag ? rows.find((r) => r.id === drag.id) : undefined;
@@ -1072,7 +1076,7 @@ function BoardView({
       }}
     >
       <RowTitle row={r} wrap size={12.5} />
-      <Chips props={cardProps} row={r} people={ctx.people} askEmpty={delegateProp && /delegad/i.test(optName(r)) ? [delegateProp] : []} />
+      <Chips props={cardProps} row={r} people={ctx.people} askEmpty={delegateProp ? [delegateProp] : []} strongEmpty={/delegad/i.test(optName(r))} />
     </div>
   );
   const line = <div style={{ height: 3, borderRadius: 2, background: "var(--accent)", margin: "1px 0" }} />;
