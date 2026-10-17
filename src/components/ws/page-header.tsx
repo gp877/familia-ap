@@ -48,7 +48,7 @@ export function PageHeader({
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: kind === "database" ? 2 : 6, marginBottom: kind === "database" ? 8 : 14 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "space-between", minHeight: 28 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12.5, color: "var(--muted-d)", minWidth: 0, overflow: "hidden", flexWrap: "wrap" }}>
           {crumbs.map((c) => (
@@ -91,12 +91,13 @@ export function PageHeader({
         </div>
       </div>
 
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
       <div style={{ position: "relative", width: "fit-content" }}>
         <button
           type="button"
           onClick={() => setIconOpen(true)}
           title="Trocar ícone"
-          style={{ fontSize: kind === "row" ? 34 : 44, lineHeight: 1, background: "none", border: 0, cursor: "pointer", padding: 2, borderRadius: 8 }}
+          style={{ fontSize: kind === "database" ? 26 : kind === "row" ? 30 : 40, lineHeight: 1, background: "none", border: 0, cursor: "pointer", padding: 2, borderRadius: 8 }}
         >
           {icon ?? (kind === "database" ? "🗂️" : "📄")}
         </button>
@@ -128,16 +129,21 @@ export function PageHeader({
         </Popover>
       </div>
 
-      <input
+      <textarea
         value={value}
-        onChange={(e) => setValue(e.target.value)}
+        rows={1}
+        onChange={(e) => setValue(e.target.value.replace(/\n/g, " "))}
         onBlur={saveTitle}
         onKeyDown={(e) => {
-          if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
+          if (e.key === "Enter") {
+            e.preventDefault();
+            (e.currentTarget as HTMLTextAreaElement).blur();
+          }
         }}
         placeholder="Sem título"
-        style={{ width: "100%", background: "transparent", border: 0, outline: "none", color: "var(--ink)", fontSize: kind === "row" ? 28 : 34, fontWeight: 700, fontFamily: "inherit", padding: 0, lineHeight: 1.2 }}
+        style={{ flex: 1, minWidth: 0, background: "transparent", border: 0, outline: "none", resize: "none", overflow: "hidden", fieldSizing: "content", color: "var(--ink)", fontSize: kind === "database" ? 24 : kind === "row" ? 24 : 32, fontWeight: 700, fontFamily: "inherit", padding: 0, lineHeight: 1.25 } as React.CSSProperties}
       />
+      </div>
     </div>
   );
 }

@@ -23,7 +23,7 @@ export function colorStyle(c: Color | undefined): CSSProperties {
   return { background: p.bg, color: p.fg };
 }
 
-export function Tag({ color, children, onRemove }: { color?: Color; children: ReactNode; onRemove?: () => void }) {
+export function Tag({ color, children, onRemove, small = false }: { color?: Color; children: ReactNode; onRemove?: () => void; small?: boolean }) {
   return (
     <span
       style={{
@@ -31,11 +31,11 @@ export function Tag({ color, children, onRemove }: { color?: Color; children: Re
         display: "inline-flex",
         alignItems: "center",
         gap: 4,
-        padding: "1px 7px",
+        padding: small ? "0 5px" : "1px 7px",
         borderRadius: 4,
-        fontSize: 12,
+        fontSize: small ? 11 : 12,
         fontWeight: 500,
-        lineHeight: "18px",
+        lineHeight: small ? "17px" : "18px",
         whiteSpace: "nowrap",
         maxWidth: "100%",
         overflow: "hidden",

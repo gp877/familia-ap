@@ -173,9 +173,16 @@ export type View = {
   hidden?: string[]; // propIds escondidos na tabela/lista
 };
 
-/** Data "hoje" no fuso de Brasília, AAAA-MM-DD. Valor especial dos filtros: "@hoje". */
-export function todayBrt(): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+/** Data "hoje" no fuso de Brasília, AAAA-MM-DD. Valor especial dos filtros: "@hoje" (ou "@hoje+3", "@hoje-7"). */
+export function todayBrt(offsetDays = 0): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date(Date.now() + offsetDays * 864e5));
+}
+
+/** Resolve "@hoje", "@hoje+N" e "@hoje-N" para AAAA-MM-DD; outro valor volta como está. */
+export function resolveDateValue(v: string | undefined): string {
+  const m = /^@hoje(?:([+-])(\d{1,3}))?$/.exec(v ?? "");
+  if (!m) return v ?? "";
+  return todayBrt(m[1] ? (m[1] === "-" ? -1 : 1) * Number(m[2]) : 0);
 }
 
 export function opsFor(type: PropType | "title"): FilterOp[] {
@@ -211,7 +218,7 @@ export function matchesFilter(row: RowLike, f: Filter, schema: DbSchema): boolea
   const v = rawValue(row, f.prop);
   const prop = schema.properties.find((p) => p.id === f.prop);
   const type: PropType | "title" = prop?.type ?? "title";
-  const target = f.value === "@hoje" ? todayBrt() : (f.value ?? "");
+  const target = resolveDateValue(f.value);
   switch (f.op) {
     case "empty":
       return isEmpty(v);

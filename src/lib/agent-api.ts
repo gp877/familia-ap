@@ -114,7 +114,9 @@ export function agentRoute(
   ) {
     const url = new URL(req.url);
     const limit = opts.rateLimit ?? RATE_LIMIT;
-    const rl = rateLimit(`${clientIp(req)}|${limit === RATE_LIMIT ? "*" : url.pathname}`, limit);
+    // rota com limite próprio tem contador próprio (por método + rota, ids viram ":id")
+    const rota = opts.rateLimit ? `${req.method} ${url.pathname.replace(/[0-9a-f]{8}-[0-9a-f-]{27}/gi, ":id")}` : "*";
+    const rl = rateLimit(`${clientIp(req)}|${rota}`, limit);
     if (!rl.ok) {
       return agentJson({ erro: "Muitas requisições. Tente de novo em instantes." }, 429, {
         "Retry-After": String(rl.retryAfter),

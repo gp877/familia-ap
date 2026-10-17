@@ -44,7 +44,7 @@ export default async function WsPageRoute({ params }: { params: Promise<{ id: st
         kind={page.kind}
         visibility={page.visibility}
         isOwner={page.ownerId === user.userId}
-        createdByAgent={page.createdVia === "agent"}
+        createdByAgent={page.createdVia === "agent" && !page.systemKey}
         agentUpdatedAt={page.agentUpdatedAt ? page.agentUpdatedAt.toISOString() : null}
         crumbs={crumbs}
       />

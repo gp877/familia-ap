@@ -57,14 +57,16 @@ export function DatabaseView({
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <ViewTabs dbId={dbId} views={views} activeId={activeId} onSelect={select} />
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <span style={{ fontSize: 12, color: "var(--muted)" }}>
-          {visible.length} {visible.length === 1 ? "item" : "itens"}
-          {visible.length !== rows.length ? ` de ${rows.length}` : ""}
-        </span>
-        <ViewToolbar dbId={dbId} schema={schema} views={views} view={view} />
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6, flexWrap: "wrap", borderBottom: "0.5px solid var(--line-d)", paddingBottom: 4 }}>
+        <ViewTabs dbId={dbId} views={views} activeId={activeId} onSelect={select} />
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 11.5, color: "var(--muted)" }}>
+            {visible.length}
+            {visible.length !== rows.length ? `/${rows.length}` : ""} {visible.length === 1 ? "item" : "itens"}
+          </span>
+          <ViewToolbar dbId={dbId} schema={schema} views={views} view={view} />
+        </div>
       </div>
       {view.type === "table" && <TableView ctx={ctx} view={view} props={shownProps} rows={visible} views={views} />}
       {view.type === "list" && <ListView ctx={ctx} props={shownProps} rows={visible} />}
@@ -82,7 +84,7 @@ function defaultsFromView(view: View, schema: DbSchema): Record<string, PropValu
     if (!p || !f.value) continue;
     if (f.op === "is" && (p.type === "select" || p.type === "status" || p.type === "person")) out[p.id] = f.value;
     if (f.op === "contains" && p.type === "multi_select") out[p.id] = [f.value];
-    if (p.type === "date" && f.value === "@hoje" && ["is", "on_or_before", "on_or_after"].includes(f.op)) out[p.id] = todayBrt();
+    if (p.type === "date" && f.value?.startsWith("@hoje") && ["is", "on_or_before", "on_or_after"].includes(f.op)) out[p.id] = todayBrt();
   }
   return out;
 }
@@ -117,7 +119,8 @@ function NewRow({ ctx, preset, label = "Novo", compact }: { ctx: CellCtx; preset
   );
 }
 
-function RowTitle({ row }: { row: RowData }) {
+/** Título da linha. `wrap` (cartões e lista): quebra em até 2 linhas em vez de cortar. */
+function RowTitle({ row, wrap = false, size = 13.5 }: { row: RowData; wrap?: boolean; size?: number }) {
   const router = useRouter();
   return (
     <a
@@ -126,12 +129,38 @@ function RowTitle({ row }: { row: RowData }) {
         e.preventDefault();
         router.push(`/tarefas/${row.id}`);
       }}
-      style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--ink)", textDecoration: "none", fontWeight: 500, fontSize: 13.5, minWidth: 0 }}
+      title={row.title}
+      style={{ display: "flex", alignItems: wrap ? "flex-start" : "center", gap: 6, color: "var(--ink)", textDecoration: "none", fontWeight: 500, fontSize: size, lineHeight: 1.3, minWidth: 0 }}
     >
       {row.icon && <span>{row.icon}</span>}
-      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.title || "Sem título"}</span>
-      <AiBadge created={row.createdVia === "agent"} revisedAt={row.agentUpdatedAt} />
+      <span
+        style={
+          wrap
+            ? { flex: 1, minWidth: 0, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }
+            : { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }
+        }
+      >
+        {row.title || "Sem título"}
+      </span>
+      {row.createdVia === "agent" ? (
+        <span title="Criada pelo assistente de IA" style={{ width: 6, height: 6, borderRadius: 999, background: "var(--accent)", flexShrink: 0, marginTop: wrap ? 6 : 0 }} />
+      ) : (
+        <AiBadge revisedAt={row.agentUpdatedAt} />
+      )}
     </a>
+  );
+}
+
+/** Valores de propriedades em linha, enxutos (cartões e lista). */
+function Chips({ props, row, people }: { props: Property[]; row: RowData; people: CellCtx["people"] }) {
+  const shown = props.filter((p) => row.props?.[p.id] != null && row.props?.[p.id] !== "" && !(Array.isArray(row.props?.[p.id]) && !(row.props?.[p.id] as string[]).length));
+  if (!shown.length) return null;
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center", fontSize: 11.5 }}>
+      {shown.map((p) => (
+        <PropDisplay key={p.id} prop={p} value={row.props?.[p.id] ?? null} people={people} compact />
+      ))}
+    </div>
   );
 }
 
@@ -212,15 +241,11 @@ function ListView({ ctx, props, rows }: { ctx: CellCtx; props: Property[]; rows:
     <div style={{ display: "flex", flexDirection: "column" }}>
       {rows.length === 0 && <Empty />}
       {rows.map((r) => (
-        <div key={r.id} className="ws-row" style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 6px", borderBottom: "0.5px solid var(--line)", borderRadius: 4, flexWrap: "wrap" }}>
-          <div style={{ flex: "1 1 220px", minWidth: 0 }}>
-            <RowTitle row={r} />
+        <div key={r.id} className="ws-row" style={{ display: "flex", alignItems: "center", gap: 10, padding: "5px 6px", borderBottom: "0.5px solid var(--line)", borderRadius: 4, flexWrap: "wrap" }}>
+          <div style={{ flex: "1 1 260px", minWidth: 0 }}>
+            <RowTitle row={r} wrap />
           </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-            {props.map((p) => (
-              <PropDisplay key={p.id} prop={p} value={r.props?.[p.id] ?? null} people={ctx.people} />
-            ))}
-          </div>
+          <Chips props={props} row={r} people={ctx.people} />
         </div>
       ))}
       <NewRow ctx={ctx} />
@@ -280,28 +305,22 @@ function BoardView({ ctx, view, props, rows }: { ctx: CellCtx; view: View; props
               setDragging(null);
               setOver(null);
             }}
-            style={{ width: 260, flexShrink: 0, background: over === col.key ? "var(--card2)" : "var(--surf)", borderRadius: 10, padding: 8, transition: "background .1s" }}
+            style={{ width: 244, flexShrink: 0, background: over === col.key ? "var(--card2)" : "var(--surf)", borderRadius: 10, padding: 6, transition: "background .1s" }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "2px 4px 8px", fontSize: 12.5, color: "var(--muted-d)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "2px 4px 6px", fontSize: 12, color: "var(--muted-d)" }}>
               {col.label} <span>{items.length}</span>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               {items.map((r) => (
                 <div
                   key={r.id}
                   draggable
                   onDragStart={() => setDragging(r.id)}
                   onDragEnd={() => setDragging(null)}
-                  style={{ background: "var(--card)", border: "0.5px solid var(--line-d)", borderRadius: 8, padding: "8px 10px", cursor: "grab", opacity: dragging === r.id ? 0.4 : 1, display: "flex", flexDirection: "column", gap: 6 }}
+                  style={{ background: "var(--card)", border: "0.5px solid var(--line-d)", borderRadius: 7, padding: "6px 8px", cursor: "grab", opacity: dragging === r.id ? 0.4 : 1, display: "flex", flexDirection: "column", gap: 4 }}
                 >
-                  <RowTitle row={r} />
-                  {cardProps.some((p) => r.props?.[p.id] != null && r.props?.[p.id] !== "") && (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
-                      {cardProps.map((p) => (
-                        <PropDisplay key={p.id} prop={p} value={r.props?.[p.id] ?? null} people={ctx.people} />
-                      ))}
-                    </div>
-                  )}
+                  <RowTitle row={r} wrap size={13} />
+                  <Chips props={cardProps} row={r} people={ctx.people} />
                 </div>
               ))}
             </div>

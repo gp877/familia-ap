@@ -62,7 +62,8 @@ export async function ensureWorkspace(actor: WsActor) {
   });
   if (existing) return;
   const t = defaultTasksDatabase();
-  const base = { householdId: actor.householdId, ownerId: actor.userId, createdVia: actor.via ?? "app" };
+  // espaço inicial é do sistema, mesmo quando a 1ª visita vem da API
+  const base = { householdId: actor.householdId, ownerId: actor.userId, createdVia: "app" };
   const conflict = { target: [wsPages.ownerId, wsPages.systemKey], where: sql`system_key IS NOT NULL` };
   await db
     .insert(wsPages)

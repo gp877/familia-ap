@@ -9,11 +9,13 @@
  *        "Prioridade": "Alta", "Área": "Indaiá", "Origem": "WhatsApp", "Com quem": "Fulano" },
  *        "conteudo": "texto (aceita # título, - lista, [] tarefa)", "permitir_duplicado": false }
  *      Tarefa aberta com o mesmo título → 409 com o id existente.
+ * PATCH /api/agent/tarefas — configura o banco por nomes (ver configureDatabase):
+ *      { "adicionar_propriedades": [...], "visualizacoes": [...] } (visualizações são substituídas)
  */
 import { revalidatePath } from "next/cache";
 
 import { AgentInputError, agentJson, agentRoute, coreCall, readJson } from "@/lib/agent-api";
-import { describeSchema, propsFromNames, propsToNames, rowOut, textToBlocks } from "@/lib/agent-workspace";
+import { configureDatabase, describeSchema, propsFromNames, propsToNames, rowOut, textToBlocks } from "@/lib/agent-workspace";
 import { createPage, getTasksDatabase, listRows, setRowProps } from "@/lib/workspace";
 import type { DbSchema, PropValue } from "@/lib/workspace-model";
 
@@ -102,5 +104,17 @@ export const POST = agentRoute(
     const freshDb = await getTasksDatabase(actor);
     return agentJson({ ok: true, ...rowOut((freshDb.schema as DbSchema) ?? schema, fresh) }, 201);
   },
-  { rateLimit: 30 }
+  { rateLimit: 60 }
+);
+
+export const PATCH = agentRoute(
+  async ({ householdId, userId, req }) => {
+    const actor = { householdId, userId, via: "agent" as const };
+    const body = await readJson(req);
+    const dbPage = await coreCall(getTasksDatabase(actor));
+    const r = await coreCall(configureDatabase(actor, dbPage, body));
+    revalidatePath("/tarefas", "layout");
+    return { ok: true, propriedades_disponiveis: describeSchema(r.schema), visualizacoes: (r.views ?? []).map((v) => v.name) };
+  },
+  { rateLimit: 20 }
 );

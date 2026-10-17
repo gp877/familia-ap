@@ -246,7 +246,7 @@ export function ViewTabs({
   const [adding, setAdding] = useState(false);
   const [rename, setRename] = useState("");
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap", borderBottom: "0.5px solid var(--line-d)", paddingBottom: 4 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
       {views.map((v) => (
         <div key={v.id} style={{ position: "relative" }}>
           <GhostButton
@@ -442,9 +442,9 @@ function FilterRow({ filter, props, onChange, onRemove }: { filter: Filter; prop
           <Select value={filter.value ?? ""} onChange={(v) => onChange({ ...filter, value: v })} options={[["", "—"], ...prop.options.map((o) => [o.id, o.name] as [string, string])]} />
         ) : prop.type === "date" ? (
           <Select
-            value={filter.value === "@hoje" ? "@hoje" : filter.value ? "custom" : ""}
-            onChange={(v) => onChange({ ...filter, value: v === "@hoje" ? "@hoje" : v === "custom" ? new Intl.DateTimeFormat("en-CA").format(new Date()) : "" })}
-            options={[["", "—"], ["@hoje", "Hoje"], ["custom", "Data fixa…"]]}
+            value={filter.value?.startsWith("@hoje") ? filter.value : filter.value ? "custom" : ""}
+            onChange={(v) => onChange({ ...filter, value: v.startsWith("@hoje") ? v : v === "custom" ? new Intl.DateTimeFormat("en-CA").format(new Date()) : "" })}
+            options={[["", "—"], ["@hoje", "Hoje"], ["@hoje+3", "Hoje + 3 dias"], ["@hoje+7", "Hoje + 7 dias"], ["@hoje-7", "Hoje − 7 dias"], ["custom", "Data fixa…"]]}
           />
         ) : (
           <input
@@ -454,7 +454,7 @@ function FilterRow({ filter, props, onChange, onRemove }: { filter: Filter; prop
             style={{ flex: 1, minWidth: 80, padding: "4px 6px", borderRadius: 6, background: "var(--surf)", color: "var(--ink)", border: "0.5px solid var(--line-d)", fontSize: 12.5 }}
           />
         ))}
-      {prop.type === "date" && filter.value && filter.value !== "@hoje" && (
+      {prop.type === "date" && filter.value && !filter.value.startsWith("@hoje") && (
         <input
           type="date"
           value={filter.value}

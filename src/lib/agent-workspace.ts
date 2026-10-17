@@ -13,6 +13,7 @@ import {
   type DbSchema,
   type PropValue,
   type SelectOption,
+  type View,
   newId,
 } from "./workspace-model";
 import { AgentInputError } from "./agent-api";
@@ -105,6 +106,10 @@ const LINE_RULES: Array<[RegExp, BlockType, ((m: RegExpMatchArray) => Partial<Bl
 export function textToBlocks(text: string): Block[] {
   const blocks: Block[] = [];
   for (const line of String(text).replace(/\r/g, "").split("\n")) {
+    if (/^💡\s*/u.test(line)) {
+      blocks.push({ id: newId(), type: "callout", text: line.replace(/^💡\s*/u, "").slice(0, 5000) });
+      continue;
+    }
     if (/^-{3,}$/.test(line.trim())) {
       blocks.push({ id: newId(), type: "divider", text: "" });
       continue;
@@ -169,4 +174,78 @@ export function rowOut(schema: DbSchema, r: { id: string; title: string; props: 
     feita_pela_ia: r.createdVia === "agent",
     revisada_pela_ia_em: r.agentUpdatedAt ? r.agentUpdatedAt.toISOString() : null,
   };
+}
+
+const PROP_TYPES = ["text", "number", "select", "multi_select", "status", "date", "checkbox", "url", "person"] as const;
+const VIEW_TYPES = ["table", "board", "list", "calendar"] as const;
+const OPS = ["is", "is_not", "contains", "not_contains", "empty", "not_empty", "before", "after", "on_or_before", "on_or_after", "checked", "unchecked"] as const;
+
+/**
+ * Configura um banco por NOMES: cria propriedades novas e/ou substitui as
+ * visualizações. Filtros aceitam o nome da opção (ou "@hoje" em datas).
+ *   { "adicionar_propriedades": [{ "nome", "tipo", "opcoes"?: ["A", "B"] }],
+ *     "visualizacoes": [{ "nome", "tipo": "table|board|list|calendar", "agrupar_por"?, "data"?,
+ *        "filtros"?: [{ "propriedade", "operador", "valor"? }], "ordenar"?: [{ "propriedade", "direcao": "asc|desc" }],
+ *        "ocultar"?: ["Nome da propriedade"] }] }
+ */
+export async function configureDatabase(actor: WsActor, dbPage: WsPage, body: Record<string, unknown>) {
+  const schema: DbSchema = structuredClone((dbPage.schema as DbSchema) ?? { properties: [] });
+  const add = Array.isArray(body.adicionar_propriedades) ? (body.adicionar_propriedades as Array<Record<string, unknown>>) : [];
+  for (const p of add) {
+    const nome = String(p.nome ?? "").trim();
+    const tipo = String(p.tipo ?? "") as (typeof PROP_TYPES)[number];
+    if (!nome || !PROP_TYPES.includes(tipo)) throw new AgentInputError(`Propriedade inválida: ${JSON.stringify(p)}`);
+    if (schema.properties.some((x) => norm(x.name) === norm(nome))) continue;
+    const opcoes = Array.isArray(p.opcoes) ? p.opcoes.map(String) : [];
+    schema.properties.push({
+      id: newId(),
+      name: nome,
+      type: tipo,
+      ...(["select", "multi_select", "status"].includes(tipo)
+        ? { options: opcoes.map((o, i) => ({ id: newId(), name: o, color: COLORS[1 + (i % (COLORS.length - 1))] })) }
+        : {}),
+    });
+  }
+
+  const propId = (nome: unknown) => {
+    if (nome === "Nome" || nome === "title") return "title";
+    const p = schema.properties.find((x) => norm(x.name) === norm(String(nome ?? "")));
+    if (!p) throw new AgentInputError(`Propriedade "${nome}" não existe`);
+    return p.id;
+  };
+  const optVal = (pid: string, v: unknown) => {
+    if (v == null) return undefined;
+    if (/^@hoje([+-]\d{1,3})?$/.test(String(v))) return String(v);
+    const p = schema.properties.find((x) => x.id === pid);
+    const o = p?.options?.find((x) => norm(x.name) === norm(String(v)));
+    return o ? o.id : String(v);
+  };
+
+  let views: View[] | undefined;
+  if (Array.isArray(body.visualizacoes)) {
+    views = (body.visualizacoes as Array<Record<string, unknown>>).map((v) => {
+      const tipo = String(v.tipo ?? "table") as (typeof VIEW_TYPES)[number];
+      if (!VIEW_TYPES.includes(tipo)) throw new AgentInputError(`Visualização com tipo inválido: ${v.tipo}`);
+      const filtros = Array.isArray(v.filtros) ? (v.filtros as Array<Record<string, unknown>>) : [];
+      const ordenar = Array.isArray(v.ordenar) ? (v.ordenar as Array<Record<string, unknown>>) : [];
+      return {
+        id: newId(),
+        name: String(v.nome ?? "Visualização").slice(0, 60),
+        type: tipo,
+        ...(v.agrupar_por ? { groupBy: propId(v.agrupar_por) } : {}),
+        ...(v.data ? { dateProp: propId(v.data) } : {}),
+        filters: filtros.map((f) => {
+          const pid = propId(f.propriedade);
+          const op = String(f.operador ?? "is") as (typeof OPS)[number];
+          if (!OPS.includes(op)) throw new AgentInputError(`Operador inválido: ${f.operador}`);
+          return { prop: pid, op, ...(f.valor != null ? { value: optVal(pid, f.valor) } : {}) };
+        }),
+        sorts: ordenar.map((s) => ({ prop: propId(s.propriedade), dir: s.direcao === "desc" ? ("desc" as const) : ("asc" as const) })),
+        ...(Array.isArray(v.ocultar) ? { hidden: v.ocultar.map(propId) } : {}),
+      };
+    });
+    if (!views.length) throw new AgentInputError("Envie ao menos uma visualização");
+  }
+  await updateDatabase(actor, dbPage.id, { schema, ...(views ? { views } : {}) });
+  return { schema, views };
 }

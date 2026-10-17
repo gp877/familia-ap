@@ -26,25 +26,43 @@ export type CellCtx = {
 };
 
 /** Mostra o valor (sem editar). */
-export function PropDisplay({ prop, value, people }: { prop: Property; value: PropValue; people: Person[] }) {
+/** "hoje", "amanhã", "ontem", "atrasada 3d" ou "21 out" — data curta pros cartões. */
+function shortDate(iso: string) {
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+  const diff = Math.round((Date.parse(iso) - Date.parse(today)) / 864e5);
+  if (diff === 0) return "hoje";
+  if (diff === 1) return "amanhã";
+  if (diff === -1) return "ontem";
+  if (diff < 0) return `atrasada ${-diff}d`;
+  const meses = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+  return `${Number(iso.slice(8, 10))} ${meses[Number(iso.slice(5, 7)) - 1]}`;
+}
+
+export function PropDisplay({ prop, value, people, compact = false }: { prop: Property; value: PropValue; people: Person[]; compact?: boolean }) {
   if (value == null || value === "" || (Array.isArray(value) && !value.length)) return null;
   switch (prop.type) {
     case "select":
     case "status": {
       const o = prop.options?.find((x) => x.id === value);
-      return o ? <Tag color={o.color}>{prop.type === "status" ? "● " : ""}{o.name}</Tag> : null;
+      return o ? <Tag color={o.color} small={compact}>{prop.type === "status" ? "● " : ""}{o.name}</Tag> : null;
     }
     case "multi_select":
       return (
         <span style={{ display: "inline-flex", flexWrap: "wrap", gap: 4 }}>
           {(value as string[]).map((id) => {
             const o = prop.options?.find((x) => x.id === id);
-            return o ? <Tag key={id} color={o.color}>{o.name}</Tag> : null;
+            return o ? <Tag key={id} color={o.color} small={compact}>{o.name}</Tag> : null;
           })}
         </span>
       );
     case "date":
-      return <span style={{ fontSize: 13, color: dateColor(String(value)) }}>{formatDateBr(String(value))}</span>;
+      return compact ? (
+        <span title={formatDateBr(String(value))} style={{ fontSize: 11.5, fontWeight: 600, color: dateColor(String(value)) }}>
+          📅 {shortDate(String(value))}
+        </span>
+      ) : (
+        <span style={{ fontSize: 13, color: dateColor(String(value)) }}>{formatDateBr(String(value))}</span>
+      );
     case "checkbox":
       return <span style={{ fontSize: 14 }}>{value === true ? "☑" : "☐"}</span>;
     case "url":
@@ -55,10 +73,10 @@ export function PropDisplay({ prop, value, people }: { prop: Property; value: Pr
       );
     case "person": {
       const p = people.find((x) => x.id === value);
-      return <Tag color="default">👤 {p?.name?.split(" ")[0] ?? "?"}</Tag>;
+      return <Tag color="default" small={compact}>👤 {p?.name?.split(" ")[0] ?? "?"}</Tag>;
     }
     default:
-      return <span style={{ fontSize: 13, color: "var(--ink-d)" }}>{String(value)}</span>;
+      return <span style={{ fontSize: compact ? 11.5 : 13, color: compact ? "var(--muted-d)" : "var(--ink-d)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: compact ? 160 : undefined }}>{String(value)}</span>;
   }
 }
 
