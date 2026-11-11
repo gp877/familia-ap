@@ -14,6 +14,7 @@ import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { bankAccounts, categoryRules, invoices, transactions, uploads } from "@/db/schema";
 import { extractFromPdf } from "@/lib/extraction";
+import { fixInvoiceYears, fixMisreadInvoiceTotal } from "@/lib/invoice-fixes";
 import { loadActiveRules, matchRules } from "@/lib/categorization";
 import { computeContentHash, computeDedupeKey } from "@/lib/dedupe";
 import {
@@ -219,6 +220,10 @@ export async function processPdfUpload(req: Request, actor: UploadActor) {
     const warnings: string[] = Array.isArray(extracted.warnings)
       ? [...extracted.warnings]
       : [];
+    if (extracted.documentType === "credit_card_invoice") {
+      fixInvoiceYears(extracted, new Date());
+      fixMisreadInvoiceTotal(extracted);
+    }
 
     let invoiceId: string | null = null;
     if (
